@@ -191,7 +191,7 @@ export const languageConfig_cpp = {
         'inline', 'virtual', 'explicit', 'friend', 'public', 'protected', 'private',
         'operator', 'sizeof', 'alignof', 'typeid', 'decltype',
         'this', 'nullptr', 'true', 'false', 'and', 'or', 'not', 'bitand', 'bitor', 'xor',
-        'compl', 'and_eq', 'or_eq', 'xor_eq', 'not_eq', 'typename'
+        'compl', 'and_eq', 'or_eq', 'xor_eq', 'not_eq', 'typename', 'virtual'
     ],
     
     // 操作符
@@ -218,9 +218,13 @@ export const languageConfig_cpp = {
             [/\/\*/, 'comment', '@comment'],
             [/\/\/.*$/, 'comment'],
             [/#\s*include\b/, 'keyword.directive'],
-            [/#\s*define\b/, 'keyword.directive.control'],
-            [/#\s*ifdef\b/, 'keyword.directive.control'],
-            [/#\s*ifndef\b/, 'keyword.directive.control'],
+            [/#\s*pragma\b/, 'keyword.directive'],
+            [/#\s*define\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
+            [/#\s*undef\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
+            [/#\s*ifdef\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
+            [/#\s*ifndef\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
+            [/#\s*elif\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
+            [/#\s*if\b/, 'keyword.directive.control'],
             [/#\s*else\b/, 'keyword.directive.control'],
             [/#\s*endif\b/, 'keyword.directive.control'],
             
@@ -243,7 +247,7 @@ export const languageConfig_cpp = {
             [/</, { token: 'delimiter.angle', next: '@template' }],
 
             // 关键字
-            [/\b(var|extern|const|this|super|extends|implements|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(var|extern|const|constexpr|this|super|extends|auto|implements|signed|short|char|unsigned|long|virtual|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             // 类型关键字 - function, class, struct 等
             [/\b(function|class|struct|interface|enum|union|type|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
@@ -251,9 +255,12 @@ export const languageConfig_cpp = {
             // 流程控制关键字 - if, else 等
             [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|goto|new|delete|await|yield|typedef)\b/, 'keyword.flow'],
 
-            // 函数定义 - 改进的函数名识别
-            [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
-            [/\b(function)\b\s*([a-zA-Z_$][\w$]*)/, ['keyword.type', 'function.name']],
+            // 方法定义
+            // uint Game::GetNumVertex()
+            [/\b([a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*::\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfter' }],
+            // int Game::GetNumVertex(), int has be tokenized by keyword, Game::~Game()
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::\s*~*\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfterClass' }],
+            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
 
             // 通用类名后跟变量名的模式识别
             //[/\b([a-zA-Z_$][\w$]*)\b\s+([a-zA-Z_$][\w$]*)/, ['class.name', 'variable.name']],
@@ -261,8 +268,7 @@ export const languageConfig_cpp = {
             // 添加类型名识别规则
             //[/\b([a-zA-Z_$][\w$]*)\b\s+([a-zA-Z_$][\w$]*)/, ['class.name', 'variable.name']],
             
-            // 方法定义 (类内部)
-            [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            
             
             // 对象属性
             [/([a-zA-Z_$][\w$]*)\s*(?=:)/, 'property'],
@@ -350,6 +356,32 @@ export const languageConfig_cpp = {
         afterClass: [
             [/\s+/, 'white'],  // 跳过空白
             [/[a-zA-Z_$][\w$]*/, { token: 'class.name', next: '@pop' }],  // 识别类名
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        // 宏名识别状态
+        afterMacro: [
+            [/\s+/, 'white'],  // 跳过空白
+            //[/\b*defined\b/, { token: 'keyword.directive.control', next: '@pop' }],
+            [/[a-zA-Z_$][\w$]*/, { token: 'macro.name', next: '@pop' }],  // 识别类名
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        functionAfter: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/([a-zA-Z_$][\w$]*\b)/, { token: 'type', next: '@functionAfterClass' }],  // 识别类名
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        functionAfterClass: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/::/, 'delimiter'],
+            [/\s+/, 'white'],  // 跳过空白
+            [/~\s*/, 'delimiter'],
+            [/([a-zA-Z_$][\w$]*\b)/, { token: 'method.name', next: '@pop' }],  // 识别方法名
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
