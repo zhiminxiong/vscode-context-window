@@ -46,7 +46,7 @@ import { languageConfig_js, languageConfig_cpp } from './languageConfig.js';
                 margin-left: 3px;
             }
             .highlighted-symbol {
-                background-color: #000080!important;
+                background-color: #198844!important;
                 color: #ffffff!important;
                 font-weight: bold!important;
                 border: 1px solid #5bdb0791 !important;
@@ -348,21 +348,7 @@ import { languageConfig_js, languageConfig_cpp } from './languageConfig.js';
                                     location: 'bottomArea'
                                 });
                             }
-                            // 可以在这里添加自定义处理
-                            // 例如，获取双击位置对应的编辑器位置
-                            // const position = editor.getTargetAtClientPoint(e.clientX, e.clientY);
-                            // if (position && position.position) {
-                            //     //console.log('[definition] 双击位置:', position.position);
 
-                            //     const model = editor.getModel();
-
-                            //     if (!model || !model.getWordAtPosition(position.position)) {
-                            //         vscode.postMessage({
-                            //             type: 'doubleClick',
-                            //             location: 'bottomArea'
-                            //         });
-                            //     }
-                            // }
                             return false;
                         }, true); // 使用捕获阶段，确保在事件到达 Monaco 之前拦截
                     }
@@ -560,49 +546,6 @@ import { languageConfig_js, languageConfig_cpp } from './languageConfig.js';
                         }
                     });
 
-                    //console.log(`[definition] 1 ${window.vsCodeTheme}`);
-
-                    // 应用语法高亮配置
-                    // if (window.vsCodeEditorConfiguration?.editorOptions.semanticTokenColorCustomizations) {
-                    //     const tokenRules = window.vsCodeEditorConfiguration?.editorOptions.semanticTokenColorCustomizations.rules;
-                    //     //console.log('[definition] token rules: ', tokenRules);
-                        
-                    //     // 添加常见的语法高亮规则
-                    //     const commonRules = [
-                    //         { token: 'keyword', foreground: '569CD6', fontStyle: 'bold' },       // 关键字
-                    //         { token: 'string', foreground: 'CE9178' },                           // 字符串
-                    //         { token: 'number', foreground: 'B5CEA8' },                           // 数字
-                    //         { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },     // 注释
-                    //         { token: 'function', foreground: 'a00000' },                         // 函数
-                    //         { token: 'variable', foreground: '000080' },                         // 变量
-                    //         { token: 'type', foreground: 'ff0000' },                             // 类型
-                    //         { token: 'class', foreground: 'ff0000', fontStyle: 'bold' },         // 类
-                    //         { token: 'constant', foreground: '4FC1FF' },                         // 常量
-                    //         { token: 'operator', foreground: '800080' },                         // 运算符
-                    //         { token: 'delimiter', foreground: 'D4D4D4' },                        // 分隔符
-                    //         { token: 'tag', foreground: '569CD6' },                              // HTML/XML标签
-                    //         { token: 'attribute.name', foreground: '000080' },                   // 属性名
-                    //         { token: 'attribute.value', foreground: '000080' }                   // 属性值
-                    //     ];
-                        
-                    //     // 定义自定义主题
-                    //     monaco.editor.defineTheme('vscode-custom', {
-                    //         base: window.vsCodeTheme || 'vs',
-                    //         inherit: true,
-                    //         rules: tokenRules || commonRules,
-                    //         colors: {}
-                    //     });
-                    //     //console.log('[definition] 1.2');
-                    //     // 使用try-catch包装主题设置
-                    //     try {
-                    //         monaco.editor.setTheme('vscode-custom');
-                    //         console.log('[definition] 自定义主题已应用');
-                    //     } catch (themeError) {
-                    //         console.error('[definition] 应用自定义主题失败:', themeError);
-                    //         monaco.editor.setTheme('vs'); // 回退到默认主题
-                    //     }
-                    // }
-                        
                     //console.log('[definition] Monaco editor created');
 
                     // 通知扩展编辑器已准备好

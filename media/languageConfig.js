@@ -258,7 +258,10 @@ export const languageConfig_cpp = {
             // 方法定义
             // uint Game::GetNumVertex()
             [/\b([a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*::\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfter' }],
+            // uint GetNumVertex()
+            [/\b([a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfterClass' }],
             // int Game::GetNumVertex(), int has be tokenized by keyword, Game::~Game()
+            // todo: Game::Game() : var1(0), var2(NULL)
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::\s*~*\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfterClass' }],
             [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
 
@@ -267,8 +270,6 @@ export const languageConfig_cpp = {
             //[/\b([a-zA-Z_$][\w$]*)\b\s+([a-zA-Z_$][\w$]*)/, ['class.name', 'variable.name']],
             // 添加类型名识别规则
             //[/\b([a-zA-Z_$][\w$]*)\b\s+([a-zA-Z_$][\w$]*)/, ['class.name', 'variable.name']],
-            
-            
             
             // 对象属性
             [/([a-zA-Z_$][\w$]*)\s*(?=:)/, 'property'],
