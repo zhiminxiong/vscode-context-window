@@ -247,7 +247,7 @@ export const languageConfig_cpp = {
             [/</, { token: 'delimiter.angle', next: '@template' }],
 
             // 关键字
-            [/\b(var|extern|const|constexpr|this|super|extends|auto|implements|signed|short|char|unsigned|long|virtual|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(var|extern|const|constexpr|this|inline|super|extends|auto|implements|signed|short|char|unsigned|long|virtual|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             // 类型关键字 - function, class, struct 等
             [/\b(function|class|struct|interface|enum|union|type|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],

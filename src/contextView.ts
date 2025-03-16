@@ -913,7 +913,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         }
 
         const newCacheKey = createCacheKey(vscode.window.activeTextEditor);
-        if (/*!ignoreCache && */cacheKeyEquals(this._currentCacheKey, newCacheKey)) {
+        if (!ignoreCache && cacheKeyEquals(this._currentCacheKey, newCacheKey)) {
             //console.log('[definition] the same cache key');
             return;
         }
