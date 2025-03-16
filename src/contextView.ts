@@ -43,6 +43,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
     private _themeListener: vscode.Disposable | undefined;
 
+    private _isFirstStart: boolean = true;
+
     constructor(
         private readonly _extensionUri: vscode.Uri,
     ) {
@@ -99,13 +101,30 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 }
             })
         );
-
+        let lastPosition: vscode.Position | undefined;
+        let lastDocumentVersion: number | undefined;
         // 修改选择变化事件处理
         vscode.window.onDidChangeTextEditorSelection((e) => {
             // 跳过非空选区的更新
             if (!e.selections[0].isEmpty) {
                 return;
             }
+
+            const currentPosition = e.selections[0].active;
+            const currentDocumentVersion = e.textEditor.document.version;
+
+            // 检查是否是输入事件（文档版本变化）
+            if (lastDocumentVersion && currentDocumentVersion !== lastDocumentVersion) {
+                //console.log('[definition] onDidChangeTextEditorSelection ret: ', currentDocumentVersion, lastDocumentVersion);
+                lastDocumentVersion = currentDocumentVersion;
+                lastPosition = currentPosition;
+                return;
+            }
+
+            lastPosition = currentPosition;
+            lastDocumentVersion = currentDocumentVersion;
+
+            //console.log('[definition] onDidChangeTextEditorSelection: ', e);
 
             // 只处理鼠标和键盘触发的事件
             if (e.kind === vscode.TextEditorSelectionChangeKind.Mouse || 
@@ -138,6 +157,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         }, null, this._disposables);
 
         this._renderer.needsRender(() => {
+            //console.log('[definition] needsRender update');
             this.update(/* force */ true);
         }, undefined, this._disposables);
 
@@ -157,7 +177,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
         // listen for language status changes
         vscode.languages.onDidChangeDiagnostics(e => {
+            if (!this._isFirstStart)
+                return;
+            this._isFirstStart = false;
             const editor = vscode.window.activeTextEditor;
+            
             if (editor && e.uris.some(uri => uri.toString() === editor.document.uri.toString())) {
                 //console.log('[definition] Document diagnostics updated, updating definitions');
                 this.update(/* force */ true);
@@ -907,6 +931,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        this._currentCacheKey = newCacheKey;
+        
+        //console.log('[definition] update');
         const loadingEntry = { cts: new vscode.CancellationTokenSource() };
         this._loading = loadingEntry;
 
@@ -928,7 +955,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             }
             
             if (this._updateMode === UpdateMode.Live || contentInfo.jmpUri) {
-                this._currentCacheKey = newCacheKey;
                 this._history = [];
                 this._history.push({ content: contentInfo, curLine: this.currentLine });
                 this._historyIndex = 0;
@@ -1030,6 +1056,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
             // 先设置事件监听
             panel.webview.onDidReceiveMessage(async message => {
+                //console.log('[definition] Received message from webview:', message);
                 if (message.command === 'selectDefinition' && !isResolved) {
                     const selected = this._pickItems?.find(item => item.label === message.label);
                     if (selected) {
@@ -1037,12 +1064,27 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         this._currentPanel = undefined;
                         panel.dispose();
                         resolve(selected.definition);
+                    } else
+                        resolve(undefined);
+                    // 让编辑器重新获得焦点
+                    if (editor) {
+                        vscode.window.showTextDocument(editor.document, {
+                            viewColumn: editor.viewColumn,
+                            preserveFocus: false
+                        });
                     }
                 } else if (message.command === 'escapePressed' && !isResolved) {
                     // 处理 ESC 键按下事件
                     isResolved = true;
                     this._currentPanel = undefined;
                     panel.dispose();
+                    // 让编辑器重新获得焦点
+                    if (editor) {
+                        vscode.window.showTextDocument(editor.document, {
+                            viewColumn: editor.viewColumn,
+                            preserveFocus: false
+                        });
+                    }
                     resolve(undefined);
                 }
             });
@@ -1154,6 +1196,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     .item:hover { 
                         background-color:rgba(0, 120, 212, 0.27);
                     }
+                    .item.selected {
+                        background-color: rgba(0, 120, 212, 0.27);
+                        border-left: 3px solid #0078d4;
+                    }
                     .header {
                         margin-bottom: 8px;
                     }
@@ -1202,6 +1248,55 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Escape') {
                         vscode.postMessage({ command: 'escapePressed' });
+                    }
+                     else if ((e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) || 
+                            (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n'))) {
+                        //console.log('[definition] ArrowUp or ArrowDown pressed');
+                        // 防止默认滚动行为
+                        e.preventDefault();
+                        // 获取所有选项
+                        const items = Array.from(document.querySelectorAll('.item'));
+                        // 获取当前选中项
+                        const current = document.querySelector('.item.selected');
+                        let index = current ? items.indexOf(current) : -1;
+                        
+                        // 计算新选中项的索引
+                        if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) {
+                            index = Math.max(index - 1, 0);
+                        } else if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) {
+                            index = Math.min(index + 1, items.length - 1);
+                        }
+                        
+                        // 更新选中状态
+                        items.forEach((item, i) => {
+                            item.classList.toggle('selected', i === index);
+                        });
+                        // 添加滚动居中效果
+                        if (index >= 0) {
+                            const selectedItem = items[index];
+                            const itemHeight = selectedItem.offsetHeight;
+                            const containerHeight = document.body.offsetHeight;
+                            const scrollTop = selectedItem.offsetTop - (containerHeight / 2) + (itemHeight / 2);
+                            
+                            // 确保滚动容器是 body 元素
+                            const scrollContainer = document.documentElement || document.body;
+                            
+                            // 添加边界检查
+                            const maxScroll = scrollContainer.scrollHeight - containerHeight;
+                            const finalScrollTop = Math.max(0, Math.min(scrollTop, maxScroll));
+                            
+                            scrollContainer.scrollTo({
+                                top: finalScrollTop,
+                                behavior: 'smooth'
+                            });
+                        }
+                    } else if (e.key === 'Enter') {
+                        // 处理回车键
+                        const selected = document.querySelector('.item.selected');
+                        if (selected) {
+                            const label = selected.querySelector('strong').textContent;
+                            selectDefinition(label);
+                        }
                     }
                 });
 
