@@ -170,6 +170,7 @@ export const languageConfig_js = {
     }
 }
 
+// https://microsoft.github.io/monaco-editor/monarch.html
 export const languageConfig_cpp = {
     // 设置默认标记
     defaultToken: 'invalid',
@@ -246,14 +247,30 @@ export const languageConfig_cpp = {
             // 模板参数
             [/</, { token: 'delimiter.angle', next: '@template' }],
 
+            //[/([A-Z](?:[\n\r\s]|[a-zA-Z0-9_]|\-[a-zA-Z])*)(\.?)/, { cases: { '$2': ['keyword.flow','identifier'], 
+            //                                                        '@default': 'keyword' }}],
+
+            //[/void\b/, { token: '@rematch', next: '@afterVoidCheck' }],
+
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*static|const\b)/, 'keyword'],
+
             // 关键字
             [/\b(var|extern|const|constexpr|this|inline|super|extends|auto|implements|signed|short|char|unsigned|long|virtual|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
-            // 类型关键字 - function, class, struct 等
-            [/\b(function|class|struct|interface|enum|union|type|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\b(typedef)\b/, 'keyword.flow'],
+
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*class|struct\b)/, 'keyword'],
+
+            //[/\b([a-zA-Z_$][\w$]*)\b/, { token: '@rematch', next: '@preClassCheck' }],
+
+            // [dllexport] class [dllexport] AEFCharacterBase : public ACharacter
+            //[/\b([a-zA-Z_$][\w$]*)\b\s+(?=class|struct)/, 'macro.name'],
+
+            // 类型关键字 - class, struct 等
+            [/\b(class|struct|interface|enum|union|type|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
 
             // 流程控制关键字 - if, else 等
-            [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|goto|new|delete|await|yield|typedef)\b/, 'keyword.flow'],
+            [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|goto|new|delete|await|yield)\b/, 'keyword.flow'],
 
             // 方法定义
             // uint Game::GetNumVertex()
@@ -356,8 +373,9 @@ export const languageConfig_cpp = {
         // 类名识别状态
         afterClass: [
             [/\s+/, 'white'],  // 跳过空白
+            [/([a-zA-Z_$][\w$]*)\b(?=\s*[a-zA-Z_$][\w$]*)/, { token: 'keyword', next: '@afterClass'}],  // 识别其它
             [/[a-zA-Z_$][\w$]*/, { token: 'class.name', next: '@pop' }],  // 识别类名
-            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/[{;,:=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
