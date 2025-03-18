@@ -247,6 +247,13 @@ export const languageConfig_cpp = {
             // 模板参数
             [/</, { token: 'delimiter.angle', next: '@template' }],
 
+            // [/(int)\s+([a-zA-Z_][\w]*)?/gm, { 
+            //     cases: { 
+            //         '$1': 'keyword.type',  // int 始终作为类型关键字
+            //         '$2': 'keyword.flow' // 变量名使用单独样式
+            //     }
+            // }],
+
             //[/([A-Z](?:[\n\r\s]|[a-zA-Z0-9_]|\-[a-zA-Z])*)(\.?)/, { cases: { '$2': ['keyword.flow','identifier'], 
             //                                                        '@default': 'keyword' }}],
 
