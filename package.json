@@ -27,7 +27,8 @@
 	"activationEvents": [
 		"onView:contextView.context",
 		"onCommand:contextView.contextWindow.pin",
-		"onCommand:contextView.contextWindow.unpin"
+		"onCommand:contextView.contextWindow.unpin",
+        "onStartupFinished"
 	],
 	"repository": {
 		"type": "git",
