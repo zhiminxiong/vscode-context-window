@@ -63,9 +63,15 @@ export const languageConfig_js = {
             [/0[oO]?[0-7]+/, 'number'],
             [/0[bB][0-1]+/, 'number'],
             [/(@digits)/, 'number'],
+
+            // 布尔值
+            [/\b(true|false)\b/, 'boolean'],
+            
+            // null
+            [/\bnull\b/, 'null'],
             
             // 关键字
-            [/\b(var|let|const|this|readonly|undefined|any|string|super|extends|implements|declare|import|export|from|as|async|void|boolean|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(this|readonly|undefined|any|string|super|extends|implements|Promise|declare|import|export|from|as|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
@@ -78,26 +84,27 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
             [/\b(function)\b\s*([a-zA-Z_$][\w$]*)/, ['keyword.type', 'function.name']],
             
-            // 类定义
-            
             // 方法定义 (类内部)
             [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+
+            [/\b(var|let|const)\b/, { token: 'keyword', next: '@afterVariableDeclaration' }],
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
             
             // 对象属性
             [/([a-zA-Z_$][\w$]*)\s*(?=:)/, 'property'],
             
             // 函数参数 - 改进的参数识别
-            [/\(\s*([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
-            [/,\s*([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
+            // Generate a negative lookahead to exclude keywords
+            //const keywordExclusion = `(?!${keywords.join('\\b|')}\\b)`;
+
+            // Match function parameters (exclude keywords)
+            //[new RegExp(`\\(\\s*${keywordExclusion}([a-zA-Z_$][\\w$]*)\\s*(?=[,)])`), 'variable.parameter'],
+            //[new RegExp(`,\\s*${keywordExclusion}([a-zA-Z_$][\\w$]*)\\s*(?=[,)])`), 'variable.parameter'],
+            [/\(\s*(?!true\b|false\b|null\b|undefined\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
+            [/,\s*(?!true\b|false\b|null\b|undefined\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
             
             // 变量声明 - 改进的变量识别
-            [/\b(var|let|const)\b\s+([a-zA-Z_$][\w$]*)/, ['keyword', 'variable.name']],
-            
-            // 布尔值
-            [/\b(true|false)\b/, 'boolean'],
-            
-            // null
-            [/\bnull\b/, 'null'],
+            //[/\b(var|let|const)\b\s+([a-zA-Z_$][\w$]*)/, ['keyword', 'variable.name']],
             
             // this
             [/\bthis\b/, 'variable.predefined'],
@@ -169,12 +176,37 @@ export const languageConfig_js = {
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
+        afterVariableDeclaration: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 识别变量名
+            [/\s+/, 'white'],  // 跳过空白
+            [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/:\s*([a-zA-Z_$][\w$]*)/, { token: 'type', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
         afterFunction: [
             [/\s+/, 'white'],  // 跳过空白
-            [/[a-zA-Z_$][\w$]*/, { token: 'function.name', next: '@pop' }],  // 识别函数名
+            [/[a-zA-Z_$][\w$]*/, 'function.name'],//, log: '[definition] Entering function return value processing' }],  // 识别函数名
+            [/\s+/, 'white'],  // 跳过空白
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/\(/, { token: 'delimiter.parenthesis', next: '@functionParam' }],
             [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
+
+        functionParam: [
+            [/\)/, { token: 'delimiter.parenthesis', next: '@functionRet' }],
+            { include: 'root' }
+        ],
+
+        functionRet: [
+            [/\s+/, 'white'],  // Skip whitespace
+            // Match the colon and optional whitespace
+            [/:\s*([a-zA-Z_$][\w$]*)/, { token: 'type', next: '@pop' }],
+            [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // Return if directly encounter {
+            [/./, { token: '@rematch', next: '@pop' }]  // Other cases return and rematch
+        ]
     }
 }
 

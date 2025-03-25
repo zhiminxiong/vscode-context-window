@@ -266,8 +266,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 { token: 'keyword.directive.control', foreground: '#ff0000', fontStyle: 'bold' }, // #if #else
                 
                 // 变量和标识符
-                { token: 'variable', foreground: '#ff0000' },          // 变量：红色
-                { token: 'variable.name', foreground: '#ff0000' },     // 变量名：红色
+                { token: 'variable', foreground: '#000080' },          // 变量：红色
+                { token: 'variable.name', foreground: '#000080', fontStyle: 'bold' },     // 变量名：红色
                 { token: 'variable.parameter', foreground: '#000080' },//, fontStyle: 'bold' }, // 参数变量：红色
                 { token: 'variable.predefined', foreground: '#ff0000', fontStyle: 'bold' }, // 预定义变量：红色
                 { token: 'identifier', foreground: '#000080' },        // 标识符：青色
