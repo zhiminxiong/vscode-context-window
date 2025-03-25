@@ -263,40 +263,40 @@ import { languageConfig_js, languageConfig_cpp } from './languageConfig.js';
                     monaco.languages.setMonarchTokensProvider('c', languageConfig_cpp);
 
                     // 添加一个简单的 token 检测函数
-                    // function logTokenInfo() {
-                    //     const testCode = 'class Game {}';//editor.getValue();
-                    //     const languageId = editor.getModel().getLanguageId();
+                    function logTokenInfo() {
+                        const testCode = 'class AA extends BaseModel implements A, B, C { supply_crate_config_key: number = 0;}';//editor.getValue();
+                        const languageId = editor.getModel().getLanguageId();
                         
-                    //     console.log('[definition] 测试代码:', testCode);
-                    //     console.log('[definition] 语言ID:', languageId);
+                        console.log('[definition] 测试代码:', testCode);
+                        console.log('[definition] 语言ID:', languageId);
                         
-                    //     // 使用 Monaco 的 tokenize 函数解析代码
-                    //     const tokens = monaco.editor.tokenize(testCode, languageId);
+                        // 使用 Monaco 的 tokenize 函数解析代码
+                        const tokens = monaco.editor.tokenize(testCode, languageId);
                         
-                    //     console.log('[definition] Token 解析结果:', tokens);
+                        console.log('[definition] Token 解析结果:', tokens);
                         
-                    //     // 详细打印每个 token
-                    //     if (tokens && tokens.length > 0) {
-                    //         let lastOffset = 0;
-                    //         tokens[0].forEach(token => {
-                    //             const tokenType = token.type;
-                    //             const startOffset = lastOffset;
-                    //             const endOffset = token.offset || testCode.length;
-                    //             const tokenText = testCode.substring(startOffset, endOffset);
-                    //             lastOffset = endOffset;
+                        // 详细打印每个 token
+                        if (tokens && tokens.length > 0) {
+                            let lastOffset = 0;
+                            tokens[0].forEach(token => {
+                                const tokenType = token.type;
+                                const startOffset = lastOffset;
+                                const endOffset = token.offset || testCode.length;
+                                const tokenText = testCode.substring(startOffset, endOffset);
+                                lastOffset = endOffset;
                                 
-                    //             console.log(`[definition] Token: "${tokenType}",  : "${tokenText}"`);
-                    //         });
-                    //     } else {
-                    //         console.log('[definition] 没有找到 token 信息');
-                    //     }
-                    // }
+                                console.log(`[definition] Token: "${tokenType}",  : "${tokenText}"`);
+                            });
+                        } else {
+                            console.log('[definition] 没有找到 token 信息');
+                        }
+                    }
 
-                    // // 在可能重置样式的场景中重新设置
-                    // editor.onDidChangeModelContent(() => {
-                    //     console.log('[definition] 编辑器内容已更改，token 解析结果:');
-                    //     logTokenInfo();
-                    // });
+                    // 在可能重置样式的场景中重新设置
+                    editor.onDidChangeModelContent(() => {
+                        console.log('[definition] 编辑器内容已更改，token 解析结果:');
+                        logTokenInfo();
+                    });
                     //editor.onDidScrollChange(forcePointerCursor);
                     //editor.onDidChangeConfiguration(forcePointerCursor);
 

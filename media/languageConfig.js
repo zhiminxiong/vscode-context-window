@@ -94,17 +94,9 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)\s*(?=:)/, 'property'],
             
             // 函数参数 - 改进的参数识别
-            // Generate a negative lookahead to exclude keywords
-            //const keywordExclusion = `(?!${keywords.join('\\b|')}\\b)`;
-
             // Match function parameters (exclude keywords)
-            //[new RegExp(`\\(\\s*${keywordExclusion}([a-zA-Z_$][\\w$]*)\\s*(?=[,)])`), 'variable.parameter'],
-            //[new RegExp(`,\\s*${keywordExclusion}([a-zA-Z_$][\\w$]*)\\s*(?=[,)])`), 'variable.parameter'],
             [/\(\s*(?!true\b|false\b|null\b|undefined\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
             [/,\s*(?!true\b|false\b|null\b|undefined\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
-            
-            // 变量声明 - 改进的变量识别
-            //[/\b(var|let|const)\b\s+([a-zA-Z_$][\w$]*)/, ['keyword', 'variable.name']],
             
             // this
             [/\bthis\b/, 'variable.predefined'],
@@ -167,13 +159,39 @@ export const languageConfig_js = {
             [/\}/, 'delimiter.bracket', '@pop'],
             { include: 'root' }
         ],
-
+        
         // 类名识别状态
         afterClass: [
             [/\s+/, 'white'],  // 跳过空白
-            [/[a-zA-Z_$][\w$]*/, { token: 'class.name', next: '@pop' }],  // 识别类名
+            [/extends\b/, { token: 'keyword', next: '@afterExtends', log: '[definition] afterExtends1' }], // extends
+            [/[a-zA-Z_$][\w$]*/, { token: 'class.name', next: '@afterClassName', log: '[definition] afterClassName'}],  // 识别类名
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
-            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+            [/./, { token: '@rematch', next: '@pop', log: '[definition] afterclass pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterClassName: [
+            [/\s+/, { token: 'white', log: '[definition] white'}],  // 跳过空白
+            [/\bextends\b/, { token: 'keyword', next: '@afterExtends', log: '[definition] afterExtends2' }], // extends
+            [/\bimplements\b/, { token: 'keyword', next: '@afterImplements', log: '[definition] afterImplements1' }], // implements
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@popall' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@popall', log: '[definition] afterclassname pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterExtends: [
+            [/\s+/, { token: 'white', log: '[definition] afterExtends white1' }],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, { token: 'type', log: '[definition] afterExtends type' }],  // 识别基类
+            [/\s+/, { token: 'white', log: '[definition] afterExtends white2' }],  // 跳过空白
+            [/\bimplements\b/, { token: 'keyword', next: '@afterImplements', log: '[definition] afterImplements2' }], // implements
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@popall', log: '[definition] afterExtends pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@popall', log: '[definition] afterExtends popall' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterImplements: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别接口
+            [/\s*,/, { token: 'delimiter.bracket', next: '@afterImplements', log: '[definition] afterImplements3' }],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@popall' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@popall' }]  // 其他情况返回并重新匹配
         ],
 
         afterVariableDeclaration: [
