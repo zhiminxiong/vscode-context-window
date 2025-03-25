@@ -67,6 +67,7 @@ export const languageConfig_js = {
             // 关键字
             [/\b(var|let|const|this|readonly|undefined|any|string|super|extends|implements|declare|import|export|from|as|async|void|boolean|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
+            [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
             [/\b(function|class|struct|interface|enum|type|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
 
@@ -167,6 +168,13 @@ export const languageConfig_js = {
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
+
+        afterFunction: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, { token: 'function.name', next: '@pop' }],  // 识别函数名
+            [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
     }
 }
 
@@ -262,7 +270,7 @@ export const languageConfig_cpp = {
             [/\b([a-zA-Z_$][\w$]*)\b(?=\s*static|const\b)/, 'keyword'],
 
             // 关键字
-            [/\b(var|extern|const|constexpr|this|inline|super|extends|auto|implements|signed|short|char|unsigned|long|virtual|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(var|extern|const|constexpr|this|inline|override|super|extends|auto|implements|signed|short|char|unsigned|long|virtual|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
