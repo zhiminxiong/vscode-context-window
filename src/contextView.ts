@@ -549,6 +549,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         this.updatePinned(false);
     }
 
+    public show() {
+        if (!this._view) {
+            vscode.commands.executeCommand('contextView.context.focus').then(() => {
+            });
+            return;
+        }
+        this._view.show?.();
+    }
+
     private updatePinned(value: boolean) {
         if (this._pinned === value) {
             return;

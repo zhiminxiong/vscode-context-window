@@ -2,7 +2,7 @@
 	"name": "context-window",
 	"displayName": "Context Window",
 	"description": "Display full code context in the panel, similar to the context window in Source Insight.",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"publisher": "zhiminxiong",
 	"keywords": [
         "context",
@@ -72,7 +72,11 @@
 				"title": "Unpin Current Context",
 				"icon": "$(pinned)",
 				"category": "Context View"
-			}
+			},
+            {
+                "command": "vscode-context-window.showContextWindow",
+                "title": "Show Context Window"
+            }
 		],
 		"menus": {
 			"commandPalette": [
