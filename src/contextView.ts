@@ -253,7 +253,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 { token: 'keyword.type', foreground: '#ff0000', fontStyle: 'bold' },      // 流程控制关键字：红色
                 { token: 'keyword.flow', foreground: '#ff0000', fontStyle: 'bold' },      // 流程控制关键字：红色
                 { token: 'keyword.control', foreground: '#ff0000' },   // 控制关键字：红色
-                { token: 'keyword.operator', foreground: '#ff0000' },  // 操作符关键字：红色
+                { token: 'keyword.operator', foreground: '#800080' },  // 操作符关键字：红色
                 { token: 'keyword.declaration', foreground: '#0000ff' }, // 声明关键字：蓝色
                 { token: 'keyword.modifier', foreground: '#0000ff' },  // 修饰符关键字：蓝色
                 { token: 'keyword.conditional', foreground: '#ff0000' }, // 条件关键字：红色
@@ -316,8 +316,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 
                 // 标签和特殊元素
                 { token: 'tag', foreground: '#800000' },               // 标签：暗红色
-                { token: 'tag.attribute.name', foreground: '#ff0000' }, // 标签属性名：红色
-                { token: 'attribute.name', foreground: '#ff0000' },    // 属性名：红色
+                { token: 'tag.attribute.name', foreground: '#000080' }, // 标签属性名：红色
+                { token: 'attribute.name', foreground: '#000080' },    // 属性名：红色
                 { token: 'attribute.value', foreground: '#0000ff' },   // 属性值：蓝色
                 
                 // 其他类型
@@ -326,7 +326,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 { token: 'constant.language', foreground: '#0000ff' }, // 语言常量：蓝色
                 { token: 'modifier', foreground: '#0000ff' },          // 修饰符：蓝色
                 { token: 'constructor', foreground: '#a00000' },       // 构造函数：棕色
-                { token: 'decorator', foreground: '#ff0000' },         // 装饰器：青色
+                { token: 'decorator', foreground: '#800080' },         // 装饰器：青色
                 { token: 'macro', foreground: '#800080', fontStyle: 'italic' }              // 宏：紫色
             ];
         }

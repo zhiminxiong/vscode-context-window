@@ -1,7 +1,7 @@
 //@ts-check
 
 // 导入语言配置
-import { languageConfig_js, languageConfig_cpp } from './languageConfig.js';
+import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './languageConfig.js';
 
 // Monaco Editor 初始化和消息处理
 (function() {
@@ -261,6 +261,8 @@ import { languageConfig_js, languageConfig_cpp } from './languageConfig.js';
                     // 为 C/C++ 定义自定义 token 提供器
                     monaco.languages.setMonarchTokensProvider('cpp', languageConfig_cpp);
                     monaco.languages.setMonarchTokensProvider('c', languageConfig_cpp);
+
+                    //monaco.languages.setMonarchTokensProvider('csharp', languageConfig_cs);
 
                     // 添加一个简单的 token 检测函数
                     // function logTokenInfo() {
