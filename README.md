@@ -28,9 +28,9 @@ Please check out that extension if you just want documentation in the panel or s
 
 - `Pin current def` — Stop live updating of the context view. Keeps the currently visible context. 
 - `Unpin current def` — Make the context view start tracking the cursor again.
+- `Show Context Window` — Show context view by Keyboard Shortcuts.
 
 ## Build
 
 - npm install
-
 - vsce package
