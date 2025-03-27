@@ -603,10 +603,8 @@ export const languageConfig_cs = {
 
             //[/void\b/, { token: '@rematch', next: '@afterVoidCheck' }],
 
-            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*static|const\b)/, 'keyword'],
-
             // 关键字
-            [/\b(var|extern|const|constexpr|this|inline|override|super|extends|auto|implements|signed|short|char|unsigned|long|virtual|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(var|extern|const|constexpr|this|string|inline|override|super|extends|auto|implements|signed|short|char|unsigned|long|virtual|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
@@ -619,6 +617,14 @@ export const languageConfig_cs = {
 
             // 类型关键字 - class, struct 等
             [/\b(class|struct|interface|enum|union|type|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
+
+            // using ()
+            [/\b(using)\b(?=\s*\()/, 'keyword.type'],
+            //[/\b(using)\b\s+([a-zA-Z_$][\w$]*)(?=\s*\=)/, ['keyword.type', 'class.name']],
+            [/\b(using)\b/, { token: 'keyword.type', next: '@afterUsing' }],
+            //[/\b(using)\b\s+([A-Za-z_][\w]*\.)*([A-Za-z_][\w]*)\s*;/, ['keyword.type', 'type', 'type']],
+
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*static|const\b)/, 'keyword'],
 
             // 流程控制关键字 - if, else 等
             [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|goto|new|delete|await|yield)\b/, 'keyword.flow'],
@@ -647,7 +653,7 @@ export const languageConfig_cs = {
             [/,\s*([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
             
             // 变量声明 - 改进的变量识别
-            [/\b(var|let|const)\b\s+([a-zA-Z_$][\w$]*)/, ['keyword', 'variable.name']],
+            [/\b([a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*[;=])/, { token: 'type', next: '@afterType' }],
             
             // 布尔值
             [/\b(true|false)\b/, 'boolean'],
@@ -754,6 +760,32 @@ export const languageConfig_cs = {
             [/([a-zA-Z_$][\w$]*\b)/, { token: 'method.name', next: '@pop' }],  // 识别方法名
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterUsing: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\bstatic\b/, { token: 'keyword', next: '@afterUsingStatic' }],
+            [/([a-zA-Z_$][\w$]*)(?=\s+[a-zA-Z_$][\w$]*)/, { token: 'type', next: '@afterType' }],  // var or type
+            [/[a-zA-Z_$][\w$]*(?=\s*\=)/, { token: 'class.name', next: '@pop' }],  // 识别类名
+            [/[a-zA-Z_$][\w$]*/, 'class.name'],  // 识别类名
+            [/\./, 'delimiter'],
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterType: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, { token: 'variable.name', next: '@root' }],  // 识别类名
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterUsingStatic: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, 'type'],
+            [/\./, 'delimiter'],
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
         ],
     }
 }
