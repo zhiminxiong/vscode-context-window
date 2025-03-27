@@ -112,7 +112,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     monaco.editor.defineTheme('custom-vs', {
                         base: light ? 'vs' : 'vs-dark',  // 基于 vs 主题
                         inherit: true,  // 继承基础主题的规则
-                        rules: window.vsCodeEditorConfiguration.customThemeRules,
+                        rules: vsCodeEditorConfiguration.customThemeRules,
                         colors: {}
                     });
                     
