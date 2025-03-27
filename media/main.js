@@ -262,11 +262,11 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     monaco.languages.setMonarchTokensProvider('cpp', languageConfig_cpp);
                     monaco.languages.setMonarchTokensProvider('c', languageConfig_cpp);
 
-                    //monaco.languages.setMonarchTokensProvider('csharp', languageConfig_cs);
+                    monaco.languages.setMonarchTokensProvider('csharp', languageConfig_cs);
 
                     // 添加一个简单的 token 检测函数
                     // function logTokenInfo() {
-                    //     const testCode = 'class AA extends BaseModel implements A, B, C { supply_crate_config_key: number = 0;}';//editor.getValue();
+                    //     const testCode = 'AA::BB::CC a, b, c = 0;';//editor.getValue();
                     //     const languageId = editor.getModel().getLanguageId();
                         
                     //     console.log('[definition] 测试代码:', testCode);

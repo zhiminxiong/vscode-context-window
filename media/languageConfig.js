@@ -350,9 +350,9 @@ export const languageConfig_cpp = {
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::\s*~*\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfterClass' }],
             [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
 
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::)/, 'type'],
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::)/, { token: 'type', next: '@afterNameSpace' }],
             [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*::\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfter' }],
-            [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@typeDeclare' }],
+            [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@typeDeclare', log: '[definition] type2' }],
 
             // 通用类名后跟变量名的模式识别
             //[/\b([a-zA-Z_$][\w$]*)\b\s+([a-zA-Z_$][\w$]*)/, ['class.name', 'variable.name']],
@@ -481,6 +481,7 @@ export const languageConfig_cpp = {
         afterUsing: [
             [/\s+/, 'white'],  // 跳过空白
             [/\bnamespace\b/, { token: 'keyword.type', next: '@afterUsingNamespace' }],
+            [/([a-zA-Z_$][\w$]*)(?=\s*\=)/, 'class.name'],
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
@@ -494,6 +495,18 @@ export const languageConfig_cpp = {
 
         typeDeclare: [
             [/\s+/, 'white'],  // 跳过空白
+            [/([a-zA-Z_$][\w$]*)/, 'variable.name'],
+            [/,/, 'delimiter.bracket'],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterNameSpace: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/::/, 'delimiter'],
+            [/([a-zA-Z_$][\w$]*)(?=::)/, 'type'],
+            [/([a-zA-Z_$][\w$]*)(?=\s+[a-zA-Z_$][\w$]*)/, 'type'],
+            [/([a-zA-Z_$][\w$]*)(?=\s*[{;])/, 'variable'],
             [/([a-zA-Z_$][\w$]*)/, 'variable.name'],
             [/,/, 'delimiter.bracket'],
             [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
