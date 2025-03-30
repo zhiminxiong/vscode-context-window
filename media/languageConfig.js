@@ -325,7 +325,7 @@ export const languageConfig_cpp = {
             [/\b([a-zA-Z_$][\w$]*)\b(?=\s*static|const\b)/, 'keyword'],
 
             // 关键字
-            [/\b(extern|const|volatile|static|thread_local|constexpr|this|inline|friend|template|typename|explicit|nullptr|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
+            [/\b(extern|const|volatile|static|thread_local|constexpr|this|decltype|inline|friend|template|typename|explicit|nullptr|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
@@ -364,6 +364,8 @@ export const languageConfig_cpp = {
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, { token: 'type', next: '@afterType' }],
              [/\b@innerTypes\b/, 'type'],
 
+             // func<type>()
+             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
              [/\b([a-zA-Z_$][\w$]*)\b(?=\s*<(?!<))/, { token: 'type', next: '@preTemplateType' }],
 
             // 通用类名后跟变量名的模式识别
