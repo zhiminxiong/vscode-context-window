@@ -84,8 +84,8 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
             [/\b(function)\b\s*([a-zA-Z_$][\w$]*)/, ['keyword.type', 'function.name']],
             
-            // 方法定义 (类内部)
-            [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
 
             [/\b(var|let|const)\b/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
@@ -355,6 +355,8 @@ export const languageConfig_cpp = {
             // todo: Game::Game() : var1(0), var2(NULL)
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::\s*~*\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfterClass' }],
             [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            // func<type>()
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
 
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::)/, { token: 'type', next: '@afterScope' }],
             [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*::\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfter' }],
@@ -364,8 +366,6 @@ export const languageConfig_cpp = {
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, { token: 'type', next: '@afterType' }],
              [/\b@innerTypes\b/, 'type'],
 
-             // func<type>()
-             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
              [/\b([a-zA-Z_$][\w$]*)\b(?=\s*<(?!<))/, { token: 'type', next: '@preTemplateType' }],
 
             // 通用类名后跟变量名的模式识别
