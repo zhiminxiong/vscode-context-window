@@ -260,6 +260,11 @@ export const languageConfig_cpp = {
         '&&', '||', '?', ':', '=', '+=', '-=', '*=', '/=', '%=', '<<=',
         '>>=', '&=', '|=', '^=', '->', '.*', '->*'
     ],
+
+    // innerTypes: [
+    //     'auto', 'signed', 'short', 'char', 'unsigned', 'long', 'int', 'bool', 'float', 'double', 'void'
+    // ],
+    innerTypes: /\bauto|signed|short|char|unsigned|long|int|bool|float|double|void\b/,
     
     // 符号
     symbols: /[=><!~?:&|+\-*\/\^%]+/,
@@ -303,7 +308,7 @@ export const languageConfig_cpp = {
             [/(@digits)/, 'number'],
             
             // 模板参数
-            [/</, { token: 'delimiter.angle', next: '@template' }],
+            [/<(?!<)/, { token: 'delimiter.angle', next: '@template' }],
 
             // [/(int)\s+([a-zA-Z_][\w]*)?/gm, { 
             //     cases: { 
@@ -320,7 +325,7 @@ export const languageConfig_cpp = {
             [/\b([a-zA-Z_$][\w$]*)\b(?=\s*static|const\b)/, 'keyword'],
 
             // 关键字
-            [/\b(var|extern|const|constexpr|this|inline|template|typename|override|super|extends|auto|implements|signed|short|char|unsigned|long|virtual|import|export|sizeof|from|as|async|int|bool|float|double|void|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(extern|const|volatile|static|thread_local|constexpr|this|inline|friend|template|typename|explicit|nullptr|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
@@ -332,7 +337,8 @@ export const languageConfig_cpp = {
             //[/\b([a-zA-Z_$][\w$]*)\b\s+(?=class|struct)/, 'macro.name'],
 
             // 类型关键字 - class, struct 等
-            [/\b(class|struct|interface|enum|union|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\b(class|struct|interface|enum|union)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\bnamespace\b/, { token: 'keyword.type', next: '@afterNameSpace' }],
 
             [/(?<=\[)\s*\b(using)\b/, 'keyword.type'],
             [/\b(using)\b/, { token: 'keyword.type', next: '@afterUsing' }],
@@ -350,15 +356,24 @@ export const languageConfig_cpp = {
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::\s*~*\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfterClass' }],
             [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
 
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::)/, { token: 'type', next: '@afterNameSpace' }],
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::)/, { token: 'type', next: '@afterScope' }],
             [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*::\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfter' }],
-            [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@typeDeclare', log: '[definition] type2' }],
+            [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@typeDeclare' }],
+
+            // parse variable
+            [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, { token: 'type', next: '@afterType' }],
+             [/\b@innerTypes\b/, 'type'],
+
+             [/\b([a-zA-Z_$][\w$]*)\b(?=\s*<(?!<))/, { token: 'type', next: '@preTemplateType' }],
 
             // 通用类名后跟变量名的模式识别
             //[/\b([a-zA-Z_$][\w$]*)\b\s+([a-zA-Z_$][\w$]*)/, ['class.name', 'variable.name']],
             //[/\b([a-zA-Z_$][\w$]*)\b\s+([a-zA-Z_$][\w$]*)/, ['class.name', 'variable.name']],
             // 添加类型名识别规则
             //[/\b([a-zA-Z_$][\w$]*)\b\s+([a-zA-Z_$][\w$]*)/, ['class.name', 'variable.name']],
+
+            //[/\b([a-zA-Z_$][\w$]*)\b\s+(?=\b[a-zA-Z_$][\w$]*\b)/, 'type'],
+            //[/\b([a-zA-Z_$][\w$]*)\b\s*(?=[\={])/, 'variable.name'],
             
             // 对象属性
             [/([a-zA-Z_$][\w$]*)\s*(?=:)/, 'property'],
@@ -366,9 +381,6 @@ export const languageConfig_cpp = {
             // 函数参数 - 改进的参数识别
             [/\(\s*([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
             [/,\s*([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
-            
-            // 变量声明 - 改进的变量识别
-            [/\b(var|let|const)\b\s+([a-zA-Z_$][\w$]*)/, ['keyword', 'variable.name']],
             
             // 布尔值
             [/\b(true|false)\b/, 'boolean'],
@@ -442,14 +454,39 @@ export const languageConfig_cpp = {
             { include: 'root' }
         ],
 
+        afterType: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\bconst|volatile|static|thread_local|constexpr\b/, 'keyword'],
+            [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, 'type'],
+            [/\b([a-zA-Z_$][\w$]*)\b(?!\s*\()/, 'variable.name'],
+            [/[\*&,]/, 'delimiter'],
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
         // 类名识别状态
         afterClass: [
             [/\s+/, 'white'],  // 跳过空白
-            [/([a-zA-Z_$][\w$]*)\b(?=\s*[a-zA-Z_$][\w$]*)/, { token: 'keyword', next: '@afterClass'}],  // 识别其它
-            [/[a-zA-Z_$][\w$]*/, 'class.name'],  // 识别类名
-            [/::/, 'delimiter'],
+            // (class classname *cls,)
+            [/([a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*[,\)])/, { token: 'keyword', next: '@afterType' }],
+            [/([a-zA-Z_$][\w$]*)\b(?=\s*[a-zA-Z_$][\w$]*)/, 'keyword'],  // 识别其它 dllexport
+            [/[a-zA-Z_$][\w$]*\b(?!\s*[\*&])/, 'class.name'],  // 识别类名
+            [/[a-zA-Z_$][\w$]*\b/, 'type'], // void test(class A &a)
+            [/</, { token: 'delimiter.angle', next: '@afterTypeTemplate' }],
+            [/::/, { token: 'delimiter', next: '@pop' }],
+            [/:/, { token: 'delimiter', next: '@classExtends' }],
             [/[{;,:=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        classExtends: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\bvirtual|public|protected|private\b/, 'keyword'],
+            [/</, { token: 'delimiter.angle', next: '@afterTypeTemplate' }],
+            [/[a-zA-Z_$][\w$]*\b/, 'type'],
+            [/,/, 'delimiter'],
+            [/[{;]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
         ],
 
         // 宏名识别状态
@@ -471,7 +508,6 @@ export const languageConfig_cpp = {
         functionAfterClass: [
             [/\s+/, 'white'],  // 跳过空白
             [/::/, 'delimiter'],
-            [/\s+/, 'white'],  // 跳过空白
             [/~\s*/, 'delimiter'],
             [/([a-zA-Z_$][\w$]*\b)/, { token: 'method.name', next: '@pop' }],  // 识别方法名
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
@@ -501,17 +537,44 @@ export const languageConfig_cpp = {
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
-        afterNameSpace: [
+        afterScope: [
             [/\s+/, 'white'],  // 跳过空白
             [/::/, 'delimiter'],
-            [/([a-zA-Z_$][\w$]*)(?=::)/, 'type'],
-            [/([a-zA-Z_$][\w$]*)(?=\s+[a-zA-Z_$][\w$]*)/, 'type'],
-            [/([a-zA-Z_$][\w$]*)(?=\s*[{;])/, 'variable'],
-            [/([a-zA-Z_$][\w$]*)/, 'variable.name'],
-            [/,/, 'delimiter.bracket'],
+            [/<</, { token: 'operator', next: '@pop' }],
+            [/</, { token: 'delimiter.angle', next: '@templateType' }],
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@pop' }],
+            [/\b([a-zA-Z_$][\w$]*)\b(?=::)/, 'type'],
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*<(?!<))/, 'type'],
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*[a-zA-Z_$][\w$]*)/, { token: 'type', next: '@afterType' }],
             [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
+
+        afterNameSpace: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/::/, 'delimiter'],
+            [/\b([a-zA-Z_$][\w$]*)\b/, 'class.name'],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterTypeTemplate: [
+            [/>/, { token: 'delimiter.angle', next: '@pop' }],
+            { include: 'root' }
+        ],
+
+        preTemplateType: [
+            [/</, { token: 'delimiter.angle', next: '@templateType' }],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        templateType: [
+            [/>(?=\s*[a-zA-Z_$][\w$]*(?!\s*\())/, { token: 'delimiter.angle', next: '@afterType' }],
+            [/>/, { token: 'delimiter.angle', next: '@pop' }],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            { include: 'root' }
+        ]
     }
 }
 

@@ -76,7 +76,7 @@ export class Renderer {
         //console.debug(`uri = ${uri} firstLine = ${firstLine} lastLine = ${lastLine}`);
 
         return {
-            content: lines.join("\n") + "\n",
+            content: lines.join("\n"),
             line: firstLine,
             column: range.start.character,
             jmpUri: uri.toString(),

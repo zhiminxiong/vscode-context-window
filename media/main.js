@@ -807,7 +807,9 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                                 const lineText = lines[message.scrollToLine - 1] || '';
                                                 
                                                 // 在当前行查找符号名
-                                                const symbolIndex = lineText.indexOf(message.symbolName);
+                                                const symbolRegex = new RegExp(`\\b${message.symbolName}\\b`);
+                                                const symbolMatch = lineText.match(symbolRegex);
+                                                const symbolIndex = symbolMatch ? symbolMatch.index : -1;
                                                 //console.log('[definition] Symbol index:', symbolIndex);
                                                 if (symbolIndex !== -1) {
                                                     column = symbolIndex + 1;
