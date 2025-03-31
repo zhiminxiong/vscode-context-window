@@ -499,7 +499,7 @@ export const languageConfig_cpp = {
         afterMacro: [
             [/\s+/, 'white'],  // 跳过空白
             //[/\b*defined\b/, { token: 'keyword.directive.control', next: '@pop' }],
-            [/[a-zA-Z_$][\w$]*/, { token: 'macro.name', next: '@pop' }],  // 识别类名
+            [/[a-zA-Z_$][\w$]*/, { token: 'macro', next: '@pop' }],  // 识别类名
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
@@ -640,7 +640,7 @@ export const languageConfig_cs = {
             [/#\s*ifdef\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
             [/#\s*ifndef\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
             [/#\s*elif\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
-            [/#\s*if\b/, 'keyword.directive.control'],
+            [/#\s*if\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
             [/#\s*else\b/, 'keyword.directive.control'],
             [/#\s*endif\b/, 'keyword.directive.control'],
             
@@ -661,6 +661,8 @@ export const languageConfig_cs = {
             
             // 模板参数
             [/<(?!<)/, { token: 'delimiter.angle', next: '@template' }],
+
+            [/#\s*region\b/, { token: 'keyword.directive', next: '@region' }],
 
             // [/(int)\s+([a-zA-Z_][\w]*)?/gm, { 
             //     cases: { 
@@ -710,6 +712,7 @@ export const languageConfig_cs = {
             // 变量声明 - 改进的变量识别
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*)/, { token: 'type', next: '@afterType' }],
             [/\b@innerTypes\b/, 'type'],
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*<(?!<))/, { token: 'type', next: '@preTemplateType' }],
             
             // 布尔值
             [/\b(true|false)\b/, 'boolean'],
@@ -741,6 +744,12 @@ export const languageConfig_cs = {
         ],
         template: [
             [/>/, { token: 'delimiter.angle', next: '@pop' }],
+            { include: 'root' }
+        ],
+
+        region: [
+            [/\b[a-zA-Z_$][\w$]*\b/, 'comment'],
+            [/#\s*endregion\b/, { token: 'keyword.directive', next: '@pop' }],
             { include: 'root' }
         ],
         
@@ -810,9 +819,15 @@ export const languageConfig_cs = {
 
         // 宏名识别状态
         afterMacro: [
-            [/\s+/, 'white'],  // 跳过空白
-            //[/\b*defined\b/, { token: 'keyword.directive.control', next: '@pop' }],
-            [/[a-zA-Z_$][\w$]*/, { token: 'macro.name', next: '@pop' }],  // 识别类名
+            [/\r?\n|$/, { token: '', next: '@pop' }],
+            [/$/, { token: '', next: '@pop' }],
+            [/[ \t]+/, 'white'],  // 跳过空白
+            [/[\(\)]/, 'delimiter.parenthesis'],  // 括号
+            [/\|\||&&/, 'operator'],  // 逻辑运算符
+            [/[!~]/, 'operator'],  // 一元运算符
+            [/[a-zA-Z_$][\w$]*/, 'macro'],  // 宏名称
+            [/\n/, { token: '', next: '@pop' }],
+            [/$/, { token: '', next: '@pop' }],  // 行尾退出
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
@@ -866,5 +881,18 @@ export const languageConfig_cs = {
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
         ],
+
+        preTemplateType: [
+            [/</, { token: 'delimiter.angle', next: '@templateType' }],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        templateType: [
+            [/>(?=\s*[a-zA-Z_$][\w$]*(?!\s*\())/, { token: 'delimiter.angle', next: '@afterType' }],
+            [/>/, { token: 'delimiter.angle', next: '@pop' }],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            { include: 'root' }
+        ]
     }
 }

@@ -56,14 +56,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     function updateDecorations() {
         const editor = vscode.window.activeTextEditor;
-        if (!editor || !['c', 'cc', 'cpp', 'h', 'hpp'].includes(editor.document.languageId)) {
+        if (!editor || !['c', 'cc', 'cpp', 'h', 'hpp', 'csharp'].includes(editor.document.languageId)) {
             return;
         }
 
         const text = editor.document.getText();
         const includeDecorations: vscode.DecorationOptions[] = [];
 
-        const regex = /(?:^|\n)[ \t]*#[ \t]*(include|pragma)\b/g;
+        const regex = /(?:^|\n)[ \t]*#[ \t]*(include|pragma|region|endregion)\b/g;
         let match;
         while ((match = regex.exec(text))) {
             const startPos = editor.document.positionAt(match.index);
@@ -73,6 +73,10 @@ export function activate(context: vscode.ExtensionContext) {
             if (match[1] === 'include') {
                 includeDecorations.push(decoration);
             } else if (match[1] === 'pragma') {
+                includeDecorations.push(decoration);
+            } else if (match[1] === 'region') {
+                includeDecorations.push(decoration);
+            } else if (match[1] === 'endregion') {
                 includeDecorations.push(decoration);
             }
         }
