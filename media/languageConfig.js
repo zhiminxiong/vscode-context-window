@@ -71,7 +71,7 @@ export const languageConfig_js = {
             [/\bnull\b/, 'null'],
             
             // 关键字
-            [/\b(this|readonly|undefined|any|string|super|extends|implements|Promise|declare|import|export|from|as|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(this|readonly|undefined|any|global|string|super|extends|implements|Promise|declare|import|export|from|as|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
@@ -88,6 +88,7 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
 
             [/\b(var|let|const)\b/, { token: 'keyword', next: '@afterVariableDeclaration' }],
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
             
             // 对象属性
