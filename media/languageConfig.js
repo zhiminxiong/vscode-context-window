@@ -819,15 +819,12 @@ export const languageConfig_cs = {
 
         // 宏名识别状态
         afterMacro: [
-            [/\r?\n|$/, { token: '', next: '@pop' }],
-            [/$/, { token: '', next: '@pop' }],
-            [/[ \t]+/, 'white'],  // 跳过空白
+            [/\s+/, 'white'],  // 跳过空白
             [/[\(\)]/, 'delimiter.parenthesis'],  // 括号
             [/\|\||&&/, 'operator'],  // 逻辑运算符
             [/[!~]/, 'operator'],  // 一元运算符
-            [/[a-zA-Z_$][\w$]*/, 'macro'],  // 宏名称
-            [/\n/, { token: '', next: '@pop' }],
-            [/$/, { token: '', next: '@pop' }],  // 行尾退出
+            [/[a-zA-Z_$][\w$]*(?=.*\b[a-zA-Z_$][\w$]*\b)/, 'macro'],  // 宏名称
+            [/[a-zA-Z_$][\w$]*/, { token: 'macro', next: '@pop' }],  // 宏名称
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
