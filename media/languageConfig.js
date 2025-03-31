@@ -356,7 +356,10 @@ export const languageConfig_cpp = {
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::\s*~*\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfterClass' }],
             [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             // func<type>()
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            // Func<Dictionary<K,V>>()
+            //[/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            // Func<Dictionary<vector<int>,string<char>>>()
+            [/([a-zA-Z_$][\w$]*)\s*(?=<(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*>\s*\()/, 'method.name'],
 
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=::)/, { token: 'type', next: '@afterScope' }],
             [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*::\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfter' }],
