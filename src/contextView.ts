@@ -327,7 +327,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 { token: 'modifier', foreground: '#0000ff' },          // 修饰符：蓝色
                 { token: 'constructor', foreground: '#a00000' },       // 构造函数：棕色
                 { token: 'decorator', foreground: '#800080' },         // 装饰器：青色
-                { token: 'macro', foreground: '#800080', fontStyle: 'italic' }              // 宏：紫色
+                { token: 'macro', foreground: '#A00000', fontStyle: 'italic' }              // 宏：紫色
             ];
         }
 

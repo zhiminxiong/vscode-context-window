@@ -165,7 +165,7 @@ export const languageConfig_js = {
         afterClass: [
             [/\s+/, 'white'],  // 跳过空白
             [/extends\b/, { token: 'keyword', next: '@afterExtends' }], // extends
-            [/[a-zA-Z_$][\w$]*/, { token: 'class.name', next: '@afterClassName' }],  // 识别类名
+            [/[a-zA-Z_$][\w$]*/, 'class.name'],  // 识别类名
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
@@ -183,6 +183,7 @@ export const languageConfig_js = {
             [/\s+/, 'white'],  // 跳过空白
             [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别基类
+            [/\./, 'delimiter'],
             [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
         ],
@@ -616,7 +617,7 @@ export const languageConfig_cs = {
         '>>=', '&=', '|=', '^=', '->', '.*', '->*'
     ],
     
-    innerTypes: /\bvar|string|signed|short|char|unsigned|long|int|bool|float|double|void|delegate\b/,
+    innerTypes: /\bvar|string|String|signed|short|char|unsigned|long|int|bool|float|double|void|delegate\b/,
     
     // 符号
     symbols: /[=><!~?:&|+\-*\/\^%]+/,
@@ -662,7 +663,8 @@ export const languageConfig_cs = {
             // 模板参数
             [/<(?!<)/, { token: 'delimiter.angle', next: '@template' }],
 
-            [/#\s*region\b/, { token: 'keyword.directive', next: '@region' }],
+            [/#\s*(region|endregion)$/, 'keyword.directive'],
+            [/#\s*(region|endregion)\b/, { token: 'keyword.directive', next: '@region' }],
 
             // [/(int)\s+([a-zA-Z_][\w]*)?/gm, { 
             //     cases: { 
@@ -684,7 +686,8 @@ export const languageConfig_cs = {
             [/\b([a-zA-Z_$][\w$]*)\b(?=\s*class|struct\b)/, 'keyword'],
 
             // 类型关键字 - class, struct 等
-            [/\b(class|struct|interface|enum|union|type|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\b(class|struct|interface|enum|union|type)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\bnamespace\b/, { token: 'keyword.type', next: '@afterNameSpace' }],
 
             // using ()
             [/\b(using)\b(?=\s*\()/, 'keyword.type'],
@@ -748,9 +751,8 @@ export const languageConfig_cs = {
         ],
 
         region: [
-            [/\b[a-zA-Z_$][\w$]*\b/, 'comment'],
-            [/#\s*endregion\b/, { token: 'keyword.directive', next: '@pop' }],
-            { include: 'root' }
+            [/.*$/, { token: 'comment', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]
         ],
         
         // 多行注释 - 确保注释中的关键字不被识别
@@ -797,6 +799,7 @@ export const languageConfig_cs = {
             [/\s+/, 'white'],  // 跳过空白
             [/([a-zA-Z_$][\w$]*)\b(?=\s*[a-zA-Z_$][\w$]*)/, 'keyword'],  // 识别其它
             [/[a-zA-Z_$][\w$]*/, 'class.name'],  // 识别类名
+            [/</, { token: 'delimiter.angle', next: '@afterTypeTemplate' }],
             [/:/, { token: 'delimiter', next: '@classExtends' }],
             [/[{;,:=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
@@ -804,12 +807,21 @@ export const languageConfig_cs = {
 
         classExtends: [
             [/\s+/, 'white'],  // 跳过空白
-            [/\bvirtual|public|protected|private\b/, 'keyword'],
+            [/\bwhere\b/, { token: 'keyword', next: '@afterWhere' }],
             [/</, { token: 'delimiter.angle', next: '@afterTypeTemplate' }],
             [/[a-zA-Z_$][\w$]*\b/, 'type'],
-            [/,/, 'delimiter'],
+            [/[,\.]/, 'delimiter'],
             [/[{;]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterWhere: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/:/, 'delimiter'],
+            [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别类名
+            [/</, { token: 'delimiter.angle', next: '@afterTypeTemplate' }],
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
         afterTypeTemplate: [
@@ -877,6 +889,14 @@ export const languageConfig_cs = {
             [/\./, 'delimiter'],
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterNameSpace: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\./, 'delimiter'],
+            [/\b([a-zA-Z_$][\w$]*)\b/, 'class.name'],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
         preTemplateType: [
