@@ -939,8 +939,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             //console.log('[definition] update no editor');
             return;
         }
-
-        this._currentCacheKey = newCacheKey;
         
         //console.log('[definition] update');
         const loadingEntry = { cts: new vscode.CancellationTokenSource() };
@@ -961,6 +959,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             if (contentInfo.jmpUri) {
                 this.currentUri = vscode.Uri.parse(contentInfo.jmpUri);
                 this.currentLine = contentInfo.line;
+
+                this._currentCacheKey = newCacheKey;
             }
             
             if (this._updateMode === UpdateMode.Live || contentInfo.jmpUri) {
