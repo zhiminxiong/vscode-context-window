@@ -69,6 +69,10 @@ export const languageConfig_js = {
             
             // null
             [/\bnull\b/, 'null'],
+
+            // test
+            //[/(?<!int)\s*(dddata)/, { token: 'keyword.flow', log: console.log('[definition] 1')}],
+            //[/int2/, { token: 'keyword.flow', log: console.log('[definition] 2')}],
             
             // 关键字
             [/\b(this|readonly|undefined|any|global|string|super|extends|implements|Promise|declare|import|export|from|as|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
@@ -90,9 +94,14 @@ export const languageConfig_js = {
             [/\b(var|let|const)\b/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
-            
-            // 对象属性
-            [/([a-zA-Z_$][\w$]*)\s*(?=:)/, 'property'],
+
+            // ?<= may not supported
+            // get() : type
+            //[/(?<=\)\s*:)\s*\b([a-zA-Z_$][\w$]*)\b/, 'type'],
+            [/\)\s*:(?=\b([a-zA-Z_$][\w$]*)\b)/, { token: 'delimiter', next: '@afterDelimiterType' }],
+            // : type = value;
+            //[/(?<=:)\s*\b([a-zA-Z_$][\w$]*)\b(?=\s*\=)/, 'type'],
+            [/:(?=\s*\b([a-zA-Z_$][\w$]*)\b\s*\=)/, { token: 'delimiter', next: '@afterDelimiterType' }],
             
             // 函数参数 - 改进的参数识别
             // Match function parameters (exclude keywords)
@@ -117,6 +126,13 @@ export const languageConfig_js = {
             
             // 空格
             [/\s+/, 'white'],
+        ],
+
+        afterDelimiterType: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
         
         // 多行注释 - 确保注释中的关键字不被识别
