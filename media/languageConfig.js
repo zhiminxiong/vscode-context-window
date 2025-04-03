@@ -64,6 +64,9 @@ export const languageConfig_js = {
             [/0[bB][0-1]+/, 'number'],
             [/(@digits)/, 'number'],
 
+            // 模板参数
+            [/<(?!<)/, { token: 'delimiter.angle', next: '@template' }],
+
             // 布尔值
             [/\b(true|false)\b/, 'boolean'],
             
@@ -94,6 +97,9 @@ export const languageConfig_js = {
             [/\b(var|let|const)\b/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
+
+            [/\=>(?=\s*\b[a-zA-Z_$][\w$]*\b)/, { token: 'operator', next: '@afterArrow' }],
+            [/\=>/, 'operator'],
 
             // ?<= may not supported
             // get() : type
@@ -126,6 +132,17 @@ export const languageConfig_js = {
             
             // 空格
             [/\s+/, 'white'],
+        ],
+
+        template: [
+            [/>/, { token: 'delimiter.angle', next: '@pop' }],
+            { include: 'root' }
+        ],
+
+        afterArrow: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
         afterDelimiterType: [
@@ -192,9 +209,13 @@ export const languageConfig_js = {
         ],
 
         // 状态内规则如果没有显式指定next，匹配后会回到状态其实位置重新执行，因此要先识别implements
+        // export class AppMain extends LoggerImpl(BehaviourDelegate) implements IPlatform {
         afterExtends: [
             [/\s+/, 'white'],  // 跳过空白
             [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
+            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            [/[()<>]/, 'delimiter'],
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别基类
             [/\./, 'delimiter'],
             [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
@@ -203,6 +224,9 @@ export const languageConfig_js = {
 
         afterImplements: [
             [/\s+/, 'white'],  // 跳过空白
+            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            [/[()<>]/, 'delimiter'],
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别接口
             [/\s*,/, 'delimiter.bracket'], // 不用显式next: '@afterImplements'
             [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
