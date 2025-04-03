@@ -76,9 +76,11 @@ export const languageConfig_js = {
             // test
             //[/(?<!int)\s*(dddata)/, { token: 'keyword.flow', log: console.log('[definition] 1')}],
             //[/int2/, { token: 'keyword.flow', log: console.log('[definition] 2')}],
+
+            [/(\bget|set\b)(?=\s*\()/, 'method.name'],
             
             // 关键字
-            [/\b(this|readonly|undefined|any|global|string|super|extends|implements|Promise|declare|import|export|from|as|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(this|readonly|undefined|any|global|string|super|abstract|extends|implements|Promise|declare|import|export|from|as|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
@@ -93,6 +95,7 @@ export const languageConfig_js = {
             
             [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
 
             [/\b(var|let|const)\b/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
@@ -104,7 +107,7 @@ export const languageConfig_js = {
             // ?<= may not supported
             // get() : type
             //[/(?<=\)\s*:)\s*\b([a-zA-Z_$][\w$]*)\b/, 'type'],
-            [/\)\s*:(?=\b([a-zA-Z_$][\w$]*)\b)/, { token: 'delimiter', next: '@afterDelimiterType' }],
+            [/\)\s*:(?=\s*\b([a-zA-Z_$][\w$]*)\b)/, { token: 'delimiter', next: '@afterDelimiterType' }],
             // : type = value;
             //[/(?<=:)\s*\b([a-zA-Z_$][\w$]*)\b(?=\s*\=)/, 'type'],
             [/:(?=\s*\b([a-zA-Z_$][\w$]*)\b\s*\=)/, { token: 'delimiter', next: '@afterDelimiterType' }],
@@ -115,6 +118,7 @@ export const languageConfig_js = {
             [/,\s*(?!true|false|null|undefined\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
             
             // 标识符 - 捕获所有其他标识符
+            [/\b[a-zA-Z_$][\w$]*\b(?=\s*extends)/, { token: 'type', next: '@afterClass' }],
             [/[a-zA-Z_$][\w$]*/, 'identifier'],
             
             // 分隔符和括号
@@ -195,6 +199,7 @@ export const languageConfig_js = {
         afterClass: [
             [/\s+/, 'white'],  // 跳过空白
             [/extends\b/, { token: 'keyword', next: '@afterExtends' }], // extends
+            [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
             [/[a-zA-Z_$][\w$]*/, 'class.name'],  // 识别类名
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
@@ -244,26 +249,9 @@ export const languageConfig_js = {
 
         afterFunction: [
             [/\s+/, 'white'],  // 跳过空白
-            [/[a-zA-Z_$][\w$]*/, 'function.name'],//, log: '[definition] Entering function return value processing' }],  // 识别函数名
-            [/\s+/, 'white'],  // 跳过空白
-            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
-            [/\(/, { token: 'delimiter.parenthesis', next: '@functionParam' }],
-            [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/[a-zA-Z_$][\w$]*/, { token: 'function.name', next: '@pop' }],//, log: '[definition] Entering function return value processing' }],  // 识别函数名
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
-
-        functionParam: [
-            [/\)/, { token: 'delimiter.parenthesis', next: '@functionRet' }],
-            { include: 'root' }
-        ],
-
-        functionRet: [
-            [/\s+/, 'white'],  // Skip whitespace
-            // Match the colon and optional whitespace
-            [/:\s*([a-zA-Z_$][\w$]*)/, { token: 'type', next: '@pop' }],
-            [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // Return if directly encounter {
-            [/./, { token: '@rematch', next: '@pop' }]  // Other cases return and rematch
-        ]
     }
 }
 
@@ -364,7 +352,7 @@ export const languageConfig_cpp = {
             [/\b([a-zA-Z_$][\w$]*)\b(?=\s*static|const\b)/, 'keyword'],
 
             // 关键字
-            [/\b(extern|const|volatile|static|thread_local|constexpr|this|decltype|inline|friend|template|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
+            [/\b(extern|const|volatile|static|thread_local|constexpr|abstract|this|decltype|inline|friend|template|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
@@ -710,7 +698,7 @@ export const languageConfig_cs = {
             //[/void\b/, { token: '@rematch', next: '@afterVoidCheck' }],
 
             // 关键字
-            [/\b(extern|const|constexpr|this|null|inline|global|override|super|extends|auto|implements|virtual|import|export|sizeof|from|as|ref|async|typeof|instanceof|in|out|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(extern|const|constexpr|this|null|inline|global|abstract|override|super|extends|auto|implements|virtual|import|export|sizeof|from|as|ref|async|typeof|instanceof|in|out|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
