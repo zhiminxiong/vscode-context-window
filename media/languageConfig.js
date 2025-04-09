@@ -350,9 +350,10 @@ export const languageConfig_cpp = {
             //[/void\b/, { token: '@rematch', next: '@afterVoidCheck' }],
 
             [/\b([a-zA-Z_$][\w$]*)\b(?=\s*static|const\b)/, 'keyword'],
+            [/\b(template)\b/, 'keyword.type'],
 
             // 关键字
-            [/\b(extern|const|volatile|static|thread_local|constexpr|abstract|this|decltype|inline|friend|template|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
+            [/\b(extern|const|volatile|static|operator|thread_local|constexpr|abstract|this|decltype|inline|friend|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
@@ -482,7 +483,7 @@ export const languageConfig_cpp = {
 
         afterType: [
             [/\s+/, 'white'],  // 跳过空白
-            [/\bconst|volatile|static|thread_local|constexpr\b/, 'keyword'],
+            [/\bconst|volatile|static|thread_local|constexpr|operator\b/, 'keyword'],
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, 'type'],
             [/\b([a-zA-Z_$][\w$]*)\b(?!\s*\()/, 'variable.name'],
             [/[\*&,]/, 'delimiter'],
