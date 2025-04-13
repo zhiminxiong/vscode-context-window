@@ -80,11 +80,13 @@ export const languageConfig_js = {
             [/(\bget|set\b)(?=\s*\()/, 'method.name'],
             
             // 关键字
-            [/\b(this|readonly|undefined|any|global|string|super|abstract|extends|implements|Promise|declare|import|export|from|as|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
             [/\b(function|class|struct|interface|enum|type|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
+
+            [/\bas\b/, { token: 'keyword', next: '@afterAs' }],
 
             // 流程控制关键字 - if, else 等
             [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|new|delete|await|yield)\b/, 'keyword.flow'],
@@ -114,8 +116,8 @@ export const languageConfig_js = {
             
             // 函数参数 - 改进的参数识别
             // Match function parameters (exclude keywords)
-            [/\(\s*(?!true|false|null|undefined\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
-            [/,\s*(?!true|false|null|undefined\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
+            [/\(\s*(?!true|false|null|undefined|unknown\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
+            [/,\s*(?!true|false|null|undefined|unknown\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
             
             // 标识符 - 捕获所有其他标识符
             [/\b[a-zA-Z_$][\w$]*\b(?=\s*extends)/, { token: 'type', next: '@afterClass' }],
@@ -143,6 +145,14 @@ export const languageConfig_js = {
             { include: 'root' }
         ],
 
+        afterAs: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
+            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/\./, 'delimiter'],
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
         afterArrow: [
             [/\s+/, 'white'],  // 跳过空白
             [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
@@ -151,7 +161,9 @@ export const languageConfig_js = {
 
         afterDelimiterType: [
             [/\s+/, 'white'],  // 跳过空白
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
             [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/\./, 'delimiter'],
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
