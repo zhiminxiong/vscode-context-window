@@ -234,7 +234,7 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/[()<>]/, 'delimiter'],
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别基类
-            [/\./, 'delimiter'],
+            [/[\.|]/, 'delimiter'],
             [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
         ],
@@ -245,6 +245,7 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/[()<>]/, 'delimiter'],
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别接口
+            [/[\.|]/, 'delimiter'],
             [/\s*,/, 'delimiter.bracket'], // 不用显式next: '@afterImplements'
             [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
