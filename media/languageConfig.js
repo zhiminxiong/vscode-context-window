@@ -227,12 +227,14 @@ export const languageConfig_js = {
 
         // 状态内规则如果没有显式指定next，匹配后会回到状态其实位置重新执行，因此要先识别implements
         // export class AppMain extends LoggerImpl(BehaviourDelegate) implements IPlatform {
+        // fromNative: <T extends NativeTemplateType>(nativeArray: NativeArray<T>) => NativeNumberFilter<T>[];
         afterExtends: [
             [/\s+/, 'white'],  // 跳过空白
             [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
             [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/[()<>]/, 'delimiter'],
+            [/[a-zA-Z_$][\w$]*(?=\s*>)/, { token: 'type', next: '@pop' }],  // 识别基类
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别基类
             [/[\.|]/, 'delimiter'],
             [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
