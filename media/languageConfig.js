@@ -409,6 +409,7 @@ export const languageConfig_cpp = {
             [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@typeDeclare' }],
 
             // parse variable
+            [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*<)/, 'type'],
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, { token: 'type', next: '@afterType' }],
             [/\b@innerTypes\b/, 'type'],
 
@@ -730,6 +731,8 @@ export const languageConfig_cs = {
 
             [/\b([a-zA-Z_$][\w$]*)\b(?=\s*static|const\b)/, 'keyword'],
 
+            [/\bwhere\b/, { token: 'keyword', next: '@afterWhere' }],
+
             // 流程控制关键字 - if, else 等
             [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|goto|new|delete|await|yield)\b/, 'keyword.flow'],
 
@@ -737,8 +740,9 @@ export const languageConfig_cs = {
             // uint GetNumVertex()
             [/\b([a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*\()/, { token: 'type', next: '@functionAfterClass' }],
 
-            [/\b([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            //[/\b([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*>\s*\()/, 'method.name'],
             
             // 对象属性
             [/([a-zA-Z_$][\w$]*)\s*(?=:)/, 'property'],
@@ -748,6 +752,7 @@ export const languageConfig_cs = {
             [/,\s*(?!true|false|null\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
             
             // 变量声明 - 改进的变量识别
+            [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*<)/, 'type'],
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b\s+(?=[a-zA-Z_$][\w$]*\s*)/, { token: 'type', next: '@afterType' }],
             [/\b@innerTypes\b/, 'type'],
             [/\b([a-zA-Z_$][\w$]*)\b(?=\s*<(?!<))/, { token: 'type', next: '@preTemplateType' }],
