@@ -715,7 +715,7 @@ export const languageConfig_cs = {
             //[/void\b/, { token: '@rematch', next: '@afterVoidCheck' }],
 
             // 关键字
-            [/\b(extern|const|constexpr|this|null|inline|global|abstract|override|super|extends|auto|implements|virtual|import|export|sizeof|from|as|ref|async|typeof|instanceof|in|out|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(extern|const|readonly|volatile|sealed|constexpr|this|null|inline|global|abstract|partial|override|super|extends|auto|implements|virtual|import|export|sizeof|from|as|ref|async|typeof|instanceof|in|out|of|with|get|set|constructor|static|private|protected|public|internal)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
