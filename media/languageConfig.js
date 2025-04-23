@@ -409,6 +409,7 @@ export const languageConfig_cpp = {
             [/(?<=::)\s*\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@typeDeclare' }],
 
             // parse variable
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*virtual)/, 'type'],
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*<)/, 'type'],
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, { token: 'type', next: '@afterType' }],
             [/\b@innerTypes\b/, 'type'],
@@ -501,7 +502,7 @@ export const languageConfig_cpp = {
             [/\s+/, 'white'],  // 跳过空白
             [/\bconst|volatile|static|thread_local|constexpr|operator|mutable\b/, 'keyword'],
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, 'type'],
-            [/\b([a-zA-Z_$][\w$]*)\b(?!\s*\()/, 'variable.name'],
+            [/\b([a-zA-Z_$][\w$]*)\b(?!\s*\()/, { token: 'variable.name', next: '@pop' }],
             [/[\*&,]/, 'delimiter'],
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
@@ -511,7 +512,7 @@ export const languageConfig_cpp = {
         afterClass: [
             [/\s+/, 'white'],  // 跳过空白
             // (class classname *cls,)
-            [/([a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*[,\)])/, { token: 'keyword', next: '@afterType' }],
+            [/([a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*\s*[,\)])/, { token: 'keyword', next: '@afterType' }],
             [/([a-zA-Z_$][\w$]*)\b(?=\s*[a-zA-Z_$][\w$]*)/, 'keyword'],  // 识别其它 dllexport
             [/[a-zA-Z_$][\w$]*\b(?!\s*[\*&])/, 'class.name'],  // 识别类名
             [/[a-zA-Z_$][\w$]*\b/, 'type'], // void test(class A &a)
