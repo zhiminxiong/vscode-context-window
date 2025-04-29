@@ -84,7 +84,8 @@ export const languageConfig_js = {
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
-            [/\b(function|class|struct|interface|enum|type|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\b(function|class|struct|interface|enum|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\b(type)\b(?!\s*:)/, { token: 'keyword.type', next: '@afterClass' }],
 
             [/\bas\b/, { token: 'keyword', next: '@afterAs' }],
 
