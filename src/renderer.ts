@@ -68,6 +68,10 @@ export class Renderer {
         // console.debug(`uri = ${uri}`);
         // console.debug(`range = ${range.start.line} - ${range.end.line}`);
 
+        // 检查文件扩展名，如果是 .inc 文件则强制使用 cpp 语言
+        const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
+        const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || languageId);
+
         // Read entire file.
         const rangeText = new vscode.Range(0, 0, doc.lineCount, 0);
         let lines = doc.getText(rangeText).split(/\r?\n/);
@@ -80,7 +84,7 @@ export class Renderer {
             line: firstLine,
             column: range.start.character,
             jmpUri: uri.toString(),
-            languageId: doc.languageId || languageId,
+            languageId: finalLanguageId,
             symbolName: '' // 使用文档的语言ID或传入的语言ID
         };
     }

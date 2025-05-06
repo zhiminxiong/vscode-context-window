@@ -369,7 +369,7 @@ export const languageConfig_cpp = {
             [/\b(template)\b/, 'keyword.type'],
 
             // 关键字
-            [/\b(extern|const|volatile|static|operator|thread_local|mutable|constexpr|abstract|this|decltype|inline|friend|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
+            [/\b(extern|const|volatile|static|operator|thread_local|mutable|constexpr|noexcept|final|abstract|this|decltype|inline|friend|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
@@ -427,7 +427,7 @@ export const languageConfig_cpp = {
             //[/\b([a-zA-Z_$][\w$]*)\b\s*(?=[\={])/, 'variable.name'],
             
             // 对象属性
-            [/([a-zA-Z_$][\w$]*)\s*(?=:)/, 'property'],
+            //[/([a-zA-Z_$][\w$]*)\s*(?=:)/, 'property'],
             
             // 函数参数 - 改进的参数识别
             [/\(\s*(?!true|false|null|nullptr|void\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
@@ -528,6 +528,7 @@ export const languageConfig_cpp = {
             [/\s+/, 'white'],  // 跳过空白
             [/\bvirtual|public|protected|private\b/, 'keyword'],
             [/</, { token: 'delimiter.angle', next: '@afterTypeTemplate' }],
+            [/::/, 'delimiter'],
             [/[a-zA-Z_$][\w$]*\b/, 'type'],
             [/,/, 'delimiter'],
             [/[{;]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
