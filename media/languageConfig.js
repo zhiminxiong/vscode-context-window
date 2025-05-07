@@ -432,6 +432,8 @@ export const languageConfig_cpp = {
             // 函数参数 - 改进的参数识别
             [/\(\s*(?!true|false|null|nullptr|void\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
             [/,\s*(?!true|false|null|nullptr|void\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
+
+            [/\}\s*(?=\b[a-zA-Z_$][\w$]*\s*;$)/, { token: 'delimiter', next: '@typedefStructName'}],
             
             // 布尔值
             [/\b(true|false)\b/, 'boolean'],
@@ -503,9 +505,10 @@ export const languageConfig_cpp = {
             [/\s+/, 'white'],  // 跳过空白
             [/\bconst|volatile|static|thread_local|constexpr|operator|mutable\b/, 'keyword'],
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, 'type'],
-            [/\b([a-zA-Z_$][\w$]*)\b(?!\s*\()/, { token: 'variable.name', next: '@pop' }],
+            [/\b([a-zA-Z_$][\w$]*)\b(?!\s*\()/, 'variable.name'],//{ token: 'variable.name', next: '@pop' }],
             [/[\*&,]/, 'delimiter'],
-            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/,/, 'delimiter.bracket'],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
@@ -578,6 +581,14 @@ export const languageConfig_cpp = {
         typeDeclare: [
             [/\s+/, 'white'],  // 跳过空白
             [/([a-zA-Z_$][\w$]*)/, 'variable.name'],
+            [/,/, 'delimiter.bracket'],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        typedefStructName: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/([a-zA-Z_$][\w$]*)/, 'class.name'],
             [/,/, 'delimiter.bracket'],
             [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
