@@ -40,6 +40,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
     private _pinned = false;
     private _currentPanel?: vscode.WebviewPanel; // 添加成员变量存储当前面板
     private _pickItems: any[] | undefined; // 添加成员变量存储选择项
+    private _currentSelectedText: string = ''; // 添加成员变量存储当前选中的文本
 
     private _themeListener: vscode.Disposable | undefined;
 
@@ -442,10 +443,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     if (this._pickItems && message.label) {
                         const selected = this._pickItems.find(item => item.label === message.label);
                         if (selected && editor) {
-                            // 获取当前光标位置的token
-                            const position = editor.selection.active;
-                            const wordRange = editor.document.getWordRangeAtPosition(position);
-                            const selectedText = wordRange ? editor.document.getText(wordRange) : '';
+                            // 使用缓存的选中文本，而不是重新获取
+                            const selectedText = this._currentSelectedText;
                             
                             // 渲染选中的定义
                             this._renderer.renderDefinitions(editor.document, [selected.definition], selectedText).then(contentInfo => {
@@ -469,6 +468,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         if (this.isSameDefinition(message.uri, message.position.line, message.token)) {
                             // 不需处理
                         } else {
+                            // 缓存点击的token文本
+                            this._currentSelectedText = message.token || '';
+                            
                             let definitions = await vscode.commands.executeCommand<vscode.Location[]>(
                                 'vscode.executeDefinitionProvider',
                                 vscode.Uri.parse(message.uri),
@@ -1560,8 +1562,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         // 获取当前光标位置下的单词或标识符的范围
         const wordRange = editor.document.getWordRangeAtPosition(position);
 
-        // 获取该范围内的文本内容
+        // 获取该范围内的文本内容并缓存
         const selectedText = wordRange ? editor.document.getText(wordRange) : '';
+        this._currentSelectedText = selectedText; // 缓存选中的文本
         //vscode.window.showInformationMessage(`Selected text: ${selectedText}`);
 
         let definitions = await this.getDefinitionAtCurrentPositionInEditor(editor);
