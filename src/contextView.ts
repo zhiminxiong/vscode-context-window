@@ -478,7 +478,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                             if (definitions && definitions.length > 0) {
                                 //console.log('[definition] jumpDefinition: ', definitions);
                                 // 如果有多个定义，传递给 Monaco Editor
-                                if (definitions.length > 0) {
+                                if (definitions.length > 1) {
                                     const selectedDefinition = await this.showDefinitionPicker(definitions, editor);
                                     definitions = selectedDefinition ? [selectedDefinition] : [];
                                 }
@@ -1577,7 +1577,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             this._currentPanel = undefined;
         }
 
-        if (definitions.length > 0) {
+        if (definitions.length > 1) {
             const selectedDefinition = await this.showDefinitionPicker(definitions, editor);
             if (!selectedDefinition) {
                 return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '' };
@@ -1611,7 +1611,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
     private async showDefinitionPicker(definitions: any[], editor: vscode.TextEditor): Promise<any> {
         // 如果只有一个定义，直接返回该定义，不显示选择器
         if (definitions.length <= 1) {
-            //return definitions.length === 1 ? definitions[0] : undefined;
+            return definitions.length === 1 ? definitions[0] : undefined;
         }
 
         if (!this._view) {
