@@ -157,7 +157,10 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                 horizontalHasArrows: false,
                                 alwaysConsumeMouseWheel: false
                             },
-                            scrollBeyondLastLine: false
+                            scrollBeyondLastLine: false,
+                            lineNumbers: 'on',
+                            wordWrap: 'off',
+                            minimap: { enabled: false }
                         };
 
                         // 从 VS Code 配置中提取相关选项
