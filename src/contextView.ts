@@ -1235,8 +1235,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         if (index >= 0) {
                             const selectedItem = items[index];
                             selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            
+                            // 立即选择该定义
+                            const label = selectedItem.querySelector('strong').textContent;
+                            window.vscode.postMessage({
+                                type: 'selectDefinition',
+                                label: label
+                            });
                         }
-                    } else if (e.key === 'Enter') {
+                    }/*  else if (e.key === 'Enter') {
                         const selected = document.querySelector('.picker-item.selected');
                         if (selected) {
                             const label = selected.querySelector('strong').textContent;
@@ -1245,7 +1252,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                                 label: label
                             });
                         }
-                    }
+                    } */
                 }
 
                 // 暴露函数给外部使用
@@ -1619,30 +1626,30 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 // targetSelectionRange更准确，会有targetRange不正确的情况
                 let range = (def instanceof vscode.Location) ? def.range : (def.targetSelectionRange ?? def.targetRange);
 
-                const document = await vscode.workspace.openTextDocument(uri);
-                if (!document) {
-                    return null;
-                }
+                // const document = await vscode.workspace.openTextDocument(uri);
+                // if (!document) {
+                //     return null;
+                // }
 
-                const startLine = Math.max(range.start.line - 3, 0);
-                const endLine = Math.min(range.start.line + 3, document.lineCount - 1);
+                // const startLine = Math.max(range.start.line - 3, 0);
+                // const endLine = Math.min(range.start.line + 3, document.lineCount - 1);
                 
-                const codeLines = [];
-                for (let i = startLine; i <= endLine; i++) {
-                    const line = document.lineAt(i).text;
-                    if (i === range.start.line) {
-                        codeLines.push(`<mark>${line}</mark>`);
-                    } else {
-                        codeLines.push(line);
-                    }
-                }
-                // 留点空白
-                const codeSnippet = codeLines.join('        \n');
+                // const codeLines = [];
+                // for (let i = startLine; i <= endLine; i++) {
+                //     const line = document.lineAt(i).text;
+                //     if (i === range.start.line) {
+                //         codeLines.push(`<mark>${line}</mark>`);
+                //     } else {
+                //         codeLines.push(line);
+                //     }
+                // }
+                // // 留点空白
+                // const codeSnippet = codeLines.join('        \n');
 
                 return {
                     label: `Definition ${index + 1}: ${uri.fsPath}`,
                     description: `Line: ${range.start.line + 1}, Column: ${range.start.character + 1}`,
-                    detail: codeSnippet,
+                    //detail: codeSnippet,
                     definition
                 };
             } catch (error) {
