@@ -380,6 +380,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         if (lastIdx !== this._historyIndex) {
             const contentInfo = this._history[this._historyIndex];
             this.updateContent(contentInfo?.content, contentInfo.curLine);
+            
+            // 隐藏定义选择器，因为导航到了不同的上下文
+            if (this._view) {
+                this._view.webview.postMessage({ type: 'hideDefinitionPicker' });
+            }
+            // 清空选择项缓存
+            this._pickItems = undefined;
         }
     }
 
@@ -420,6 +427,43 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 case 'navigate':
                     this.navigate(message.direction);
                     break;
+                case 'showDefinitionPicker':
+                    // 直接处理显示定义选择器的消息
+                    if (message.items && Array.isArray(message.items)) {
+                        // 不需要重新发送消息，webview会通过window.addEventListener接收到这个消息
+                    }
+                    break;
+                case 'hideDefinitionPicker':
+                    // 直接处理隐藏定义选择器的消息
+                    // 不需要重新发送消息，webview会通过window.addEventListener接收到这个消息
+                    break;
+                case 'selectDefinition':
+                    // 处理用户在定义选择器中选择不同定义的情况
+                    if (this._pickItems && message.label) {
+                        const selected = this._pickItems.find(item => item.label === message.label);
+                        if (selected && editor) {
+                            // 获取当前光标位置的token
+                            const position = editor.selection.active;
+                            const wordRange = editor.document.getWordRangeAtPosition(position);
+                            const selectedText = wordRange ? editor.document.getText(wordRange) : '';
+                            
+                            // 渲染选中的定义
+                            this._renderer.renderDefinitions(editor.document, [selected.definition], selectedText).then(contentInfo => {
+                                this.updateContent(contentInfo);
+                                // 更新历史记录的内容，但保持当前行号
+                                if (this._history.length > this._historyIndex) {
+                                    this._history[this._historyIndex].content = contentInfo;
+                                }
+                            });
+                        }
+                    }
+                    break;
+                case 'escapePressed':
+                    // 用户按ESC时隐藏定义选择器，但保持当前内容
+                    if (this._view) {
+                        this._view.webview.postMessage({ type: 'hideDefinitionPicker' });
+                    }
+                    break;
                 case 'jumpDefinition':
                     if (editor && message.uri?.length > 0) {
                         if (this.isSameDefinition(message.uri, message.position.line, message.token)) {
@@ -434,7 +478,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                             if (definitions && definitions.length > 0) {
                                 //console.log('[definition] jumpDefinition: ', definitions);
                                 // 如果有多个定义，传递给 Monaco Editor
-                                if (definitions.length > 1) {
+                                if (definitions.length > 0) {
                                     const selectedDefinition = await this.showDefinitionPicker(definitions, editor);
                                     definitions = selectedDefinition ? [selectedDefinition] : [];
                                 }
@@ -642,66 +686,203 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     to { transform: rotate(360deg); }
                 }
                 
-                body, html, #container {
+                body, html {
                     margin: 0;
                     padding: 0;
                     width: 100%;
                     height: 100%;
                     overflow: hidden;
-                    cursor: pointer !important; /* 强制全局手型光标 */
-                    box-sizing: border-box; /* 添加此行确保边框和内边距包含在元素宽高内 */
-                }
-
-                /* 添加以下样式确保没有顶部留白 */
-                body {
+                    box-sizing: border-box;
                     position: absolute;
                     top: 0;
                     left: 0;
-                    margin: 0 !important;
-                    padding: 0 !important;
                 }
-                
+
+                /* 主容器 - 左右分栏布局 */
+                .main-container {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 24px; /* 为底部导航栏留空间 */
+                    display: flex;
+                    overflow: hidden;
+                }
+
+                /* 左侧定义选择器 */
+                .definition-picker {
+                    width: 50%;
+                    min-width: 200px;
+                    max-width: 70%;
+                    background-color: var(--vscode-editor-background);
+                    border-right: 1px solid var(--vscode-editorWidget-border);
+                    overflow-y: auto;
+                    overflow-x: auto;
+                    display: none; /* 默认隐藏 */
+                    flex-shrink: 0;
+                }
+
+                .definition-picker.visible {
+                    display: block;
+                }
+
+                /* 自定义滚动条样式 */
+                .definition-picker::-webkit-scrollbar {
+                    width: 12px;
+                    height: 12px;
+                }
+
+                .definition-picker::-webkit-scrollbar-track {
+                    background: var(--vscode-scrollbarSlider-background);
+                    border-radius: 6px;
+                }
+
+                .definition-picker::-webkit-scrollbar-thumb {
+                    background: var(--vscode-scrollbarSlider-background);
+                    border-radius: 6px;
+                    border: 2px solid var(--vscode-editor-background);
+                }
+
+                .definition-picker::-webkit-scrollbar-thumb:hover {
+                    background: var(--vscode-scrollbarSlider-hoverBackground);
+                }
+
+                .definition-picker::-webkit-scrollbar-thumb:active {
+                    background: var(--vscode-scrollbarSlider-activeBackground);
+                }
+
+                .definition-picker::-webkit-scrollbar-corner {
+                    background: var(--vscode-editor-background);
+                }
+
+                /* 定义选择器内容样式 */
+                .picker-item {
+                    padding: 6px 10px;
+                    border-bottom: 1px solid var(--vscode-editorWidget-border);
+                    cursor: pointer;
+                    transition: background-color 0.2s ease;
+                }
+
+                .picker-item:hover {
+                    background-color: var(--vscode-list-hoverBackground);
+                }
+
+                .picker-item.selected {
+                    background-color: var(--vscode-list-activeSelectionBackground);
+                    border-left: 3px solid var(--vscode-list-activeSelectionForeground);
+                    color: var(--vscode-list-activeSelectionForeground);
+                }
+
+                .picker-item .header {
+                    margin: 0;
+                    white-space: nowrap;
+                    min-width: max-content;
+                }
+
+                .picker-item .code-container {
+                    position: relative;
+                    width: 100%;
+                    overflow-x: auto;
+                    background-color: var(--vscode-editor-background);
+                    border: 1px solid var(--vscode-editorWidget-border);
+                    border-radius: 3px;
+                    padding: 6px 8px;
+                }
+
+                .picker-item pre {
+                    margin: 0;
+                    white-space: pre !important;
+                    word-wrap: normal !important;
+                    padding: 4px 8px;
+                    background: transparent;
+                    display: inline-block;
+                    min-width: fit-content;
+                    font-family: var(--vscode-editor-font-family);
+                    font-size: calc(var(--vscode-editor-font-size) * 0.9);
+                }
+
+                .picker-item code {
+                    white-space: pre !important;
+                    word-wrap: normal !important;
+                    display: inline-block;
+                    font-family: var(--vscode-editor-font-family);
+                    width: max-content;
+                    color: var(--vscode-editor-foreground);
+                }
+
+                .picker-item mark {
+                    background-color: var(--vscode-editor-findMatchHighlightBackground);
+                    border: 1px solid var(--vscode-editor-findMatchBorder);
+                    border-radius: 2px;
+                    padding: 1px 2px;
+                    color: var(--vscode-editor-foreground);
+                }
+
+                /* 右侧内容区域 */
+                .content-area {
+                    flex: 1;
+                    position: relative;
+                    overflow: hidden;
+                    padding-bottom: 8px; /* 增加底部空间，确保滚动条不被遮挡 */
+                }
+
                 #container {
-                    height: 100vh;
-                    cursor: pointer !important; /* 强制容器手型光标 */
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    margin-top: 0 !important;
-                    padding-top: 0 !important;
-                    overflow-x: auto !important; /* 添加横向滚动条 */
-                    overflow-y: hidden; /* 保持垂直方向不滚动 */
+                    width: 100%;
+                    height: calc(100% - 8px); /* 减去底部padding */
+                    cursor: pointer !important;
+                    overflow: hidden;
+                    position: relative;
                 }
 
-                /* 专门针对 Monaco Editor 的滚动条样式 */
+                /* 简单增强Monaco Editor滚动条样式 */
                 .monaco-editor .monaco-scrollable-element .slider.horizontal {
-                    height: 15px !important; /* 增加横向滚动条高度 */
+                    height: 8px !important;
+                    border-radius: 4px !important;
                 }
                 
-                /* 确保 Monaco 滚动条容器有足够的高度 */
                 .monaco-editor .monaco-scrollable-element .scrollbar.horizontal {
-                    height: 18px !important; /* 滚动条容器高度 */
-                    bottom: 0 !important;
+                    height: 10px !important;
                 }
 
-                /* 确保Monaco编辑器内容可以横向滚动 */
-                .monaco-editor {
-                    overflow-x: visible !important;
+                .monaco-editor .monaco-scrollable-element .slider.vertical {
+                    width: 20px !important;
+                    border-radius: 10px !important;
                 }
                 
-                /* 确保编辑器内容区域可以横向滚动 */
+                .monaco-editor .monaco-scrollable-element .scrollbar.vertical {
+                    width: 22px !important;
+                }
+
+                /* 通用滑块圆角样式 - 使用更强的选择器 */
+                .monaco-editor .monaco-scrollable-element .slider {
+                    border-radius: 6px !important;
+                }
+
+                /* 确保Monaco Editor填满容器 */
+                .monaco-editor {
+                    width: 100% !important;
+                    height: 100% !important;
+                }
+                
                 .monaco-editor .monaco-scrollable-element {
-                    overflow-x: visible !important;
+                    width: 100% !important;
+                    height: 100% !important;
+                }
+
+                /* 确保Monaco Editor的视口内容正常显示 */
+                .monaco-editor .view-lines {
+                    width: max-content !important;
                 }
                 
                 #main {
                     display: none;
                     padding: 10px;
-                    cursor: pointer !important; /* 强制主内容区手型光标 */
+                    cursor: pointer !important;
                     margin-top: 0 !important;
-                    overflow-x: auto !important; /* 添加横向滚动条 */
+                    overflow: hidden;
                 }
-                /* 新增底部导航栏样式 */
+
+                /* 底部导航栏样式 */
                 .nav-bar {
                     position: fixed;
                     bottom: 0;
@@ -715,7 +896,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     justify-content: flex-start;
                     gap: 8px;
                     z-index: 1000;
-                    padding-left: 20px; /* 添加左侧内边距 */
+                    padding-left: 20px;
                 }
 
                 .nav-button {
@@ -759,16 +940,17 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 .nav-button:hover::before {
                     opacity: 1;
                 }
-                /* 添加双击区域样式 */
+
+                /* 双击区域样式 */
                 .double-click-area {
                     position: fixed;
-                    bottom: 0; /* 与导航栏高度一致 */
+                    bottom: 0;
                     left: 80px;
                     right: 0;
                     height: 24px;
                     z-index: 1001;
                     cursor: pointer;
-                    background-color: rgba(89, 255, 0, 0.11); /* 调试用，可移除 */
+                    background-color: rgba(89, 255, 0, 0.11);
                     display: flex;
                     align-items: left;
                     justify-content: left;
@@ -777,7 +959,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     font-style: italic;
                     padding-left: 10px;
                 }
-                /* 添加文件名显示样式 */
+
                 .filename-display {
                     text-align: left;
                     color: rgba(128, 128, 128, 0.8);
@@ -791,6 +973,52 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     z-index: 1002;
                     padding-left: 60px;
                 }
+
+                /* 分割线调整 */
+                .resize-handle {
+                    width: 4px;
+                    background-color: var(--vscode-editorWidget-border);
+                    cursor: ew-resize;
+                    position: relative;
+                    flex-shrink: 0;
+                    display: none;
+                    transition: background-color 0.2s ease;
+                    z-index: 10;
+                }
+
+                .resize-handle.visible {
+                    display: block;
+                }
+
+                .resize-handle:hover {
+                    background-color: var(--vscode-focusBorder);
+                }
+
+                .resize-handle:active {
+                    background-color: var(--vscode-focusBorder);
+                }
+
+                /* 增加拖拽区域 */
+                .resize-handle::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: -6px;
+                    right: -6px;
+                    bottom: 0;
+                    cursor: ew-resize;
+                }
+
+                /* 添加拖动时的全局样式 */
+                body.resizing {
+                    cursor: ew-resize !important;
+                    user-select: none !important;
+                }
+
+                body.resizing * {
+                    cursor: ew-resize !important;
+                    user-select: none !important;
+                }
             </style>
 
             <link href="${styleUri}" rel="stylesheet">
@@ -799,15 +1027,36 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         </head>
         <body>
             <div class="loading"></div>
-            <article id="main">加载中...</article>
-            <div id="container"></div>
+            
+            <!-- 主容器 - 左右分栏 -->
+            <div class="main-container">
+                <!-- 左侧定义选择器 -->
+                <div class="definition-picker" id="definition-picker">
+                    <!-- 定义选择器内容将通过JavaScript动态填充 -->
+                </div>
+                
+                <!-- 分割线 -->
+                <div class="resize-handle" id="resize-handle"></div>
+                
+                <!-- 右侧内容区域 -->
+                <div class="content-area">
+                    <article id="main">加载中...</article>
+                    <div id="container"></div>
+                </div>
+            </div>
 
-            <!-- 添加双击区域 -->
+            <!-- 双击区域 -->
             <div class="double-click-area">
                 <span>dbclick to open...</span>
                 <span class="filename-display"></span>
             </div>
             
+            <!-- 底部导航栏 -->
+            <div class="nav-bar">
+                <button class="nav-button" id="nav-back">  </button>
+                <button class="nav-button" id="nav-forward">  </button>
+            </div>
+
             <!-- 添加一个简单的初始化脚本，用于调试和传递Monaco路径 -->
             <script nonce="${nonce}">
                 //console.log('[definition] HTML loaded');
@@ -829,17 +1078,38 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         theme: '${currentTheme}' 
                     };
                 }
+
+                // 抑制 ResizeObserver 循环警告
+                const resizeObserverErrorHandler = (e) => {
+                    if (e.message && e.message.includes('ResizeObserver loop completed with undelivered notifications')) {
+                        e.stopImmediatePropagation();
+                        return false;
+                    }
+                };
+
+                // 监听错误事件
+                window.addEventListener('error', resizeObserverErrorHandler);
+                window.addEventListener('unhandledrejection', (e) => {
+                    if (e.reason && e.reason.message && e.reason.message.includes('ResizeObserver loop')) {
+                        e.preventDefault();
+                        return false;
+                    }
+                });
+
+                // 重写 console.error 来过滤 ResizeObserver 警告
+                const originalConsoleError = console.error;
+                console.error = function(...args) {
+                    const message = args.join(' ');
+                    if (message.includes('ResizeObserver loop completed with undelivered notifications')) {
+                        return; // 忽略这个特定的警告
+                    }
+                    originalConsoleError.apply(console, args);
+                };
             </script>
             
             <!-- 加载我们的主脚本，它会动态加载Monaco -->
             <script type="module" nonce="${nonce}" src="${scriptUri}" onerror="console.error('[definition] Failed to load main.js'); document.getElementById('main').innerHTML = '<div style=\\'color: red; padding: 20px;\\'>Failed to load main.js</div>'"></script>
             
-            <!-- 新增底部导航栏 -->
-            <div class="nav-bar">
-                <button class="nav-button" id="nav-back">  </button>
-                <button class="nav-button" id="nav-forward">  </button>
-            </div>
-
             <script nonce="${nonce}">
                 // 导航按钮事件处理
                 const backButton = document.getElementById('nav-back');
@@ -864,6 +1134,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     backButton.disabled = !canGoBack;
                     forwardButton.disabled = !canGoForward;
                 }
+
                 // 双击事件处理
                 const doubleClickArea = document.querySelector('.double-click-area');
                 doubleClickArea.addEventListener('dblclick', () => {
@@ -872,6 +1143,284 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         type: 'doubleClick',
                         location: 'bottomArea'
                     });
+                });
+
+                // 定义选择器相关功能
+                function showDefinitionPicker(items) {
+                    const picker = document.getElementById('definition-picker');
+                    const resizeHandle = document.getElementById('resize-handle');
+                    const mainContainer = document.querySelector('.main-container');
+                    
+                    // 清空现有内容
+                    picker.innerHTML = '';
+                    
+                    // 设置初始宽度为30%
+                    if (mainContainer) {
+                        const containerWidth = mainContainer.offsetWidth;
+                        picker.style.width = Math.floor(containerWidth * 0.3) + 'px';
+                    }
+                    
+                    // 添加定义项
+                    items.forEach((item, index) => {
+                        const itemDiv = document.createElement('div');
+                        itemDiv.className = 'picker-item';
+                        if (index === 0) itemDiv.classList.add('selected'); // 默认选中第一项
+                        
+                        itemDiv.innerHTML = \`
+                            <div class="header">
+                                <strong>\${item.label}</strong> - \${item.description}
+                            </div>
+                        \`;
+                        
+                        // 添加点击事件
+                        itemDiv.addEventListener('click', () => {
+                            // 更新选中状态
+                            document.querySelectorAll('.picker-item').forEach(el => el.classList.remove('selected'));
+                            itemDiv.classList.add('selected');
+                            
+                            // 发送选择消息
+                            window.vscode.postMessage({
+                                type: 'selectDefinition',
+                                label: item.label
+                            });
+                        });
+                        
+                        picker.appendChild(itemDiv);
+                    });
+                    
+                    // 显示选择器和分割线
+                    picker.classList.add('visible');
+                    resizeHandle.classList.add('visible');
+                    
+                    // 键盘导航支持
+                    document.addEventListener('keydown', handlePickerKeydown);
+                }
+
+                function hideDefinitionPicker() {
+                    const picker = document.getElementById('definition-picker');
+                    const resizeHandle = document.getElementById('resize-handle');
+                    
+                    picker.classList.remove('visible');
+                    resizeHandle.classList.remove('visible');
+                    
+                    // 移除键盘事件监听
+                    document.removeEventListener('keydown', handlePickerKeydown);
+                }
+
+                function handlePickerKeydown(e) {
+                    const picker = document.getElementById('definition-picker');
+                    if (!picker.classList.contains('visible')) return;
+                    
+                    if (e.key === 'Escape') {
+                        window.vscode.postMessage({
+                            type: 'escapePressed'
+                        });
+                    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || 
+                               (e.ctrlKey && (e.key === 'p' || e.key === 'n'))) {
+                        e.preventDefault();
+                        
+                        const items = Array.from(document.querySelectorAll('.picker-item'));
+                        const current = document.querySelector('.picker-item.selected');
+                        let index = current ? items.indexOf(current) : -1;
+                        
+                        if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) {
+                            index = Math.max(index - 1, 0);
+                        } else {
+                            index = Math.min(index + 1, items.length - 1);
+                        }
+                        
+                        items.forEach((item, i) => {
+                            item.classList.toggle('selected', i === index);
+                        });
+                        
+                        // 滚动到选中项
+                        if (index >= 0) {
+                            const selectedItem = items[index];
+                            selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    } else if (e.key === 'Enter') {
+                        const selected = document.querySelector('.picker-item.selected');
+                        if (selected) {
+                            const label = selected.querySelector('strong').textContent;
+                            window.vscode.postMessage({
+                                type: 'selectDefinition',
+                                label: label
+                            });
+                        }
+                    }
+                }
+
+                // 暴露函数给外部使用
+                window.showDefinitionPicker = showDefinitionPicker;
+                window.hideDefinitionPicker = hideDefinitionPicker;
+
+                // 实现拖动调整大小功能
+                function initializeResizer() {
+                    const resizeHandle = document.getElementById('resize-handle');
+                    const leftPanel = document.getElementById('definition-picker');
+                    const mainContainer = document.querySelector('.main-container');
+                    
+                    if (!resizeHandle || !leftPanel || !mainContainer) return;
+                    
+                    let isResizing = false;
+                    let startX = 0;
+                    let startWidth = 0;
+                    let animationFrameId = null;
+                    let windowResizeTimeout = null;
+                    
+                    // 简化的更新函数，移除复杂的节流逻辑
+                    const updateWidth = (newWidth) => {
+                        if (animationFrameId) {
+                            cancelAnimationFrame(animationFrameId);
+                        }
+                        
+                        animationFrameId = requestAnimationFrame(() => {
+                            try {
+                                const containerWidth = mainContainer.offsetWidth;
+                                const minWidth = 150;
+                                const maxWidth = containerWidth * 0.75;
+                                
+                                if (newWidth >= minWidth && newWidth <= maxWidth) {
+                                    leftPanel.style.width = newWidth + 'px';
+                                }
+                            } catch (error) {
+                                // 忽略resize相关的错误
+                                if (!error.message.includes('ResizeObserver')) {
+                                    console.error('Resize error:', error);
+                                }
+                            }
+                            animationFrameId = null;
+                        });
+                    };
+                    
+                    // 改进事件监听，支持触摸事件和鼠标捕获
+                    const handleStart = (e) => {
+                        isResizing = true;
+                        startX = e.clientX || (e.touches && e.touches[0].clientX);
+                        startWidth = leftPanel.offsetWidth;
+                        
+                        // 添加拖动状态的CSS类
+                        document.body.classList.add('resizing');
+                        
+                        // 设置鼠标捕获，确保即使鼠标移出元素也能跟踪
+                        if (e.setPointerCapture && e.pointerId !== undefined) {
+                            resizeHandle.setPointerCapture(e.pointerId);
+                        } else {
+                            // 对于不支持 Pointer Events 的浏览器，使用鼠标捕获
+                            if (resizeHandle.setCapture) {
+                                resizeHandle.setCapture();
+                            }
+                        }
+                        
+                        e.preventDefault();
+                        e.stopPropagation();
+                    };
+                    
+                    const handleMove = (e) => {
+                        if (!isResizing) return;
+                        
+                        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+                        const deltaX = clientX - startX;
+                        const newWidth = startWidth + deltaX;
+                        
+                        // 直接更新，不使用复杂的节流
+                        updateWidth(newWidth);
+                        
+                        e.preventDefault();
+                        e.stopPropagation();
+                    };
+                    
+                    const handleEnd = (e) => {
+                        if (isResizing) {
+                            isResizing = false;
+                            document.body.classList.remove('resizing');
+                            
+                            // 释放鼠标捕获
+                            if (e && e.releasePointerCapture && e.pointerId !== undefined) {
+                                try {
+                                    resizeHandle.releasePointerCapture(e.pointerId);
+                                } catch (err) {
+                                    // 忽略释放捕获时的错误
+                                }
+                            } else {
+                                // 对于不支持 Pointer Events 的浏览器
+                                if (document.releaseCapture) {
+                                    document.releaseCapture();
+                                }
+                            }
+                            
+                            // 清理动画帧
+                            if (animationFrameId) {
+                                cancelAnimationFrame(animationFrameId);
+                                animationFrameId = null;
+                            }
+                        }
+                    };
+                    
+                    // 使用 Pointer Events（更现代的方式）
+                    resizeHandle.addEventListener('pointerdown', handleStart, { passive: false });
+                    document.addEventListener('pointermove', handleMove, { passive: false });
+                    document.addEventListener('pointerup', handleEnd, { passive: true });
+                    document.addEventListener('pointercancel', handleEnd, { passive: true });
+                    
+                    // 兼容性：同时支持鼠标事件
+                    resizeHandle.addEventListener('mousedown', handleStart, { passive: false });
+                    document.addEventListener('mousemove', handleMove, { passive: false });
+                    document.addEventListener('mouseup', handleEnd, { passive: true });
+                    
+                    // 触摸事件（移动端支持）
+                    resizeHandle.addEventListener('touchstart', handleStart, { passive: false });
+                    document.addEventListener('touchmove', handleMove, { passive: false });
+                    document.addEventListener('touchend', handleEnd, { passive: true });
+                    
+                    // 处理鼠标离开窗口的情况
+                    document.addEventListener('mouseleave', handleEnd, { passive: true });
+                    
+                    // 窗口大小改变时重新计算（使用更长的防抖时间）
+                    window.addEventListener('resize', () => {
+                        if (windowResizeTimeout) {
+                            clearTimeout(windowResizeTimeout);
+                        }
+                        
+                        windowResizeTimeout = setTimeout(() => {
+                            try {
+                                if (leftPanel.classList.contains('visible')) {
+                                    const containerWidth = mainContainer.offsetWidth;
+                                    const currentWidth = leftPanel.offsetWidth;
+                                    const maxWidth = containerWidth * 0.75;
+                                    
+                                    if (currentWidth > maxWidth) {
+                                        const newWidth = Math.min(containerWidth * 0.5, maxWidth);
+                                        leftPanel.style.width = newWidth + 'px';
+                                    }
+                                }
+                            } catch (error) {
+                                // 忽略resize相关的错误
+                                if (!error.message.includes('ResizeObserver')) {
+                                    console.error('Window resize error:', error);
+                                }
+                            }
+                            windowResizeTimeout = null;
+                        }, 250); // 增加到250ms防抖
+                    }, { passive: true });
+                }
+
+                // 初始化调整大小功能
+                initializeResizer();
+
+                // 处理来自VS Code的消息
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    switch (message.type) {
+                        case 'showDefinitionPicker':
+                            if (message.items && Array.isArray(message.items)) {
+                                showDefinitionPicker(message.items);
+                            }
+                            break;
+                        case 'hideDefinitionPicker':
+                            hideDefinitionPicker();
+                            break;
+                    }
                 });
             </script>
         </body>
@@ -939,6 +1488,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             //console.log('[definition] update no editor');
             return;
         }
+        
+        // 隐藏定义选择器，因为移动到了新的上下文
+        if (this._view) {
+            this._view.webview.postMessage({ type: 'hideDefinitionPicker' });
+        }
+        this._pickItems = undefined;
         
         //console.log('[definition] update');
         const loadingEntry = { cts: new vscode.CancellationTokenSource() };
@@ -1017,7 +1572,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             this._currentPanel = undefined;
         }
 
-        if (definitions.length > 1) {
+        if (definitions.length > 0) {
             const selectedDefinition = await this.showDefinitionPicker(definitions, editor);
             if (!selectedDefinition) {
                 return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '' };
@@ -1049,305 +1604,70 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
     }
 
     private async showDefinitionPicker(definitions: any[], editor: vscode.TextEditor): Promise<any> {
-        return new Promise<any>((resolve) => {
-            this._currentPanel = vscode.window.createWebviewPanel(
-                'definitionPicker',
-                'Select a Definition',
-                vscode.ViewColumn.Beside,
-                {
-                    enableScripts: true,
-                    retainContextWhenHidden: true
-                }
-            );
+        // 如果只有一个定义，直接返回该定义，不显示选择器
+        if (definitions.length <= 1) {
+            //return definitions.length === 1 ? definitions[0] : undefined;
+        }
 
-            const panel = this._currentPanel;
-            let isResolved = false;
+        if (!this._view) {
+            return undefined;
+        }
 
-            // 先设置事件监听
-            panel.webview.onDidReceiveMessage(async message => {
-                //console.log('[definition] Received message from webview:', message);
-                if (message.command === 'selectDefinition' && !isResolved) {
-                    const selected = this._pickItems?.find(item => item.label === message.label);
-                    if (selected) {
-                        isResolved = true;
-                        this._currentPanel = undefined;
-                        panel.dispose();
-                        resolve(selected.definition);
-                    } else
-                        resolve(undefined);
-                    // 让编辑器重新获得焦点
-                    if (editor) {
-                        vscode.window.showTextDocument(editor.document, {
-                            viewColumn: editor.viewColumn,
-                            preserveFocus: false
-                        });
-                    }
-                } else if (message.command === 'escapePressed' && !isResolved) {
-                    // 处理 ESC 键按下事件
-                    isResolved = true;
-                    this._currentPanel = undefined;
-                    panel.dispose();
-                    // 让编辑器重新获得焦点
-                    if (editor) {
-                        vscode.window.showTextDocument(editor.document, {
-                            viewColumn: editor.viewColumn,
-                            preserveFocus: false
-                        });
-                    }
-                    resolve(undefined);
-                }
-            });
+        // 准备定义项数据
+        const items = await Promise.all(definitions.map(async (definition, index) => {
+            try {
+                let def = definition;
+                let uri = (def instanceof vscode.Location) ? def.uri : def.targetUri;
+                // targetSelectionRange更准确，会有targetRange不正确的情况
+                let range = (def instanceof vscode.Location) ? def.range : (def.targetSelectionRange ?? def.targetRange);
 
-            panel.onDidDispose(() => {
-                this._pickItems = undefined; // Clear stored items
-                if (!isResolved) {
-                    isResolved = true;
-                    this._currentPanel = undefined;
-                    resolve(undefined);
-                }
-            });
-
-            //console.log(`[definition] Showing definition picker with ${definitions.length} definitions`);
-            //ContextWindowProvider.outputChannel.appendLine(`[definition] Showing definition picker with ${definitions.length} definitions`);
-
-            // 然后准备并设置内容
-            Promise.all(definitions.map(async (definition, index) => {
-                try {
-                    let def = definition;
-                    let uri = (def instanceof vscode.Location) ? def.uri : def.targetUri;
-                    // targetSelectionRange更准确，会有targetRange不正确的情况
-                    let range = (def instanceof vscode.Location) ? def.range : (def.targetSelectionRange ?? def.targetRange);
-
-                    const document = await vscode.workspace.openTextDocument(uri);
-                    if (!document) {
-                        //ContextWindowProvider.outputChannel.appendLine(`Could not open document: ${uri.toString()}`);
-                        return null;
-                    }
-    
-                    const startLine = Math.max(range.start.line - 3, 0);
-                    const endLine = Math.min(range.start.line + 3, document.lineCount - 1);
-                    
-                    const codeLines = [];
-                    for (let i = startLine; i <= endLine; i++) {
-                        const line = document.lineAt(i).text;
-                        if (i === range.start.line) {
-                            codeLines.push(`<mark>${line}</mark>`);
-                        } else {
-                            codeLines.push(line);
-                        }
-                    }
-                    // 留点空白
-                    const codeSnippet = codeLines.join('        \n');
-    
-                    return {
-                        label: `Definition ${index + 1}: ${uri.fsPath}`,
-                        description: `Line: ${range.start.line + 1}, Column: ${range.start.character + 1}`,
-                        detail: codeSnippet,
-                        definition
-                    };
-                } catch (error) {
-                    //ContextWindowProvider.outputChannel.appendLine(`Error processing definition: ${error}`);
+                const document = await vscode.workspace.openTextDocument(uri);
+                if (!document) {
                     return null;
                 }
-            })).then(items => {
-                // Filter out any null items from errors
-                const validItems = items.filter(item => item !== null);
-                if (validItems.length === 0) {
-                    //console.error('No valid definitions found');
-                    panel.dispose();
-                    resolve(undefined);
-                    return;
+
+                const startLine = Math.max(range.start.line - 3, 0);
+                const endLine = Math.min(range.start.line + 3, document.lineCount - 1);
+                
+                const codeLines = [];
+                for (let i = startLine; i <= endLine; i++) {
+                    const line = document.lineAt(i).text;
+                    if (i === range.start.line) {
+                        codeLines.push(`<mark>${line}</mark>`);
+                    } else {
+                        codeLines.push(line);
+                    }
                 }
-    
-                this._pickItems = validItems;
-                panel.webview.html = this.getDefinitionSelectorWebviewContent(validItems);
-            }).catch(error => {
-                //console.error('Error preparing definitions:', error);
-                panel.dispose();
-                resolve(undefined);
-            });
+                // 留点空白
+                const codeSnippet = codeLines.join('        \n');
+
+                return {
+                    label: `Definition ${index + 1}: ${uri.fsPath}`,
+                    description: `Line: ${range.start.line + 1}, Column: ${range.start.character + 1}`,
+                    detail: codeSnippet,
+                    definition
+                };
+            } catch (error) {
+                return null;
+            }
+        }));
+
+        // 过滤掉null项
+        const validItems = items.filter(item => item !== null);
+        if (validItems.length === 0) {
+            return undefined;
+        }
+
+        this._pickItems = validItems;
+        
+        // 显示定义选择器
+        this._view.webview.postMessage({
+            type: 'showDefinitionPicker',
+            items: validItems
         });
-    }
 
-    private getDefinitionSelectorWebviewContent(items: any[]): string {
-        const itemsHtml = items.map(item => `
-            <div class="item" ondblclick="selectDefinition('${item.label}')">
-                <div class="header">
-                    <strong>${item.label}</strong>
-                    <p>${item.description}</p>
-                </div>
-                <div class="code-container">
-                    <pre><code>${item.detail}</code></pre>
-                </div>
-            </div>
-        `).join('');
-
-        return `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body { 
-                        font-family: Arial, sans-serif; 
-                        margin: 0;
-                        padding: 0;
-                        max-height: 100vh;
-                        overflow-y: auto;
-                        overflow-x: hidden;
-                    }
-                    .item { 
-                        padding: 10px; 
-                        border-bottom: 1px solid #ccc; 
-                        cursor: pointer;
-                    }
-                    .item:hover { 
-                        background-color:rgba(0, 120, 212, 0.27);
-                    }
-                    .item.selected {
-                        background-color: rgba(0, 120, 212, 0.27);
-                        border-left: 3px solid #0078d4;
-                    }
-                    .header {
-                        margin-bottom: 8px;
-                    }
-                    .code-container {
-                        position: relative;
-                        width: 100%;
-                        overflow-x: auto;
-                        background-color: #fafafa;
-                        border-radius: 4px;
-                        padding: 8px;  // Add horizontal padding to container
-                    }
-                    pre { 
-                        margin: 0;
-                        white-space: pre !important;
-                        word-wrap: normal !important;
-                        padding: 8px 24px;
-                        background: transparent;
-                        display: inline-block;
-                        min-width: fit-content;
-                    }
-                    code {
-                        white-space: pre !important;
-                        word-wrap: normal !important;
-                        display: inline-block;
-                        font-family: var(--vscode-editor-font-family);
-                        width: max-content;
-                    }
-                    mark {
-                        background-color: #ffe58f;
-                        padding: 2px 0;
-                    }
-                </style>
-            </head>
-            <body>
-                ${itemsHtml}
-                <script>
-                    const vscode = acquireVsCodeApi();
-                    let mouseDownTarget = null;
-                let mouseDownPosition = null;
-
-                function selectDefinition(label) {
-                    vscode.postMessage({ command: 'selectDefinition', label });
-                }
-
-                // 添加键盘事件监听，处理 ESC 键
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape') {
-                        vscode.postMessage({ command: 'escapePressed' });
-                    }
-                     else if ((e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) || 
-                            (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n'))) {
-                        //console.log('[definition] ArrowUp or ArrowDown pressed');
-                        // 防止默认滚动行为
-                        e.preventDefault();
-                        // 获取所有选项
-                        const items = Array.from(document.querySelectorAll('.item'));
-                        // 获取当前选中项
-                        const current = document.querySelector('.item.selected');
-                        let index = current ? items.indexOf(current) : -1;
-                        
-                        // 计算新选中项的索引
-                        if (e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) {
-                            index = Math.max(index - 1, 0);
-                        } else if (e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) {
-                            index = Math.min(index + 1, items.length - 1);
-                        }
-                        
-                        // 更新选中状态
-                        items.forEach((item, i) => {
-                            item.classList.toggle('selected', i === index);
-                        });
-                        // 添加滚动居中效果
-                        if (index >= 0) {
-                            const selectedItem = items[index];
-                            const itemHeight = selectedItem.offsetHeight;
-                            const containerHeight = document.body.offsetHeight;
-                            const scrollTop = selectedItem.offsetTop - (containerHeight / 2) + (itemHeight / 2);
-                            
-                            // 确保滚动容器是 body 元素
-                            const scrollContainer = document.documentElement || document.body;
-                            
-                            // 添加边界检查
-                            const maxScroll = scrollContainer.scrollHeight - containerHeight;
-                            const finalScrollTop = Math.max(0, Math.min(scrollTop, maxScroll));
-                            
-                            scrollContainer.scrollTo({
-                                top: finalScrollTop,
-                                behavior: 'smooth'
-                            });
-                        }
-                    } else if (e.key === 'Enter') {
-                        // 处理回车键
-                        const selected = document.querySelector('.item.selected');
-                        if (selected) {
-                            const label = selected.querySelector('strong').textContent;
-                            selectDefinition(label);
-                        }
-                    }
-                });
-
-                // Handle mouse events on items
-                document.querySelectorAll('.item').forEach(item => {
-                    // Remove the ondblclick attribute from HTML
-                    item.removeAttribute('ondblclick');
-                    
-                    // Track mouse down position
-                    item.addEventListener('mousedown', (e) => {
-                        mouseDownTarget = e.target;
-                        mouseDownPosition = { x: e.clientX, y: e.clientY };
-                    });
-
-                    // Check on mouse up if we should trigger the click
-                    item.addEventListener('mouseup', (e) => {
-                        if (mouseDownTarget && mouseDownPosition) {
-                            // Check if mouse moved significantly
-                            const moveThreshold = 5; // pixels
-                            const xDiff = Math.abs(e.clientX - mouseDownPosition.x);
-                            const yDiff = Math.abs(e.clientY - mouseDownPosition.y);
-                            
-                            if (xDiff <= moveThreshold && yDiff <= moveThreshold) {
-                                const label = item.querySelector('strong').textContent;
-                                selectDefinition(label);
-                            }
-                        }
-                        // Reset tracking variables
-                        mouseDownTarget = null;
-                        mouseDownPosition = null;
-                    });
-                });
-
-                // Reset tracking variables if mouse leaves the item
-                document.addEventListener('mouseleave', () => {
-                    mouseDownTarget = null;
-                    mouseDownPosition = null;
-                });
-                </script>
-            </body>
-            </html>
-        `;
+        // 立即返回第一个定义，不等待用户选择
+        return validItems[0]?.definition;
     }
 }
 

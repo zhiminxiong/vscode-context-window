@@ -145,7 +145,16 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             language: 'plaintext',
                             readOnly: true,
                             theme: window.vsCodeTheme || 'vs',
-                            automaticLayout: true
+                            automaticLayout: true,
+                            // 恢复Monaco Editor滚动条
+                            scrollbar: {
+                                vertical: 'auto',
+                                horizontal: 'auto',
+                                verticalScrollbarSize: 20,
+                                horizontalScrollbarSize: 10,
+                                useShadows: false
+                            },
+                            scrollBeyondLastLine: false
                         };
 
                         // 从 VS Code 配置中提取相关选项
