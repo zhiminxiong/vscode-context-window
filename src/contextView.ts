@@ -753,6 +753,22 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
                 .definition-picker::-webkit-scrollbar-corner {
                     background: var(--vscode-editor-background);
+                    border-radius: 8px;
+                }
+
+                /* 滚动条默认隐藏，悬停时显示 */
+                #container {
+                    scrollbar-width: thin;
+                    scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+                }
+
+                #container::-webkit-scrollbar {
+                    opacity: 0.3;
+                    transition: opacity 0.3s ease;
+                }
+
+                #container:hover::-webkit-scrollbar {
+                    opacity: 1;
                 }
 
                 /* 定义选择器内容样式 */
@@ -830,35 +846,47 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     width: 100%;
                     height: calc(100% - 8px); /* 减去底部padding */
                     cursor: pointer !important;
-                    overflow: hidden;
+                    overflow: auto; /* 启用容器滚动条 */
                     position: relative;
                 }
 
-                /* 简单增强Monaco Editor滚动条样式 */
-                .monaco-editor .monaco-scrollable-element .slider.horizontal {
-                    height: 8px !important;
-                    border-radius: 4px !important;
-                }
-                
-                .monaco-editor .monaco-scrollable-element .scrollbar.horizontal {
-                    height: 10px !important;
+                /* 自定义容器滚动条样式 */
+                #container::-webkit-scrollbar {
+                    width: 14px;
+                    height: 10px;
                 }
 
-                .monaco-editor .monaco-scrollable-element .slider.vertical {
-                    width: 20px !important;
-                    border-radius: 10px !important;
-                }
-                
-                .monaco-editor .monaco-scrollable-element .scrollbar.vertical {
-                    width: 22px !important;
+                #container::-webkit-scrollbar-track {
+                    background: transparent;
+                    border-radius: 8px;
                 }
 
-                /* 通用滑块圆角样式 - 使用更强的选择器 */
-                .monaco-editor .monaco-scrollable-element .slider {
-                    border-radius: 6px !important;
+                #container::-webkit-scrollbar-thumb {
+                    background: var(--vscode-scrollbarSlider-background);
+                    border-radius: 8px;
+                    border: 2px solid var(--vscode-editor-background);
+                    transition: all 0.2s ease;
+                    opacity: 0.6;
                 }
 
-                /* 确保Monaco Editor填满容器 */
+                #container:hover::-webkit-scrollbar-thumb {
+                    opacity: 0.6;
+                }
+
+                #container::-webkit-scrollbar-thumb:hover {
+                    background: var(--vscode-scrollbarSlider-hoverBackground);
+                    opacity: 0.8;
+                    transform: scale(1.1);
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                }
+
+                #container::-webkit-scrollbar-thumb:active {
+                    background: var(--vscode-scrollbarSlider-activeBackground);
+                    opacity: 1;
+                    transform: scale(1.05);
+                }
+
+                /* 确保Monaco Editor填满容器但不显示自己的滚动条 */
                 .monaco-editor {
                     width: 100% !important;
                     height: 100% !important;
@@ -867,6 +895,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 .monaco-editor .monaco-scrollable-element {
                     width: 100% !important;
                     height: 100% !important;
+                    overflow: hidden !important; /* 隐藏Monaco的滚动条 */
                 }
 
                 /* 确保Monaco Editor的视口内容正常显示 */
