@@ -711,15 +711,18 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
                 /* 左侧定义选择器 */
                 .definition-picker {
-                    width: 50%;
+                    width: 30%;
                     min-width: 200px;
-                    max-width: 70%;
+                    max-width: 50%;
+                    height: calc(100% - 16px); /* 确保高度不会延伸到底部导航栏 */
                     background-color: var(--vscode-editor-background);
                     border-right: 1px solid var(--vscode-editorWidget-border);
                     overflow-y: auto;
                     overflow-x: auto;
                     display: none; /* 默认隐藏 */
                     flex-shrink: 0;
+                    padding-bottom: 0px; /* 减少底部空间，让滚动条更贴近导航栏 */
+                    box-sizing: border-box; /* 确保padding计算在内 */
                 }
 
                 .definition-picker.visible {
@@ -754,21 +757,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 .definition-picker::-webkit-scrollbar-corner {
                     background: var(--vscode-editor-background);
                     border-radius: 8px;
-                }
-
-                /* 滚动条默认隐藏，悬停时显示 */
-                #container {
-                    scrollbar-width: thin;
-                    scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
-                }
-
-                #container::-webkit-scrollbar {
-                    opacity: 0.3;
-                    transition: opacity 0.3s ease;
-                }
-
-                #container:hover::-webkit-scrollbar {
-                    opacity: 1;
                 }
 
                 /* 定义选择器内容样式 */
