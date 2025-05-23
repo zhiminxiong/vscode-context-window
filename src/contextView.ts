@@ -872,6 +872,30 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 .monaco-editor .monaco-scrollable-element .slider.active {
                     background: var(--vscode-scrollbarSlider-activeBackground);
                 }
+
+                /* 确保行号区域不被内容覆盖 */
+                .monaco-editor .margin {
+                    position: relative;
+                    z-index: 100;
+                    background: var(--vscode-editor-background);
+                }
+
+                .monaco-editor .margin-view-overlays {
+                    position: relative;
+                    z-index: 101;
+                    background: var(--vscode-editor-background);
+                }
+
+                /* 确保内容区域有正确的左边距 */
+                .monaco-editor .view-zones {
+                    position: relative;
+                }
+
+                .monaco-editor .view-lines {
+                    width: auto !important;
+                    position: relative;
+                    left: 0;
+                }
                 
                 #main {
                     display: none;
