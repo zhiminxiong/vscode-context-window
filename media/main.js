@@ -146,13 +146,16 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             readOnly: true,
                             theme: window.vsCodeTheme || 'vs',
                             automaticLayout: true,
-                            // 禁用Monaco Editor内置滚动条，改用容器滚动条
+                            // 启用Monaco编辑器滚动条
                             scrollbar: {
-                                vertical: 'hidden',
-                                horizontal: 'hidden',
-                                verticalScrollbarSize: 0,
-                                horizontalScrollbarSize: 0,
-                                useShadows: false
+                                vertical: 'visible',
+                                horizontal: 'visible',
+                                verticalScrollbarSize: 14,
+                                horizontalScrollbarSize: 10,
+                                useShadows: false,
+                                verticalHasArrows: false,
+                                horizontalHasArrows: false,
+                                alwaysConsumeMouseWheel: false
                             },
                             scrollBeyondLastLine: false
                         };
@@ -241,14 +244,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             addExtraSpaceOnTop: false,
                             autoFindInSelection: 'never',
                             seedSearchStringFromSelection: 'never'
-                        },
-                        // 禁用Monaco编辑器滚动条，使用容器滚动条
-                        scrollbar: {
-                            vertical: 'hidden',
-                            horizontal: 'hidden',
-                            verticalScrollbarSize: 0,
-                            horizontalScrollbarSize: 0,
-                            useShadows: false
                         }
                     });
 

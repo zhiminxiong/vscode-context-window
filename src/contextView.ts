@@ -834,47 +834,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     width: 100%;
                     height: calc(100% - 8px); /* 减去底部padding */
                     cursor: pointer !important;
-                    overflow: auto; /* 启用容器滚动条 */
+                    overflow: hidden; /* 禁用容器滚动条，使用Monaco滚动条 */
                     position: relative;
                 }
 
-                /* 自定义容器滚动条样式 */
-                #container::-webkit-scrollbar {
-                    width: 14px;
-                    height: 10px;
-                }
-
-                #container::-webkit-scrollbar-track {
-                    background: transparent;
-                    border-radius: 8px;
-                }
-
-                #container::-webkit-scrollbar-thumb {
-                    background: var(--vscode-scrollbarSlider-background);
-                    border-radius: 8px;
-                    border: 2px solid var(--vscode-editor-background);
-                    transition: all 0.2s ease;
-                    opacity: 0.6;
-                }
-
-                #container:hover::-webkit-scrollbar-thumb {
-                    opacity: 0.6;
-                }
-
-                #container::-webkit-scrollbar-thumb:hover {
-                    background: var(--vscode-scrollbarSlider-hoverBackground);
-                    opacity: 0.8;
-                    transform: scale(1.1);
-                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                }
-
-                #container::-webkit-scrollbar-thumb:active {
-                    background: var(--vscode-scrollbarSlider-activeBackground);
-                    opacity: 1;
-                    transform: scale(1.05);
-                }
-
-                /* 确保Monaco Editor填满容器但不显示自己的滚动条 */
+                /* 确保Monaco Editor填满容器并显示自己的滚动条 */
                 .monaco-editor {
                     width: 100% !important;
                     height: 100% !important;
@@ -883,12 +847,30 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 .monaco-editor .monaco-scrollable-element {
                     width: 100% !important;
                     height: 100% !important;
-                    overflow: hidden !important; /* 隐藏Monaco的滚动条 */
+                    overflow: visible !important; /* 启用Monaco的滚动条 */
                 }
 
                 /* 确保Monaco Editor的视口内容正常显示 */
                 .monaco-editor .view-lines {
                     width: max-content !important;
+                }
+
+                /* Monaco Editor 滚动条样式 */
+                .monaco-editor .monaco-scrollable-element .scrollbar {
+                    background: transparent;
+                }
+
+                .monaco-editor .monaco-scrollable-element .slider {
+                    background: var(--vscode-scrollbarSlider-background);
+                    border-radius: 6px;
+                }
+
+                .monaco-editor .monaco-scrollable-element .slider:hover {
+                    background: var(--vscode-scrollbarSlider-hoverBackground);
+                }
+
+                .monaco-editor .monaco-scrollable-element .slider.active {
+                    background: var(--vscode-scrollbarSlider-activeBackground);
                 }
                 
                 #main {
