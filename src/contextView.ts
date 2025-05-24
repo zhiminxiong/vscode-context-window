@@ -714,9 +714,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 }
 
                 #definition-list {
-                    width: 200px;
+                    width: 30%;
                     min-width: 150px;
-                    max-width: 300px;
+                    max-width: 50%;
                     background-color: var(--vscode-editor-background);
                     border-right: 1px solid var(--vscode-editorWidget-border);
                     overflow-y: auto;
