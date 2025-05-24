@@ -122,7 +122,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                 
                 // 隐藏加载状态，显示编辑器容器
                 document.getElementById('main').style.display = 'none';
-                document.getElementById('container').style.display = 'block';
+                document.getElementById('main-container').style.display = 'flex';
                 
                 try {
                     //console.log('[definition] editor settings: ', window.vsCodeEditorConfiguration);

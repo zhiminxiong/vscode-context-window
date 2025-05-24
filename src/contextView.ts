@@ -701,7 +701,81 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     margin-top: 0 !important;
                     overflow-x: auto !important; /* 添加横向滚动条 */
                 }
-                /* 新增底部导航栏样式 */
+
+                /* ========== 左侧列表布局样式 ========== */
+                #main-container {
+                    display: flex;
+                    flex-direction: row;
+                    height: calc(100vh - 24px); /* 减去底部导航栏高度 */
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                }
+
+                #definition-list {
+                    width: 200px;
+                    min-width: 150px;
+                    max-width: 300px;
+                    background-color: var(--vscode-editor-background);
+                    border-right: 1px solid var(--vscode-editorWidget-border);
+                    overflow-y: auto;
+                    overflow-x: hidden;
+                    resize: horizontal;
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                #definition-list .list-header {
+                    padding: 8px 12px;
+                    background-color: var(--vscode-editorGroupHeader-tabsBackground);
+                    border-bottom: 1px solid var(--vscode-editorWidget-border);
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: var(--vscode-foreground);
+                    flex-shrink: 0;
+                }
+
+                #definition-list .list-items {
+                    flex: 1;
+                    overflow-y: auto;
+                }
+
+                .definition-item {
+                    padding: 6px 12px;
+                    cursor: pointer;
+                    border-bottom: 1px solid var(--vscode-editorWidget-border);
+                    color: var(--vscode-foreground);
+                    font-size: 12px;
+                    transition: background-color 0.2s ease;
+                }
+
+                .definition-item:hover {
+                    background-color: var(--vscode-list-hoverBackground);
+                }
+
+                .definition-item.active {
+                    background-color: var(--vscode-list-activeSelectionBackground);
+                    color: var(--vscode-list-activeSelectionForeground);
+                }
+
+                .definition-item .item-title {
+                    font-weight: 600;
+                    margin-bottom: 2px;
+                }
+
+                .definition-item .item-location {
+                    font-size: 11px;
+                    color: var(--vscode-descriptionForeground);
+                    opacity: 0.8;
+                }
+
+                #container {
+                    flex: 1;
+                    position: relative;
+                }
+                
+                /* ========== 底部导航栏样式 ========== */
                 .nav-bar {
                     position: fixed;
                     bottom: 0;
@@ -800,7 +874,24 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         <body>
             <div class="loading"></div>
             <article id="main">加载中...</article>
-            <div id="container"></div>
+            
+            <!-- 主容器：左侧列表 + 右侧Monaco编辑器 -->
+            <div id="main-container">
+                <!-- 左侧定义列表 -->
+                <div id="definition-list">
+                    <div class="list-header">定义列表</div>
+                    <div class="list-items">
+                        <!-- 示例定义项 -->
+                        <div class="definition-item active">
+                            <div class="item-title">当前定义</div>
+                            <div class="item-location">等待加载...</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 右侧Monaco编辑器 -->
+                <div id="container"></div>
+            </div>
 
             <!-- 添加双击区域 -->
             <div class="double-click-area">
