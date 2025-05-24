@@ -796,6 +796,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 #definition-list .list-items {
                     flex: 1;
                     overflow-y: auto;
+                    overflow-x: visible;
+                    width: max-content;
+                    min-width: 100%;
                 }
 
                 .definition-item {
@@ -805,6 +808,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     color: var(--vscode-foreground);
                     font-size: 12px;
                     transition: background-color 0.2s ease;
+                    white-space: nowrap;
+                    overflow: visible;
+                    flex-shrink: 0;
+                    width: 100%;
+                    box-sizing: border-box;
                 }
 
                 .definition-item:hover {
@@ -819,12 +827,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 .definition-item .item-title {
                     font-weight: 600;
                     margin-bottom: 2px;
+                    white-space: nowrap;
+                    overflow: visible;
                 }
 
                 .definition-item .item-location {
                     font-size: 11px;
                     color: var(--vscode-descriptionForeground);
                     opacity: 0.8;
+                    white-space: nowrap;
+                    overflow: visible;
                 }
 
                 #container {
@@ -936,12 +948,167 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             <div id="main-container">
                 <!-- 左侧定义列表 -->
                 <div id="definition-list">
-                    <div class="list-header">定义列表</div>
                     <div class="list-items">
-                        <!-- 示例定义项 -->
+                        <!-- 测试滚动条的40行定义项 -->
                         <div class="definition-item active">
-                            <div class="item-title">当前定义</div>
-                            <div class="item-location">等待加载...</div>
+                            <div class="item-title">getCurrentUser</div>
+                            <div class="item-location">src/auth/UserManager.cpp:45</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">validateToken</div>
+                            <div class="item-location">src/security/TokenValidator.ts:123</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">connectDatabase</div>
+                            <div class="item-location">src/database/ConnectionPool.java:89</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">parseConfig</div>
+                            <div class="item-location">src/config/ConfigParser.py:67</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">renderComponent</div>
+                            <div class="item-location">src/ui/components/Button.jsx:234</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">handleRequest</div>
+                            <div class="item-location">src/api/RequestHandler.cs:156</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">encryptData</div>
+                            <div class="item-location">src/crypto/Encryption.go:78</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">loadModule</div>
+                            <div class="item-location">src/modules/ModuleLoader.rs:201</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">processImage</div>
+                            <div class="item-location">src/media/ImageProcessor.swift:112</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">createLogger</div>
+                            <div class="item-location">src/utils/Logger.kt:34</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">executeQuery</div>
+                            <div class="item-location">src/database/QueryExecutor.sql:567</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">validateForm</div>
+                            <div class="item-location">src/forms/FormValidator.vue:98</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">parseJSON</div>
+                            <div class="item-location">src/parsers/JSONParser.php:45</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">generateHash</div>
+                            <div class="item-location">src/security/HashGenerator.rb:189</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">sendEmail</div>
+                            <div class="item-location">src/notification/EmailSender.scala:76</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">cacheData</div>
+                            <div class="item-location">src/cache/CacheManager.lua:134</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">compressFile</div>
+                            <div class="item-location">src/compression/FileCompressor.cpp:267</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">routeRequest</div>
+                            <div class="item-location">src/routing/Router.js:423</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">authenticateUser</div>
+                            <div class="item-location">src/auth/Authenticator.py:145</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">generateReport</div>
+                            <div class="item-location">src/reports/ReportGenerator.java:298</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">backupDatabase</div>
+                            <div class="item-location">src/backup/DatabaseBackup.sh:89</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">initializeApp</div>
+                            <div class="item-location">src/core/AppInitializer.ts:67</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">processPayment</div>
+                            <div class="item-location">src/payment/PaymentProcessor.cs:234</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">validateInput</div>
+                            <div class="item-location">src/validation/InputValidator.go:156</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">createThread</div>
+                            <div class="item-location">src/threading/ThreadManager.cpp:345</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">parseXML</div>
+                            <div class="item-location">src/parsers/XMLParser.swift:123</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">scheduleTask</div>
+                            <div class="item-location">src/scheduler/TaskScheduler.kt:78</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">optimizeQuery</div>
+                            <div class="item-location">src/optimization/QueryOptimizer.sql:456</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">handleError</div>
+                            <div class="item-location">src/error/ErrorHandler.vue:234</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">loadConfig</div>
+                            <div class="item-location">src/config/ConfigLoader.php:89</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">generateToken</div>
+                            <div class="item-location">src/security/TokenGenerator.rb:167</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">uploadFile</div>
+                            <div class="item-location">src/upload/FileUploader.scala:123</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">serializeData</div>
+                            <div class="item-location">src/serialization/DataSerializer.lua:98</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">executeCommand</div>
+                            <div class="item-location">src/commands/CommandExecutor.cpp:278</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">buildProject</div>
+                            <div class="item-location">src/build/ProjectBuilder.js:345</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">deployApp</div>
+                            <div class="item-location">src/deployment/AppDeployer.py:189</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">monitorSystem</div>
+                            <div class="item-location">src/monitoring/SystemMonitor.java:456</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">cleanupResources</div>
+                            <div class="item-location">src/cleanup/ResourceCleaner.sh:67</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">indexDocument</div>
+                            <div class="item-location">src/search/DocumentIndexer.ts:234</div>
+                        </div>
+                        <div class="definition-item">
+                            <div class="item-title">validateSchema</div>
+                            <div class="item-location">src/validation/SchemaValidator.cs:123</div>
                         </div>
                     </div>
                 </div>
