@@ -720,10 +720,67 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     background-color: var(--vscode-editor-background);
                     border-right: 1px solid var(--vscode-editorWidget-border);
                     overflow-y: auto;
-                    overflow-x: hidden;
+                    overflow-x: auto;
                     resize: horizontal;
                     display: flex;
                     flex-direction: column;
+                }
+
+                /* 定义列表滚动条样式 */
+                #definition-list::-webkit-scrollbar {
+                    width: 8px;
+                    height: 8px;
+                }
+
+                #definition-list::-webkit-scrollbar-track {
+                    background: transparent;
+                    border-radius: 4px;
+                }
+
+                #definition-list::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0);
+                    border-radius: 4px;
+                    transition: all 0.3s ease;
+                }
+
+                #definition-list:hover::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0.4);
+                }
+
+                #definition-list::-webkit-scrollbar-thumb:hover {
+                    background: rgba(128, 128, 128, 0.6);
+                }
+
+                #definition-list::-webkit-scrollbar-thumb:active {
+                    background: rgba(128, 128, 128, 0.8);
+                }
+
+                #definition-list::-webkit-scrollbar-corner {
+                    background: transparent;
+                }
+
+                /* 列表项容器滚动条样式 */
+                #definition-list .list-items::-webkit-scrollbar {
+                    width: 6px;
+                }
+
+                #definition-list .list-items::-webkit-scrollbar-track {
+                    background: transparent;
+                    border-radius: 3px;
+                }
+
+                #definition-list .list-items::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0);
+                    border-radius: 3px;
+                    transition: all 0.3s ease;
+                }
+
+                #definition-list .list-items:hover::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0.3);
+                }
+
+                #definition-list .list-items::-webkit-scrollbar-thumb:hover {
+                    background: rgba(128, 128, 128, 0.5);
                 }
 
                 #definition-list .list-header {
