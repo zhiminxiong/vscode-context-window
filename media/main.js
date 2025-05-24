@@ -550,6 +550,9 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
 
                     //console.log('[definition] Monaco editor created');
 
+                    // 初始化定义列表点击功能
+                    initializeDefinitionListEvents();
+
                     // 通知扩展编辑器已准备好
                     vscode.postMessage({ type: 'editorReady' });
                     //console.log('[definition] Editor ready message sent');
@@ -869,9 +872,47 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         }
                     });
                     
-                    // 通知扩展编辑器已准备好
-                    vscode.postMessage({ type: 'editorReady' });
-                    //console.log('[definition] Editor ready message sent');
+                    // 定义列表点击事件处理
+                    function initializeDefinitionListEvents() {
+                        const definitionItems = document.querySelectorAll('.definition-item');
+                        
+                        definitionItems.forEach((item, index) => {
+                            item.addEventListener('click', () => {
+                                // 移除所有项的active状态
+                                definitionItems.forEach(el => {
+                                    el.classList.remove('active');
+                                });
+                                
+                                // 设置当前项为active
+                                item.classList.add('active');
+                                
+                                // 获取选中项的信息
+                                const titleElement = item.querySelector('.item-title');
+                                const locationElement = item.querySelector('.item-location');
+                                
+                                if (titleElement && locationElement) {
+                                    const symbolName = titleElement.textContent.trim();
+                                    const location = locationElement.textContent.trim();
+                                    
+                                    // 解析文件路径和行号
+                                    const locationParts = location.split(':');
+                                    const filePath = locationParts[0];
+                                    const lineNumber = locationParts[1] ? parseInt(locationParts[1]) - 1 : 0; // 转换为0-based
+                                    
+                                    //console.log('[definition] Selected definition:', symbolName, filePath, lineNumber);
+                                    
+                                    // 向扩展发送消息，请求显示选中的定义
+                                    vscode.postMessage({
+                                        type: 'definitionItemSelected',
+                                        symbolName: symbolName,
+                                        filePath: filePath,
+                                        lineNumber: lineNumber,
+                                        index: index
+                                    });
+                                }
+                            });
+                        });
+                    }
                 } catch (error) {
                     console.error('[definition] Error initializing editor:', error);
                     document.getElementById('main').style.display = 'block';

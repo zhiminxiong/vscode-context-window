@@ -470,6 +470,58 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         }
                     }
                     break;
+                case 'definitionItemSelected':
+                    // 处理定义列表项被选中的情况
+                    //console.log('[definition] Definition item selected:', message);
+                    
+                    try {
+                        // 解析文件路径，确保它是一个有效的VS Code URI
+                        let fileUri: vscode.Uri;
+                        if (message.filePath.startsWith('file://')) {
+                            fileUri = vscode.Uri.parse(message.filePath);
+                        } else {
+                            // 如果是相对路径，尝试解析为绝对路径
+                            const workspaceFolders = vscode.workspace.workspaceFolders;
+                            if (workspaceFolders && workspaceFolders.length > 0) {
+                                fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, message.filePath);
+                            } else {
+                                fileUri = vscode.Uri.file(message.filePath);
+                            }
+                        }
+                        
+                        // 尝试打开文档
+                        const document = await vscode.workspace.openTextDocument(fileUri);
+                        const fileContent = document.getText();
+                        
+                        // 创建真实的文件内容信息
+                        const realContentInfo = {
+                            content: fileContent,
+                            line: message.lineNumber,
+                            column: 0,
+                            jmpUri: fileUri.toString(),
+                            languageId: document.languageId,
+                            symbolName: message.symbolName
+                        };
+                        
+                        // 更新右侧编辑器内容
+                        this.updateContent(realContentInfo);
+                        
+                    } catch (error) {
+                        //console.error('[definition] Error loading file:', error);
+                        
+                        // 如果无法读取文件，显示错误信息
+                        const errorContentInfo = {
+                            content: `// 无法读取文件: ${message.filePath}\n// 错误: ${error}\n\n// 选中的定义: ${message.symbolName}\n// 位置: ${message.filePath}:${message.lineNumber + 1}`,
+                            line: message.lineNumber,
+                            column: 0,
+                            jmpUri: `file://${message.filePath}`,
+                            languageId: this.getLanguageIdFromFilePath(message.filePath),
+                            symbolName: message.symbolName
+                        };
+                        
+                        this.updateContent(errorContentInfo);
+                    }
+                    break;
             }
         });
 
@@ -1374,6 +1426,42 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
     private updateConfiguration() {
         const config = vscode.workspace.getConfiguration('contextView');
         this._updateMode = config.get<UpdateMode>('contextWindow.updateMode') || UpdateMode.Sticky;
+    }
+
+    private getLanguageIdFromFilePath(filePath: string): string {
+        const extension = filePath.split('.').pop()?.toLowerCase();
+        
+        const languageMap: { [key: string]: string } = {
+            'ts': 'typescript',
+            'js': 'javascript',
+            'jsx': 'javascriptreact',
+            'tsx': 'typescriptreact',
+            'cpp': 'cpp',
+            'c': 'c',
+            'cs': 'csharp',
+            'py': 'python',
+            'java': 'java',
+            'go': 'go',
+            'rs': 'rust',
+            'swift': 'swift',
+            'kt': 'kotlin',
+            'sql': 'sql',
+            'vue': 'vue',
+            'php': 'php',
+            'rb': 'ruby',
+            'scala': 'scala',
+            'lua': 'lua',
+            'sh': 'shell',
+            'html': 'html',
+            'css': 'css',
+            'json': 'json',
+            'md': 'markdown',
+            'xml': 'xml',
+            'yaml': 'yaml',
+            'yml': 'yaml'
+        };
+
+        return languageMap[extension || ''] || 'plaintext';
     }
 
     private async showDefinitionPicker(definitions: any[], editor: vscode.TextEditor): Promise<any> {
