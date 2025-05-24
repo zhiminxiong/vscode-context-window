@@ -724,6 +724,19 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     resize: horizontal;
                     display: flex;
                     flex-direction: column;
+                    padding-bottom: 10px;
+                }
+
+                /* 调整垂直滚动条，避免覆盖拖拽区域 */
+                #definition-list::-webkit-scrollbar-track-piece:end {
+                    margin-bottom: 10px;
+                }
+
+                #definition-list::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0);
+                    border-radius: 4px;
+                    transition: all 0.3s ease;
+                    margin-bottom: 10px;
                 }
 
                 /* 定义列表滚动条样式 */
