@@ -522,6 +522,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         this.updateContent(errorContentInfo);
                     }
                     break;
+                case 'closeDefinitionList':
+                    // 处理关闭定义列表的请求
+                    this._view?.webview.postMessage({
+                        type: 'clearDefinitionList'
+                    });
+                    break;
             }
         });
 
