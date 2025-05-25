@@ -122,7 +122,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                 
                 // 隐藏加载状态，显示编辑器容器
                 document.getElementById('main').style.display = 'none';
-                document.getElementById('container').style.display = 'block';
+                document.getElementById('main-container').style.display = 'flex';
                 
                 try {
                     //console.log('[definition] editor settings: ', window.vsCodeEditorConfiguration);
@@ -585,6 +585,199 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             filenameDisplay.textContent = '';
                         }
                     }
+
+                    function updateDefinitionList(definitions) {
+                        const listItems = document.querySelector('#definition-list .list-items');
+                        if (!listItems) {
+                            return;
+                        }
+
+                        // 只有在有多个定义时才显示定义列表面板
+                        const definitionList = document.querySelector('#definition-list');
+                        if (definitionList) {
+                            if (definitions && definitions.length > 1) {
+                                definitionList.style.display = 'flex';
+                            } else {
+                                // 如果只有一个或没有定义，隐藏列表面板
+                                definitionList.style.display = 'none';
+                                // 强制Monaco编辑器重新布局以占满整个空间
+                                if (editor) {
+                                    setTimeout(() => {
+                                        editor.layout();
+                                    }, 100);
+                                }
+                                return;
+                            }
+                        }
+
+                        // 清空现有内容
+                        listItems.innerHTML = '';
+
+                        // 如果没有定义，显示空状态
+                        if (!definitions || definitions.length === 0) {
+                            listItems.innerHTML = '<div style="padding: 10px; color: var(--vscode-descriptionForeground); font-style: italic;">No definitions found</div>';
+                            return;
+                        }
+
+                        // 创建定义项
+                        definitions.forEach((def, index) => {
+                            const item = document.createElement('div');
+                            item.className = `definition-item${def.isActive ? ' active' : ''}`;
+                            
+                            // 直接使用def中的数据，不需要解析location字符串
+                            const filePath = def.filePath;
+                            const lineNumber = def.lineNumber + 1; // 转换为1-based行号
+                            const columnNumber = def.columnNumber || 1;
+                            
+                            item.innerHTML = `
+                                <span class="definition-number">Definition ${index + 1}:</span>
+                                <div class="definition-info">
+                                    <span class="file-path">${filePath}</span>
+                                    <span class="line-info">- Line: ${lineNumber}, Column: ${columnNumber}</span>
+                                </div>
+                            `;
+
+                            // 添加点击事件
+                            item.addEventListener('click', () => {
+                                selectDefinitionItem(index, def);
+                            });
+
+                            listItems.appendChild(item);
+                        });
+
+                        // 添加键盘事件监听
+                        setupDefinitionListKeyboardNavigation(definitions);
+                        
+                        // 强制Monaco编辑器重新布局以适应新的容器大小
+                        if (editor) {
+                            setTimeout(() => {
+                                editor.layout();
+                            }, 100);
+                        }
+                    }
+
+                    function selectDefinitionItem(index, def) {
+                        // 移除其他项的active状态
+                        document.querySelectorAll('.definition-item').forEach(i => i.classList.remove('active'));
+                        // 添加当前项的active状态
+                        const items = document.querySelectorAll('.definition-item');
+                        if (items[index]) {
+                            items[index].classList.add('active');
+                            // 滚动到可见区域
+                            items[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+
+                        // 发送消息到扩展
+                        vscode.postMessage({
+                            type: 'definitionItemSelected',
+                            symbolName: def.title,
+                            filePath: def.filePath,
+                            lineNumber: def.lineNumber,
+                            index: index
+                        });
+                    }
+
+                    // 全局变量存储当前定义数据和键盘处理函数
+                    let currentDefinitions = [];
+                    let handleDefinitionListKeydown = null;
+
+                    function setupDefinitionListKeyboardNavigation(definitions) {
+                        currentDefinitions = definitions;
+                        
+                        // 移除之前的事件监听器
+                        if (handleDefinitionListKeydown) {
+                            document.removeEventListener('keydown', handleDefinitionListKeydown);
+                        }
+                        
+                        // 创建新的事件处理函数
+                        handleDefinitionListKeydown = function(e) {
+                            const items = document.querySelectorAll('.definition-item');
+                            if (items.length === 0) return;
+
+                            const currentActive = document.querySelector('.definition-item.active');
+                            let currentIndex = currentActive ? Array.from(items).indexOf(currentActive) : 0;
+
+                            switch (e.key) {
+                                case 'ArrowUp':
+                                case 'Up':
+                                    e.preventDefault();
+                                    currentIndex = Math.max(0, currentIndex - 1);
+                                    selectDefinitionItem(currentIndex, currentDefinitions[currentIndex]);
+                                    break;
+                                
+                                case 'ArrowDown':
+                                case 'Down':
+                                    e.preventDefault();
+                                    currentIndex = Math.min(items.length - 1, currentIndex + 1);
+                                    selectDefinitionItem(currentIndex, currentDefinitions[currentIndex]);
+                                    break;
+                                
+                                case 'p':
+                                    if (e.ctrlKey) {
+                                        e.preventDefault();
+                                        currentIndex = Math.max(0, currentIndex - 1);
+                                        selectDefinitionItem(currentIndex, currentDefinitions[currentIndex]);
+                                    }
+                                    break;
+                                
+                                case 'n':
+                                    if (e.ctrlKey) {
+                                        e.preventDefault();
+                                        currentIndex = Math.min(items.length - 1, currentIndex + 1);
+                                        selectDefinitionItem(currentIndex, currentDefinitions[currentIndex]);
+                                    }
+                                    break;
+                                
+                                case 'Escape':
+                                    e.preventDefault();
+                                    // 发送消息关闭定义列表
+                                    vscode.postMessage({
+                                        type: 'closeDefinitionList'
+                                    });
+                                    break;
+                                
+                                case 'Enter':
+                                    e.preventDefault();
+                                    // Enter键选择当前项（已经通过selectDefinitionItem处理了）
+                                    break;
+                            }
+                        };
+                        
+                        // 添加新的事件监听器
+                        document.addEventListener('keydown', handleDefinitionListKeydown);
+                    }
+
+                    function clearDefinitionList() {
+                        const listItems = document.querySelector('#definition-list .list-items');
+                        if (listItems) {
+                            listItems.innerHTML = '';
+                        }
+                        
+                        // 隐藏定义列表，让Monaco编辑器占满整个空间
+                        const definitionList = document.querySelector('#definition-list');
+                        const mainContainer = document.querySelector('#main-container');
+                        
+                        if (definitionList) {
+                            definitionList.style.display = 'none';
+                        }
+                        
+                        if (mainContainer) {
+                            mainContainer.style.flexDirection = 'row';
+                        }
+                        
+                        // 强制Monaco编辑器重新布局以适应新的容器大小
+                        if (editor) {
+                            setTimeout(() => {
+                                editor.layout();
+                            }, 100);
+                        }
+                        
+                        // 移除键盘事件监听器
+                        if (handleDefinitionListKeydown) {
+                            document.removeEventListener('keydown', handleDefinitionListKeydown);
+                            handleDefinitionListKeydown = null;
+                        }
+                    }
                     
                     // 处理来自扩展的消息
                     window.addEventListener('message', event => {
@@ -746,6 +939,16 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                         //console.error('[definition] Editor not initialized');
                                     }
                                     break;
+                                case 'updateDefinitionList':
+                                    // 更新定义列表
+                                    if (message.definitions && Array.isArray(message.definitions)) {
+                                        updateDefinitionList(message.definitions);
+                                    }
+                                    break;
+                                case 'clearDefinitionList':
+                                    // 清空定义列表
+                                    clearDefinitionList();
+                                    break;
                                 case 'update':
                                     //console.log('[definition] Updating editor content');
                                     // 显示编辑器，隐藏原始内容区域
@@ -884,9 +1087,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         }
                     });
                     
-                    // 通知扩展编辑器已准备好
-                    vscode.postMessage({ type: 'editorReady' });
-                    //console.log('[definition] Editor ready message sent');
+
                 } catch (error) {
                     console.error('[definition] Error initializing editor:', error);
                     document.getElementById('main').style.display = 'block';

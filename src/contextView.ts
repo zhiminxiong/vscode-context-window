@@ -379,6 +379,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             this._historyIndex++;
         }
         if (lastIdx !== this._historyIndex) {
+            // 主动隐藏定义列表
+            if (this._view) {
+                this._view.webview.postMessage({
+                    type: 'clearDefinitionList'
+                });
+            }
+            
             const contentInfo = this._history[this._historyIndex];
             this.updateContent(contentInfo?.content, contentInfo.curLine);
             
@@ -470,7 +477,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         } else {
                             // 缓存点击的token文本
                             this._currentSelectedText = message.token || '';
-                            
+
                             let definitions = await vscode.commands.executeCommand<vscode.Location[]>(
                                 'vscode.executeDefinitionProvider',
                                 vscode.Uri.parse(message.uri),
@@ -479,6 +486,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
                             if (definitions && definitions.length > 0) {
                                 //console.log('[definition] jumpDefinition: ', definitions);
+                                
+                                // 主动隐藏定义列表（在处理新的跳转前）
+                                if (this._view && definitions.length === 1) {
+                                    this._view.webview.postMessage({
+                                        type: 'clearDefinitionList'
+                                    });
+                                }
+                                
                                 // 如果有多个定义，传递给 Monaco Editor
                                 if (definitions.length > 1) {
                                     const selectedDefinition = await this.showDefinitionPicker(definitions, editor);
@@ -515,6 +530,33 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                             this._currentCacheKey = createCacheKey(vscode.window.activeTextEditor);
                         }
                     }
+                    break;
+                case 'definitionItemSelected':
+                    // 处理定义列表项被选中的情况
+                    //console.log('[definition] Definition item selected:', message);
+                    
+                    if (this._pickItems && message.index !== undefined) {
+                        const selected = this._pickItems[message.index];
+                        if (selected && editor) {
+                            // 使用缓存的选中文本，而不是重新获取
+                            const selectedText = this._currentSelectedText;
+                            
+                            // 渲染选中的定义
+                            this._renderer.renderDefinitions(editor.document, [selected.definition], selectedText).then(contentInfo => {
+                                this.updateContent(contentInfo);
+                                // 更新历史记录的内容，但保持当前行号
+                                if (this._history.length > this._historyIndex) {
+                                    this._history[this._historyIndex].content = contentInfo;
+                                }
+                            });
+                        }
+                    }
+                    break;
+                case 'closeDefinitionList':
+                    // 处理关闭定义列表的请求
+                    this._view?.webview.postMessage({
+                        type: 'clearDefinitionList'
+                    });
                     break;
             }
         });
@@ -882,7 +924,172 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     overflow: hidden;
                 }
 
-                /* 底部导航栏样式 */
+                /* ========== 左侧列表布局样式 ========== */
+                #main-container {
+                    display: flex;
+                    flex-direction: row;
+                    height: calc(100vh - 24px); /* 减去底部导航栏高度 */
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                }
+
+                #definition-list {
+                    width: 30%;
+                    min-width: 150px;
+                    max-width: 50%;
+                    background-color: var(--vscode-editor-background);
+                    border-right: 1px solid var(--vscode-editorWidget-border);
+                    overflow-y: auto;
+                    overflow-x: auto;
+                    resize: horizontal;
+                    display: flex;
+                    flex-direction: column;
+                    padding-bottom: 10px;
+                }
+
+                /* 调整垂直滚动条，避免覆盖拖拽区域 */
+                #definition-list::-webkit-scrollbar-track-piece:end {
+                    margin-bottom: 10px;
+                }
+
+                #definition-list::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0);
+                    border-radius: 4px;
+                    transition: all 0.3s ease;
+                    margin-bottom: 10px;
+                }
+
+                /* 定义列表滚动条样式 */
+                #definition-list::-webkit-scrollbar {
+                    width: 8px;
+                    height: 8px;
+                }
+
+                #definition-list::-webkit-scrollbar-track {
+                    background: transparent;
+                    border-radius: 4px;
+                }
+
+                #definition-list::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0);
+                    border-radius: 4px;
+                    transition: all 0.3s ease;
+                }
+
+                #definition-list:hover::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0.4);
+                }
+
+                #definition-list::-webkit-scrollbar-thumb:hover {
+                    background: rgba(128, 128, 128, 0.6);
+                }
+
+                #definition-list::-webkit-scrollbar-thumb:active {
+                    background: rgba(128, 128, 128, 0.8);
+                }
+
+                #definition-list::-webkit-scrollbar-corner {
+                    background: transparent;
+                }
+
+                /* 列表项容器滚动条样式 */
+                #definition-list .list-items::-webkit-scrollbar {
+                    width: 6px;
+                }
+
+                #definition-list .list-items::-webkit-scrollbar-track {
+                    background: transparent;
+                    border-radius: 3px;
+                }
+
+                #definition-list .list-items::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0);
+                    border-radius: 3px;
+                    transition: all 0.3s ease;
+                }
+
+                #definition-list .list-items:hover::-webkit-scrollbar-thumb {
+                    background: rgba(128, 128, 128, 0.3);
+                }
+
+                #definition-list .list-items::-webkit-scrollbar-thumb:hover {
+                    background: rgba(128, 128, 128, 0.5);
+                }
+
+                #definition-list .list-header {
+                    padding: 8px 12px;
+                    background-color: var(--vscode-editorGroupHeader-tabsBackground);
+                    border-bottom: 1px solid var(--vscode-editorWidget-border);
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: var(--vscode-foreground);
+                    flex-shrink: 0;
+                }
+
+                #definition-list .list-items {
+                    flex: 1;
+                    overflow-y: auto;
+                    overflow-x: visible;
+                    width: max-content;
+                    min-width: 100%;
+                }
+
+                .definition-item {
+                    padding: 8px 12px;
+                    cursor: pointer;
+                    color: var(--vscode-foreground);
+                    font-size: 13px;
+                    transition: background-color 0.2s ease;
+                    white-space: nowrap;
+                    overflow: visible;
+                    flex-shrink: 0;
+                    width: 100%;
+                    box-sizing: border-box;
+                    display: flex;
+                    align-items: center;
+                    min-height: 32px;
+                }
+
+                .definition-item:hover {
+                    background-color: var(--vscode-list-hoverBackground);
+                }
+
+                .definition-item.active {
+                    background-color: #ffd700;
+                    color: #000000;
+                }
+
+                .definition-item .definition-number {
+                    font-weight: bold;
+                    margin-right: 8px;
+                    color: inherit;
+                }
+
+                .definition-item .definition-info {
+                    flex: 1;
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+
+                .definition-item .file-path {
+                    color: inherit;
+                    font-weight: bold;
+                }
+
+                .definition-item .line-info {
+                    color: inherit;
+                    margin-left: 4px;
+                }
+
+                #container {
+                    flex: 1;
+                    position: relative;
+                }
+                
+                /* ========== 底部导航栏样式 ========== */
                 .nav-bar {
                     position: fixed;
                     bottom: 0;
@@ -1027,22 +1234,19 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         </head>
         <body>
             <div class="loading"></div>
+            <article id="main">加载中...</article>
             
-            <!-- 主容器 - 左右分栏 -->
-            <div class="main-container">
-                <!-- 左侧定义选择器 -->
-                <div class="definition-picker" id="definition-picker">
-                    <!-- 定义选择器内容将通过JavaScript动态填充 -->
+            <!-- 主容器：左侧列表 + 右侧Monaco编辑器 -->
+            <div id="main-container">
+                <!-- 左侧定义列表 -->
+                <div id="definition-list">
+                    <div class="list-items">
+                        <!-- 定义列表将通过JavaScript动态填充 -->
+                    </div>
                 </div>
                 
-                <!-- 分割线 -->
-                <div class="resize-handle" id="resize-handle"></div>
-                
-                <!-- 右侧内容区域 -->
-                <div class="content-area">
-                    <article id="main">加载中...</article>
-                    <div id="container"></div>
-                </div>
+                <!-- 右侧Monaco编辑器 -->
+                <div id="container"></div>
             </div>
 
             <!-- 双击区域 -->
@@ -1496,11 +1700,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             return;
         }
         
-        // 隐藏定义选择器，因为移动到了新的上下文
+        // 主动隐藏定义列表
         if (this._view) {
-            this._view.webview.postMessage({ type: 'hideDefinitionPicker' });
+            this._view.webview.postMessage({
+                type: 'clearDefinitionList'
+            });
         }
-        this._pickItems = undefined;
         
         //console.log('[definition] update');
         const loadingEntry = { cts: new vscode.CancellationTokenSource() };
@@ -1611,68 +1816,95 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         this._updateMode = config.get<UpdateMode>('contextWindow.updateMode') || UpdateMode.Sticky;
     }
 
-    private async showDefinitionPicker(definitions: any[], editor: vscode.TextEditor): Promise<any> {
-        // 如果只有一个定义，直接返回该定义，不显示选择器
-        if (definitions.length <= 1) {
-            return definitions.length === 1 ? definitions[0] : undefined;
-        }
-
-        if (!this._view) {
-            return undefined;
-        }
-
-        // 准备定义项数据
-        const items = await Promise.all(definitions.map(async (definition, index) => {
-            try {
-                let def = definition;
-                let uri = (def instanceof vscode.Location) ? def.uri : def.targetUri;
-                // targetSelectionRange更准确，会有targetRange不正确的情况
-                let range = (def instanceof vscode.Location) ? def.range : (def.targetSelectionRange ?? def.targetRange);
-
-                // const document = await vscode.workspace.openTextDocument(uri);
-                // if (!document) {
-                //     return null;
-                // }
-
-                // const startLine = Math.max(range.start.line - 3, 0);
-                // const endLine = Math.min(range.start.line + 3, document.lineCount - 1);
-                
-                // const codeLines = [];
-                // for (let i = startLine; i <= endLine; i++) {
-                //     const line = document.lineAt(i).text;
-                //     if (i === range.start.line) {
-                //         codeLines.push(`<mark>${line}</mark>`);
-                //     } else {
-                //         codeLines.push(line);
-                //     }
-                // }
-                // // 留点空白
-                // const codeSnippet = codeLines.join('        \n');
-
-                return {
-                    label: `Definition ${index + 1}: ${uri.fsPath}`,
-                    description: `Line: ${range.start.line + 1}, Column: ${range.start.character + 1}`,
-                    //detail: codeSnippet,
-                    definition
-                };
-            } catch (error) {
-                return null;
-            }
-        }));
-
-        // 过滤掉null项
-        const validItems = items.filter(item => item !== null);
-        if (validItems.length === 0) {
-            return undefined;
-        }
-
-        this._pickItems = validItems;
+    private getLanguageIdFromFilePath(filePath: string): string {
+        const extension = filePath.split('.').pop()?.toLowerCase();
         
-        // 显示定义选择器
-        this._view.webview.postMessage({
-            type: 'showDefinitionPicker',
-            items: validItems
-        });
+        const languageMap: { [key: string]: string } = {
+            'ts': 'typescript',
+            'js': 'javascript',
+            'jsx': 'javascriptreact',
+            'tsx': 'typescriptreact',
+            'cpp': 'cpp',
+            'c': 'c',
+            'cs': 'csharp',
+            'py': 'python',
+            'java': 'java',
+            'go': 'go',
+            'rs': 'rust',
+            'swift': 'swift',
+            'kt': 'kotlin',
+            'sql': 'sql',
+            'vue': 'vue',
+            'php': 'php',
+            'rb': 'ruby',
+            'scala': 'scala',
+            'lua': 'lua',
+            'sh': 'shell',
+            'html': 'html',
+            'css': 'css',
+            'json': 'json',
+            'md': 'markdown',
+            'xml': 'xml',
+            'yaml': 'yaml',
+            'yml': 'yaml'
+        };
+
+        return languageMap[extension || ''] || 'plaintext';
+    }
+
+    private async showDefinitionPicker(definitions: any[], editor: vscode.TextEditor): Promise<any> {
+        // 准备定义列表数据并发送到webview
+        try {
+            const definitionListData = await Promise.all(definitions.map(async (definition, index) => {
+                try {
+                    let def = definition;
+                    let uri = (def instanceof vscode.Location) ? def.uri : def.targetUri;
+                    let range = (def instanceof vscode.Location) ? def.range : (def.targetSelectionRange ?? def.targetRange);
+
+                    // 使用全路径
+                    const displayPath = uri.fsPath;
+
+                    // 获取符号名称
+                    const document = await vscode.workspace.openTextDocument(uri);
+                    const wordRange = document.getWordRangeAtPosition(new vscode.Position(range.start.line, range.start.character));
+                    const symbolName = wordRange ? document.getText(wordRange) : `Definition ${index + 1}`;
+
+                                            return {
+                            title: symbolName,
+                            location: `${displayPath}:${range.start.line + 1}`,
+                            filePath: displayPath, // 使用文件系统路径而不是URI
+                            lineNumber: range.start.line,
+                            columnNumber: range.start.character + 1, // 添加列号信息（转换为1-based）
+                            isActive: index === 0, // 第一个定义默认激活
+                            definition: definition
+                        };
+                } catch (error) {
+                    return null;
+                }
+            }));
+            
+            // 过滤掉null项
+            const validDefinitions = definitionListData.filter(item => item !== null);
+            
+            // 缓存定义项供后续使用
+            this._pickItems = validDefinitions;
+            
+            // 只有在多个定义时才发送定义列表数据到webview
+            if (this._view && validDefinitions.length > 1) {
+                this._view.webview.postMessage({
+                    type: 'updateDefinitionList',
+                    definitions: validDefinitions
+                });
+            }
+            
+            // 返回第一个定义作为默认选择
+            return validDefinitions.length > 0 && validDefinitions[0] ? validDefinitions[0].definition : definitions[0];
+            
+        } catch (error) {
+            //console.error('Error preparing definitions:', error);
+            return definitions[0]; // 出错时返回第一个定义
+        }
+    }
 
         // 立即返回第一个定义，不等待用户选择
         return validItems[0]?.definition;
