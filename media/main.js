@@ -632,6 +632,20 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                 selectDefinitionItem(index, def);
                             });
 
+                            // 添加双击事件 - 直接复用底部导航栏的双击跳转功能
+                            item.addEventListener('dblclick', () => {
+                                // 先选择当前定义项，更新Context Window的内容
+                                selectDefinitionItem(index, def);
+                                
+                                // 然后直接调用底部导航栏的双击跳转逻辑
+                                setTimeout(() => {
+                                    vscode.postMessage({
+                                        type: 'doubleClick',
+                                        location: 'bottomArea'
+                                    });
+                                }, 100); // 稍微延迟确保内容已更新
+                            });
+
                             listItems.appendChild(item);
                             
                             // 如果是默认激活的项，自动选择它
