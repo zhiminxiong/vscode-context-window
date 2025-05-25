@@ -378,6 +378,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             this._historyIndex++;
         }
         if (lastIdx !== this._historyIndex) {
+            // 主动隐藏定义列表
+            if (this._view) {
+                this._view.webview.postMessage({
+                    type: 'clearDefinitionList'
+                });
+            }
+            
             const contentInfo = this._history[this._historyIndex];
             this.updateContent(contentInfo?.content, contentInfo.curLine);
         }
@@ -433,8 +440,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
                             if (definitions && definitions.length > 0) {
                                 //console.log('[definition] jumpDefinition: ', definitions);
+                                
+                                // 主动隐藏定义列表（在处理新的跳转前）
+                                if (this._view && definitions.length === 1) {
+                                    this._view.webview.postMessage({
+                                        type: 'clearDefinitionList'
+                                    });
+                                }
+                                
                                 // 如果有多个定义，传递给 Monaco Editor
-                                if (definitions.length > 0) {
+                                if (definitions.length > 1) {
                                     const selectedDefinition = await this.showDefinitionPicker(definitions, editor);
                                     definitions = selectedDefinition ? [selectedDefinition] : [];
                                 }
@@ -480,13 +495,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         if (message.filePath.startsWith('file://')) {
                             fileUri = vscode.Uri.parse(message.filePath);
                         } else {
-                            // 如果是相对路径，尝试解析为绝对路径
-                            const workspaceFolders = vscode.workspace.workspaceFolders;
-                            if (workspaceFolders && workspaceFolders.length > 0) {
-                                fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, message.filePath);
-                            } else {
-                                fileUri = vscode.Uri.file(message.filePath);
-                            }
+                            // 直接使用文件系统路径创建URI
+                            fileUri = vscode.Uri.file(message.filePath);
                         }
                         
                         // 尝试打开文档
@@ -873,17 +883,19 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 }
 
                 .definition-item {
-                    padding: 6px 12px;
+                    padding: 8px 12px;
                     cursor: pointer;
-                    border-bottom: 1px solid var(--vscode-editorWidget-border);
                     color: var(--vscode-foreground);
-                    font-size: 12px;
+                    font-size: 13px;
                     transition: background-color 0.2s ease;
                     white-space: nowrap;
                     overflow: visible;
                     flex-shrink: 0;
                     width: 100%;
                     box-sizing: border-box;
+                    display: flex;
+                    align-items: center;
+                    min-height: 32px;
                 }
 
                 .definition-item:hover {
@@ -891,23 +903,31 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 }
 
                 .definition-item.active {
-                    background-color: var(--vscode-list-activeSelectionBackground);
-                    color: var(--vscode-list-activeSelectionForeground);
+                    background-color: #ffd700;
+                    color: #000000;
                 }
 
-                .definition-item .item-title {
-                    font-weight: 600;
-                    margin-bottom: 2px;
-                    white-space: nowrap;
-                    overflow: visible;
+                .definition-item .definition-number {
+                    font-weight: bold;
+                    margin-right: 8px;
+                    color: inherit;
                 }
 
-                .definition-item .item-location {
-                    font-size: 11px;
-                    color: var(--vscode-descriptionForeground);
-                    opacity: 0.8;
-                    white-space: nowrap;
-                    overflow: visible;
+                .definition-item .definition-info {
+                    flex: 1;
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+
+                .definition-item .file-path {
+                    color: inherit;
+                    font-weight: bold;
+                }
+
+                .definition-item .line-info {
+                    color: inherit;
+                    margin-left: 4px;
                 }
 
                 #container {
@@ -1166,6 +1186,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             return;
         }
         
+        // 主动隐藏定义列表
+        if (this._view) {
+            this._view.webview.postMessage({
+                type: 'clearDefinitionList'
+            });
+        }
+        
         //console.log('[definition] update');
         const loadingEntry = { cts: new vscode.CancellationTokenSource() };
         this._loading = loadingEntry;
@@ -1243,7 +1270,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             this._currentPanel = undefined;
         }
 
-        if (definitions.length > 0) {
+        if (definitions.length > 1) {
             const selectedDefinition = await this.showDefinitionPicker(definitions, editor);
             if (!selectedDefinition) {
                 return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '' };
@@ -1319,29 +1346,23 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     let uri = (def instanceof vscode.Location) ? def.uri : def.targetUri;
                     let range = (def instanceof vscode.Location) ? def.range : (def.targetSelectionRange ?? def.targetRange);
 
-                    // 获取相对路径用于显示
-                    const workspaceFolders = vscode.workspace.workspaceFolders;
-                    let displayPath = uri.fsPath;
-                    if (workspaceFolders && workspaceFolders.length > 0) {
-                        const workspaceRoot = workspaceFolders[0].uri.fsPath;
-                        if (displayPath.startsWith(workspaceRoot)) {
-                            displayPath = displayPath.substring(workspaceRoot.length + 1);
-                        }
-                    }
+                    // 使用全路径
+                    const displayPath = uri.fsPath;
 
                     // 获取符号名称
                     const document = await vscode.workspace.openTextDocument(uri);
                     const wordRange = document.getWordRangeAtPosition(new vscode.Position(range.start.line, range.start.character));
                     const symbolName = wordRange ? document.getText(wordRange) : `Definition ${index + 1}`;
 
-                    return {
-                        title: symbolName,
-                        location: `${displayPath}:${range.start.line + 1}`,
-                        filePath: uri.toString(),
-                        lineNumber: range.start.line,
-                        isActive: index === 0, // 第一个定义默认激活
-                        definition: definition
-                    };
+                                            return {
+                            title: symbolName,
+                            location: `${displayPath}:${range.start.line + 1}`,
+                            filePath: displayPath, // 使用文件系统路径而不是URI
+                            lineNumber: range.start.line,
+                            columnNumber: range.start.character + 1, // 添加列号信息（转换为1-based）
+                            isActive: index === 0, // 第一个定义默认激活
+                            definition: definition
+                        };
                 } catch (error) {
                     return null;
                 }
@@ -1350,8 +1371,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             // 过滤掉null项
             const validDefinitions = definitionListData.filter(item => item !== null);
             
-            // 发送定义列表数据到webview
-            if (this._view && validDefinitions.length > 0) {
+            // 只有在多个定义时才发送定义列表数据到webview
+            if (this._view && validDefinitions.length > 1) {
                 this._view.webview.postMessage({
                     type: 'updateDefinitionList',
                     definitions: validDefinitions

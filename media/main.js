@@ -577,10 +577,22 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             return;
                         }
 
-                        // 显示定义列表面板
+                        // 只有在有多个定义时才显示定义列表面板
                         const definitionList = document.querySelector('#definition-list');
                         if (definitionList) {
-                            definitionList.style.display = 'flex';
+                            if (definitions && definitions.length > 1) {
+                                definitionList.style.display = 'flex';
+                            } else {
+                                // 如果只有一个或没有定义，隐藏列表面板
+                                definitionList.style.display = 'none';
+                                // 强制Monaco编辑器重新布局以占满整个空间
+                                if (editor) {
+                                    setTimeout(() => {
+                                        editor.layout();
+                                    }, 100);
+                                }
+                                return;
+                            }
                         }
 
                         // 清空现有内容
@@ -596,9 +608,18 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         definitions.forEach((def, index) => {
                             const item = document.createElement('div');
                             item.className = `definition-item${def.isActive ? ' active' : ''}`;
+                            
+                            // 直接使用def中的数据，不需要解析location字符串
+                            const filePath = def.filePath;
+                            const lineNumber = def.lineNumber + 1; // 转换为1-based行号
+                            const columnNumber = def.columnNumber || 1;
+                            
                             item.innerHTML = `
-                                <div class="item-title">${def.title}</div>
-                                <div class="item-location">${def.location}</div>
+                                <span class="definition-number">Definition ${index + 1}:</span>
+                                <div class="definition-info">
+                                    <span class="file-path">${filePath}</span>
+                                    <span class="line-info">- Line: ${lineNumber}, Column: ${columnNumber}</span>
+                                </div>
                             `;
 
                             // 添加点击事件
