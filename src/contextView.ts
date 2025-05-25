@@ -493,47 +493,21 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     // 处理定义列表项被选中的情况
                     //console.log('[definition] Definition item selected:', message);
                     
-                    try {
-                        // 解析文件路径，确保它是一个有效的VS Code URI
-                        let fileUri: vscode.Uri;
-                        if (message.filePath.startsWith('file://')) {
-                            fileUri = vscode.Uri.parse(message.filePath);
-                        } else {
-                            // 直接使用文件系统路径创建URI
-                            fileUri = vscode.Uri.file(message.filePath);
+                    if (this._pickItems && message.index !== undefined) {
+                        const selected = this._pickItems[message.index];
+                        if (selected && editor) {
+                            // 使用缓存的选中文本，而不是重新获取
+                            const selectedText = this._currentSelectedText;
+                            
+                            // 渲染选中的定义
+                            this._renderer.renderDefinitions(editor.document, [selected.definition], selectedText).then(contentInfo => {
+                                this.updateContent(contentInfo);
+                                // 更新历史记录的内容，但保持当前行号
+                                if (this._history.length > this._historyIndex) {
+                                    this._history[this._historyIndex].content = contentInfo;
+                                }
+                            });
                         }
-                        
-                        // 尝试打开文档
-                        const document = await vscode.workspace.openTextDocument(fileUri);
-                        const fileContent = document.getText();
-                        
-                        // 创建真实的文件内容信息
-                        const realContentInfo = {
-                            content: fileContent,
-                            line: message.lineNumber,
-                            column: 0,
-                            jmpUri: fileUri.toString(),
-                            languageId: document.languageId,
-                            symbolName: message.symbolName
-                        };
-                        
-                        // 更新右侧编辑器内容
-                        this.updateContent(realContentInfo);
-                        
-                    } catch (error) {
-                        //console.error('[definition] Error loading file:', error);
-                        
-                        // 如果无法读取文件，显示错误信息
-                        const errorContentInfo = {
-                            content: `// 无法读取文件: ${message.filePath}\n// 错误: ${error}\n\n// 选中的定义: ${message.symbolName}\n// 位置: ${message.filePath}:${message.lineNumber + 1}`,
-                            line: message.lineNumber,
-                            column: 0,
-                            jmpUri: `file://${message.filePath}`,
-                            languageId: this.getLanguageIdFromFilePath(message.filePath),
-                            symbolName: message.symbolName
-                        };
-                        
-                        this.updateContent(errorContentInfo);
                     }
                     break;
                 case 'closeDefinitionList':
@@ -1375,6 +1349,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             
             // 过滤掉null项
             const validDefinitions = definitionListData.filter(item => item !== null);
+            
+            // 缓存定义项供后续使用
+            this._pickItems = validDefinitions;
             
             // 只有在多个定义时才发送定义列表数据到webview
             if (this._view && validDefinitions.length > 1) {
