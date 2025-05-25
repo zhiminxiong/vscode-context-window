@@ -633,6 +633,13 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             });
 
                             listItems.appendChild(item);
+                            
+                            // 如果是默认激活的项，自动选择它
+                            if (def.isActive) {
+                                setTimeout(() => {
+                                    selectDefinitionItem(index, def);
+                                }, 100);
+                            }
                         });
 
                         // 添加键盘事件监听

@@ -454,7 +454,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                                 
                                 // 如果有多个定义，传递给 Monaco Editor
                                 if (definitions.length > 1) {
-                                    const selectedDefinition = await this.showDefinitionPicker(definitions, editor);
+                                    const currentPosition = new vscode.Position(message.position.line, message.position.character);
+                                    const selectedDefinition = await this.showDefinitionPicker(definitions, editor, currentPosition);
                                     definitions = selectedDefinition ? [selectedDefinition] : [];
                                 }
                                 //console.log('[definition] jumpDefinition: ', message.token);
@@ -1250,7 +1251,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         }
 
         if (definitions.length > 1) {
-            const selectedDefinition = await this.showDefinitionPicker(definitions, editor);
+            const currentPosition = editor.selection.active;
+            const selectedDefinition = await this.showDefinitionPicker(definitions, editor, currentPosition);
             if (!selectedDefinition) {
                 return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '' };
             }
@@ -1316,7 +1318,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         return languageMap[extension || ''] || 'plaintext';
     }
 
-    private async showDefinitionPicker(definitions: any[], editor: vscode.TextEditor): Promise<any> {
+    private async showDefinitionPicker(definitions: any[], editor: vscode.TextEditor, currentPosition?: vscode.Position): Promise<any> {
         // 准备定义列表数据并发送到webview
         try {
             const definitionListData = await Promise.all(definitions.map(async (definition, index) => {
@@ -1340,7 +1342,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                             lineNumber: range.start.line,
                             columnNumber: range.start.character + 1, // 添加列号信息（转换为1-based）
                             isActive: index === 0, // 第一个定义默认激活
-                            definition: definition
+                            definition: definition,
+                            uri: uri.toString(),
+                            startLine: range.start.line,
+                            startCharacter: range.start.character
                         };
                 } catch (error) {
                     return null;
@@ -1355,10 +1360,58 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             
             // 只有在多个定义时才发送定义列表数据到webview
             if (this._view && validDefinitions.length > 1) {
+                // 尝试找到与当前位置最匹配的定义作为默认选择
+                const currentFileUri = editor.document.uri.toString();
+                let defaultIndex = 0;
+                let bestMatch = -1;
+                let minDistance = Number.MAX_SAFE_INTEGER;
+                
+                // 如果有当前位置信息，进行精确匹配
+                if (currentPosition) {
+                    for (let i = 0; i < validDefinitions.length; i++) {
+                        const def = validDefinitions[i];
+                        if (def && def.uri === currentFileUri) {
+                            // 计算位置距离（行数差 * 1000 + 列数差）
+                            const lineDiff = Math.abs(def.startLine - currentPosition.line);
+                            const charDiff = Math.abs(def.startCharacter - currentPosition.character);
+                            const distance = lineDiff * 1000 + charDiff;
+                            
+                            if (distance < minDistance) {
+                                minDistance = distance;
+                                bestMatch = i;
+                            }
+                        }
+                    }
+                }
+                
+                // 如果找到了最佳匹配，使用它；否则查找同文件的第一个定义
+                if (bestMatch !== -1) {
+                    defaultIndex = bestMatch;
+                } else {
+                    // 回退到文件匹配
+                    for (let i = 0; i < validDefinitions.length; i++) {
+                        const def = validDefinitions[i];
+                        if (def && def.uri === currentFileUri) {
+                            defaultIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                // 更新激活状态
+                validDefinitions.forEach((def, index) => {
+                    if (def) {
+                        def.isActive = index === defaultIndex;
+                    }
+                });
+                
                 this._view.webview.postMessage({
                     type: 'updateDefinitionList',
                     definitions: validDefinitions
                 });
+                
+                // 返回匹配当前位置的定义
+                return validDefinitions[defaultIndex] && validDefinitions[defaultIndex]?.definition ? validDefinitions[defaultIndex]!.definition : (validDefinitions[0]?.definition || definitions[0]);
             }
             
             // 返回第一个定义作为默认选择
