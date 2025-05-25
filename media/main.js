@@ -221,6 +221,23 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         openerService: openerService
                     });
 
+                    // 添加ResizeObserver来监听容器大小变化（仅用于拖拽分隔条时重新布局）
+                    const containerElement = document.getElementById('container');
+                    if (containerElement && window.ResizeObserver) {
+                        const resizeObserver = new ResizeObserver(() => {
+                            // 当容器大小变化时，重新布局Monaco编辑器
+                            if (editor) {
+                                editor.layout();
+                            }
+                        });
+                        resizeObserver.observe(containerElement);
+                        
+                        // 确保在编辑器销毁时清理ResizeObserver
+                        editor.onDidDispose(() => {
+                            resizeObserver.disconnect();
+                        });
+                    }
+
                     // 添加禁用选择的配置
                     editor.updateOptions({
                         readOnly: true,
