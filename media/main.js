@@ -550,9 +550,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
 
                     //console.log('[definition] Monaco editor created');
 
-                    // 初始化定义列表点击功能
-                    initializeDefinitionListEvents();
-
                     // 通知扩展编辑器已准备好
                     vscode.postMessage({ type: 'editorReady' });
                     //console.log('[definition] Editor ready message sent');
@@ -572,6 +569,51 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         } else if (filenameDisplay) {
                             filenameDisplay.textContent = '';
                         }
+                    }
+
+                    function updateDefinitionList(definitions) {
+                        const listItems = document.querySelector('#definition-list .list-items');
+                        if (!listItems) {
+                            return;
+                        }
+
+                        // 清空现有内容
+                        listItems.innerHTML = '';
+
+                        // 如果没有定义，显示空状态
+                        if (!definitions || definitions.length === 0) {
+                            listItems.innerHTML = '<div style="padding: 10px; color: var(--vscode-descriptionForeground); font-style: italic;">No definitions found</div>';
+                            return;
+                        }
+
+                        // 创建定义项
+                        definitions.forEach((def, index) => {
+                            const item = document.createElement('div');
+                            item.className = `definition-item${def.isActive ? ' active' : ''}`;
+                            item.innerHTML = `
+                                <div class="item-title">${def.title}</div>
+                                <div class="item-location">${def.location}</div>
+                            `;
+
+                            // 添加点击事件
+                            item.addEventListener('click', () => {
+                                // 移除其他项的active状态
+                                document.querySelectorAll('.definition-item').forEach(i => i.classList.remove('active'));
+                                // 添加当前项的active状态
+                                item.classList.add('active');
+
+                                // 发送消息到扩展
+                                vscode.postMessage({
+                                    type: 'definitionItemSelected',
+                                    symbolName: def.title,
+                                    filePath: def.filePath,
+                                    lineNumber: def.lineNumber,
+                                    index: index
+                                });
+                            });
+
+                            listItems.appendChild(item);
+                        });
                     }
                     
                     // 处理来自扩展的消息
@@ -734,6 +776,12 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                         //console.error('[definition] Editor not initialized');
                                     }
                                     break;
+                                case 'updateDefinitionList':
+                                    // 更新定义列表
+                                    if (message.definitions && Array.isArray(message.definitions)) {
+                                        updateDefinitionList(message.definitions);
+                                    }
+                                    break;
                                 case 'update':
                                     //console.log('[definition] Updating editor content');
                                     // 显示编辑器，隐藏原始内容区域
@@ -872,47 +920,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         }
                     });
                     
-                    // 定义列表点击事件处理
-                    function initializeDefinitionListEvents() {
-                        const definitionItems = document.querySelectorAll('.definition-item');
-                        
-                        definitionItems.forEach((item, index) => {
-                            item.addEventListener('click', () => {
-                                // 移除所有项的active状态
-                                definitionItems.forEach(el => {
-                                    el.classList.remove('active');
-                                });
-                                
-                                // 设置当前项为active
-                                item.classList.add('active');
-                                
-                                // 获取选中项的信息
-                                const titleElement = item.querySelector('.item-title');
-                                const locationElement = item.querySelector('.item-location');
-                                
-                                if (titleElement && locationElement) {
-                                    const symbolName = titleElement.textContent.trim();
-                                    const location = locationElement.textContent.trim();
-                                    
-                                    // 解析文件路径和行号
-                                    const locationParts = location.split(':');
-                                    const filePath = locationParts[0];
-                                    const lineNumber = locationParts[1] ? parseInt(locationParts[1]) - 1 : 0; // 转换为0-based
-                                    
-                                    //console.log('[definition] Selected definition:', symbolName, filePath, lineNumber);
-                                    
-                                    // 向扩展发送消息，请求显示选中的定义
-                                    vscode.postMessage({
-                                        type: 'definitionItemSelected',
-                                        symbolName: symbolName,
-                                        filePath: filePath,
-                                        lineNumber: lineNumber,
-                                        index: index
-                                    });
-                                }
-                            });
-                        });
-                    }
+
                 } catch (error) {
                     console.error('[definition] Error initializing editor:', error);
                     document.getElementById('main').style.display = 'block';
