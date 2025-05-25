@@ -768,7 +768,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     overflow-y: auto;
                     overflow-x: auto;
                     resize: horizontal;
-                    display: flex;
+                    display: none; /* 默认隐藏 */
                     flex-direction: column;
                     padding-bottom: 10px;
                 }

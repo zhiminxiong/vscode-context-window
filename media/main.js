@@ -120,9 +120,14 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     window.vsCodeTheme = 'custom-vs';
                 }
                 
-                // 隐藏加载状态，显示编辑器容器
-                document.getElementById('main').style.display = 'none';
-                document.getElementById('main-container').style.display = 'flex';
+                                    // 隐藏加载状态，显示编辑器容器
+                    document.getElementById('main').style.display = 'none';
+                    document.getElementById('main-container').style.display = 'flex';
+                    
+                    // 初始化时显示"No content"消息
+                    document.getElementById('container').style.display = 'none';
+                    document.getElementById('main').style.display = 'block';
+                    document.getElementById('main').innerHTML = '&nbsp;&nbsp;No symbol found at current cursor position';
                 
                 try {
                     //console.log('[definition] editor settings: ', window.vsCodeEditorConfiguration);
