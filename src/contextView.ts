@@ -542,12 +542,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     //this._view?.webview.postMessage({ type: 'endLoading' });
                 }
                 else {
-                    this._view?.webview.postMessage({
-                        type: 'noContent',
-                        body: '&nbsp;&nbsp;No symbol found at current cursor position',
-                        updateMode: this._updateMode,
-                    });
-                    this.update(/* force */ true);
+                    // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态
+                    // 不主动查找定义，也不显示"No symbol found..."
                 }
             } else {
                 if (this._currentPanel) {
@@ -582,9 +578,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             // Hide loading after content is updated
             //this._view?.webview.postMessage({ type: 'endLoading' });
         } else {
-            //console.log('[definition] resolveWebviewView to update');
-            // 没有缓存才触发更新
-            this.update(/* force */ true);
+            //console.log('[definition] No cached content, keeping Ready for content state');
+            // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态，不主动查找定义
+            // 只有用户主动点击符号时才会触发定义查找
         }
     }
 
