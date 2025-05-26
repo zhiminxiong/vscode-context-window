@@ -1161,13 +1161,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             return;
         }
         
-        // 主动隐藏定义列表
-        if (this._view) {
-            this._view.webview.postMessage({
-                type: 'clearDefinitionList'
-            });
-        }
-        
         //console.log('[definition] update');
         const loadingEntry = { cts: new vscode.CancellationTokenSource() };
         this._loading = loadingEntry;
@@ -1253,7 +1246,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '' };
             }
             definitions = [selectedDefinition];
+        } else {
+            // 主动隐藏定义列表
+            if (this._view) {
+                this._view.webview.postMessage({
+                    type: 'clearDefinitionList'
+                });
+            }
         }
+
         //console.log(definitions);
         return definitions.length ? await this._renderer.renderDefinitions(editor.document, definitions, selectedText) : {
             content: '',
