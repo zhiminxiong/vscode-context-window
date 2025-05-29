@@ -325,6 +325,8 @@ export const languageConfig_cpp = {
             [/\/\*/, 'comment', '@comment'],
             [/\/\/.*$/, 'comment'],
             [/#\s*include\b/, 'keyword.directive'],
+            [/#\s*pragma\s+(region|endregion)$/, 'keyword.directive'],
+            [/#\s*pragma\s+(region|endregion)\b/, { token: 'keyword.directive', next: '@region' }],
             [/#\s*pragma\b/, 'keyword.directive'],
             [/#\s*define\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
             [/#\s*undef\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
@@ -460,6 +462,11 @@ export const languageConfig_cpp = {
         template: [
             [/>/, { token: 'delimiter.angle', next: '@pop' }],
             { include: 'root' }
+        ],
+
+        region: [
+            [/.*$/, { token: 'comment', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]
         ],
         
         // 多行注释 - 确保注释中的关键字不被识别
