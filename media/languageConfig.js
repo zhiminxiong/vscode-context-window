@@ -375,7 +375,8 @@ export const languageConfig_cpp = {
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
-            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*class|struct\b)/, 'keyword'],
+            [/\b(enum)\b\s*(?=class|struct\b)/, 'keyword.type'],
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=class|struct\b)/, 'keyword'],
 
             //[/\b([a-zA-Z_$][\w$]*)\b/, { token: '@rematch', next: '@preClassCheck' }],
 
