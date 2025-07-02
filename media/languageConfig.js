@@ -371,7 +371,7 @@ export const languageConfig_cpp = {
             [/\b(template)\b/, 'keyword.type'],
 
             // 关键字
-            [/\b(extern|const|volatile|static|operator|thread_local|mutable|constexpr|noexcept|final|abstract|this|decltype|inline|friend|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
+            [/\b(extern|const|volatile|static|operator|thread_local|final|mutable|constexpr|noexcept|final|abstract|this|decltype|inline|friend|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
@@ -512,6 +512,7 @@ export const languageConfig_cpp = {
         afterType: [
             [/\s+/, 'white'],  // 跳过空白
             [/\bconst|volatile|static|thread_local|constexpr|operator|mutable\b/, 'keyword'],
+            [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*::)/, 'type'],
             [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*)/, 'type'],
             [/\b([a-zA-Z_$][\w$]*)\b(?!\s*\()/, 'variable.name'],//{ token: 'variable.name', next: '@pop' }],
             [/[\*&,]/, 'delimiter'],
@@ -523,6 +524,8 @@ export const languageConfig_cpp = {
         // 类名识别状态
         afterClass: [
             [/\s+/, 'white'],  // 跳过空白
+            [/final\b/, 'keyword'],
+            [/([a-zA-Z_$][\w$]*)\b(?=\s+final\b)/, 'class.name'],
             // (class classname *cls,)
             [/([a-zA-Z_$][\w$]*)\b(?=\s*[\*&]*\s*[a-zA-Z_$][\w$]*\s*[,\)])/, { token: 'keyword', next: '@afterType' }],
             [/([a-zA-Z_$][\w$]*)\b(?=\s*[a-zA-Z_$][\w$]*)/, 'keyword'],  // 识别其它 dllexport
