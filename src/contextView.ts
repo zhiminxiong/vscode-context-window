@@ -1099,6 +1099,30 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         </html>`;
     }
 
+    // 添加等待面板准备就绪的方法
+    private waitForPanelReady(): Promise<void> {
+        return new Promise((resolve) => {
+            if (!this._view) {
+                resolve();
+                return;
+            }
+
+            // 设置超时，避免无限等待
+            const timeout = setTimeout(() => {
+                resolve();
+            }, 5000); // 5秒超时
+
+            // 监听面板的确认消息
+            const messageListener = this._view.webview.onDidReceiveMessage((message) => {
+                if (message.type === 'contentReady') {
+                    clearTimeout(timeout);
+                    messageListener.dispose();
+                    resolve();
+                }
+            });
+        });
+    }
+
     private async updateContent(contentInfo?: FileContentInfo, curLine: number =-1) {
         //console.log('[definition] updateContent', contentInfo);
         if (contentInfo && contentInfo.content.length && contentInfo.jmpUri) {
@@ -1120,6 +1144,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
             // Hide loading after content is updated
             //this._view?.webview.postMessage({ type: 'endLoading' });
+            // 等待面板确认渲染完成
+            await this.waitForPanelReady();
         } else {
             this._view?.webview.postMessage({
                 type: 'noContent',

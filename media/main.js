@@ -1076,6 +1076,10 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                                 }
                                             }
                                         }
+                                        // 内容设置完成后，发送确认消息
+                                        setTimeout(() => {
+                                            vscode.postMessage({ type: 'contentReady' });
+                                        }, 1); // 稍微延迟确保渲染完成
                                     } else {
                                         console.error('[definition] Editor not initialized');
                                     }
