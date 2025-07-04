@@ -1223,7 +1223,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             updatePromise,
 
             // Don't show progress indicator right away, which causes a flash
-            new Promise<void>(resolve => setTimeout(resolve, 0)).then(() => {
+            new Promise<void>(resolve => setTimeout(resolve, 200)).then(() => {
                 if (loadingEntry.cts.token.isCancellationRequested) {
                     return;
                 }
