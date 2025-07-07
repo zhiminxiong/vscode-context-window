@@ -585,8 +585,10 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         if (uri && filenameDisplay) {
                             // 从URI中提取文件名
                             const filename = uri.split('/').pop().split('\\').pop();
+                            const filePath = uri;
+                            const displayText = `${filename}       (${filePath})`;
                             //console.log('[definition] File name:', filename, uri);
-                            filenameDisplay.textContent = filename || '';
+                            filenameDisplay.textContent = displayText || '';
                         } else if (filenameDisplay) {
                             filenameDisplay.textContent = '';
                         }

@@ -327,6 +327,7 @@ export const languageConfig_cpp = {
             [/#\s*include\b/, 'keyword.directive'],
             [/#\s*pragma\s+(region|endregion)$/, 'keyword.directive'],
             [/#\s*pragma\s+(region|endregion)\b/, { token: 'keyword.directive', next: '@region' }],
+            [/#\s*error\b/, { token: 'keyword.directive', next: '@region' }],
             [/#\s*pragma\b/, 'keyword.directive'],
             [/#\s*define\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],
             [/#\s*undef\b/, { token: 'keyword.directive.control', next: '@afterMacro' }],

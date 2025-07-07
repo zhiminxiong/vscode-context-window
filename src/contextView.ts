@@ -996,7 +996,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     max-width: 100%;
                     overflow: hidden;
                     text-overflow: ellipsis;
-                    white-space: nowrap;
+                    white-space: pre;
                     z-index: 1002;
                     padding-left: 60px;
                 }
