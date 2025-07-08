@@ -465,8 +465,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                                     this.addToHistory(contentInfo, message.position.line);
                                     //console.log('[definition] jumpDefinition: ', contentInfo);
                                 }
-                            }                            }
-
+                            }
                         }
                     }
                     break;
