@@ -443,7 +443,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                             );
 
                             if (definitions && definitions.length > 0) {
-                                //console.log('[definition] jumpDefinition: ', definitions);
+                                console.log('[definition] jumpDefinition: ', definitions);
                                 
                                 // 主动隐藏定义列表（在处理新的跳转前）
                                 if (this._view && definitions.length === 1) {
@@ -465,7 +465,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                                     this.addToHistory(contentInfo, message.position.line);
                                     //console.log('[definition] jumpDefinition: ', contentInfo);
                                 }
-                            }
+                            }                            }
+
                         }
                     }
                     break;

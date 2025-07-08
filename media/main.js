@@ -113,7 +113,29 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         base: light ? 'vs' : 'vs-dark',  // 基于 vs 主题
                         inherit: true,  // 继承基础主题的规则
                         rules: window.vsCodeEditorConfiguration.customThemeRules,
-                        colors: {}
+                        colors: {
+                            "editor.selectionBackground": "#ff6a0070",// #ffb7007f
+                            //"editor.selectionForeground": "#ffffffff",
+                            "editor.inactiveSelectionBackground": "#61616130",
+                            "editor.selectionHighlightBackground": "#ff6a0070",// Ffb700a0
+                            "editor.selectionHighlightBorder": "#ff01018b",
+
+                            "editor.wordHighlightBackground": "#5bdb0771", // Background color of a symbol during read-access ff6a0040
+                            "editor.wordHighlightBorder": "#5bdb0791", // ff6a006f
+                            "editor.wordHighlightStrongBackground": "#07c2db71", // Background color of a symbol during write-access ff6a0060
+                            "editor.wordHighlightStrongBorder": "#07c2dba1", // ff6a0080
+                            //"editor.wordHighlightTextBackground": "#0303e835",
+                            //"editor.lineHighlightBackground":"#ff0000",
+
+                            "editor.findMatchBackground": "#ff6a0020", // Current SEARCH MATCH
+                            "editor.findMatchBorder": "#ff01018b", // 07850799
+                            "editor.findMatchHighlightBackground": "#ff6a0070", // Other SEARCH MATCHES 87cf029b ff6a0040
+                            "editor.findMatchHighlightBorder": "#ff6a0000",
+                            //"editor.findMatchForeground": "#ff0000",// no effect
+                            //"editor.findMatchHighlightForeground": "#ff0000",// no effect
+                            "editorBracketMatch.background":"#07c2db71",
+                            "editorBracketMatch.border":"#07c2dba1",
+                        }
                     });
                     
                     // 使用自定义主题
@@ -374,6 +396,31 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
 
                             return false;
                         }, true); // 使用捕获阶段，确保在事件到达 Monaco 之前拦截
+
+                        editorDomNode.addEventListener('contextmenu', (e) => {
+                                if (e.ctrlKey) {
+                                    // Ctrl+右键，手动弹出 Monaco 菜单
+                                    // 需要调用 Monaco 的菜单 API
+                                    // 下面是常见做法（不同版本API略有不同）
+                                    if (editor._contextMenuService) {
+                                        // 6.x/7.x 版本
+                                        editor._contextMenuService.showContextMenu({
+                                            getAnchor: () => ({ x: e.clientX, y: e.clientY }),
+                                            getActions: () => editor._getMenuActions(),
+                                            onHide: () => {},
+                                        });
+                                    } else if (editor.trigger) {
+                                        // 旧版
+                                        editor.trigger('keyboard', 'editor.action.showContextMenu', {});
+                                    }
+                                } else {
+                                    // 普通右键，执行你自己的逻辑
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    // 这里写你自己的右键菜单逻辑
+                                    console.log('自定义右键菜单');
+                                }
+                            }, true);
                     }
 
                     editorDomNode.addEventListener('selectstart', (e) => {
@@ -404,6 +451,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     editor.onMouseDown((e) => {
                         e.event.preventDefault();
                         e.event.stopPropagation();
+                        console.log('[definition] onMouseDown: ', e);
                         return false;  // 阻止默认处理
                     });
 
@@ -527,6 +575,34 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         );
                     });
 
+                    function selectAndHighlightToken(line, character, token) {
+                        if (!editor) return;
+                        const model = editor.getModel();
+                        if (!model) return;
+                        const lineNumber = line + 1; // 1-based
+                        const lineText = model.getLineContent(lineNumber);
+
+                        // 精确查找token在该行的位置
+                        let startColumn = character + 1;
+                        let endColumn = startColumn + token.length;
+
+                        // 尝试用正则精确查找
+                        const regex = new RegExp(`\\b${token}\\b`);
+                        const match = lineText.match(regex);
+                        if (match && match.index !== undefined) {
+                            startColumn = match.index + 1;
+                            endColumn = startColumn + token.length;
+                        }
+
+                        // 只用Monaco的原生选中功能
+                        editor.setSelection({
+                            startLineNumber: lineNumber,
+                            startColumn,
+                            endLineNumber: lineNumber,
+                            endColumn
+                        });
+                    }
+
                     // 处理链接点击事件 - 在Monaco内部跳转
                     editor.onMouseUp((e) => {
                         // 完全阻止事件传播
@@ -537,7 +613,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         //const isLeftClick = (e.event.buttons & 1) === 1; // 左键
                         //const isRightClick = (e.event.buttons & 2) === 2; // 右键
                         
-                        if (e.event.leftButton && e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
+                        if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
                             // 获取当前单词
                             const model = editor.getModel();
                             if (!model) {
@@ -548,25 +624,35 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             const position = e.target.position;
                             // 检查点击位置是否在当前选择范围内
                             const selection = editor.getSelection();
-                            const isClickedTextSelected = selection && !selection.isEmpty() && 
-                                selection.containsPosition(position);
+                            const isClickedTextSelected = selection && !selection.isEmpty() && selection.containsPosition(position);
                             if (model && position && !isClickedTextSelected) {
+                                console.log('[definition] start to mid + jump definition: ', e);
                                 const word = model.getWordAtPosition(position);
                                 if (word) {
-                                    //console.log('[definition] start to jump definition: ', word);
-                                    vscode.postMessage({
-                                                    type: 'jumpDefinition',
-                                                    uri: uri,
-                                                    token: word.word,
-                                                    position: {
-                                                        line: position.lineNumber - 1,
-                                                        character: position.column - 1
-                                                    }
-                                                });
+                                    if (e.event.rightButton) {
+                                        console.log('[definition] start to mid + jump definition: ', word);
+                                        selectAndHighlightToken(
+                                            position.lineNumber - 1,
+                                            position.column - 1,
+                                            word.word
+                                        );
+                                    } else {
+                                        console.log('[definition] start to jump definition: ', word);
+                                        vscode.postMessage({
+                                                        type: 'jumpDefinition',
+                                                        uri: uri,
+                                                        token: word.word,
+                                                        position: {
+                                                            line: position.lineNumber - 1,
+                                                            character: position.column - 1
+                                                        }
+                                                    });
+                                    }
                                 }
                             }
                             return false;
                         }
+                        return false;
                     });
 
                     //console.log('[definition] Monaco editor created');
