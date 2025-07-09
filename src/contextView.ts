@@ -878,7 +878,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 }
 
                 .definition-item.active {
-                    background-color: #ffd700;
+                    background-color: #07c2db71;
                     color: #000000;
                 }
 
