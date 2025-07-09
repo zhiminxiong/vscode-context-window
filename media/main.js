@@ -114,27 +114,12 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         inherit: true,  // 继承基础主题的规则
                         rules: window.vsCodeEditorConfiguration.customThemeRules,
                         colors: {
-                            "editor.selectionBackground": "#ff6a0070",// #ffb7007f
+                            "editor.selectionBackground": "#07c2db71",// #ffb7007f
                             //"editor.selectionForeground": "#ffffffff",
-                            "editor.inactiveSelectionBackground": "#61616130",
-                            "editor.selectionHighlightBackground": "#ff6a0070",// Ffb700a0
-                            "editor.selectionHighlightBorder": "#ff01018b",
-
-                            "editor.wordHighlightBackground": "#5bdb0771", // Background color of a symbol during read-access ff6a0040
-                            "editor.wordHighlightBorder": "#5bdb0791", // ff6a006f
-                            "editor.wordHighlightStrongBackground": "#07c2db71", // Background color of a symbol during write-access ff6a0060
-                            "editor.wordHighlightStrongBorder": "#07c2dba1", // ff6a0080
-                            //"editor.wordHighlightTextBackground": "#0303e835",
-                            //"editor.lineHighlightBackground":"#ff0000",
-
-                            "editor.findMatchBackground": "#ff6a0020", // Current SEARCH MATCH
-                            "editor.findMatchBorder": "#ff01018b", // 07850799
-                            "editor.findMatchHighlightBackground": "#ff6a0070", // Other SEARCH MATCHES 87cf029b ff6a0040
-                            "editor.findMatchHighlightBorder": "#ff6a0000",
-                            //"editor.findMatchForeground": "#ff0000",// no effect
-                            //"editor.findMatchHighlightForeground": "#ff0000",// no effect
-                            "editorBracketMatch.background":"#07c2db71",
-                            "editorBracketMatch.border":"#07c2dba1",
+                            "editor.inactiveSelectionBackground": "#07c2db71",
+                            "editor.selectionHighlightBackground": "#5bdb0771",// Ffb700a0
+                            "editor.selectionHighlightBorder": "#5bdb0791",
+                            //"editor.background": "#e6e6e6",
                         }
                     });
                     
@@ -418,7 +403,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                     e.preventDefault();
                                     e.stopPropagation();
                                     // 这里写你自己的右键菜单逻辑
-                                    console.log('自定义右键菜单');
+                                    //console.log('自定义右键菜单');
                                 }
                             }, true);
                     }
@@ -575,34 +560,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         );
                     });
 
-                    function selectAndHighlightToken(line, character, token) {
-                        if (!editor) return;
-                        const model = editor.getModel();
-                        if (!model) return;
-                        const lineNumber = line + 1; // 1-based
-                        const lineText = model.getLineContent(lineNumber);
-
-                        // 精确查找token在该行的位置
-                        let startColumn = character + 1;
-                        let endColumn = startColumn + token.length;
-
-                        // 尝试用正则精确查找
-                        const regex = new RegExp(`\\b${token}\\b`);
-                        const match = lineText.match(regex);
-                        if (match && match.index !== undefined) {
-                            startColumn = match.index + 1;
-                            endColumn = startColumn + token.length;
-                        }
-
-                        // 只用Monaco的原生选中功能
-                        editor.setSelection({
-                            startLineNumber: lineNumber,
-                            startColumn,
-                            endLineNumber: lineNumber,
-                            endColumn
-                        });
-                    }
-
                     // 处理链接点击事件 - 在Monaco内部跳转
                     editor.onMouseUp((e) => {
                         // 完全阻止事件传播
@@ -626,18 +583,19 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             const selection = editor.getSelection();
                             const isClickedTextSelected = selection && !selection.isEmpty() && selection.containsPosition(position);
                             if (model && position && !isClickedTextSelected) {
-                                console.log('[definition] start to mid + jump definition: ', e);
+                                //console.log('[definition] start to mid + jump definition: ', e);
                                 const word = model.getWordAtPosition(position);
                                 if (word) {
                                     if (e.event.rightButton) {
-                                        console.log('[definition] start to mid + jump definition: ', word);
-                                        selectAndHighlightToken(
-                                            position.lineNumber - 1,
-                                            position.column - 1,
-                                            word.word
-                                        );
+                                        //console.log('[definition] start to mid + jump definition: ', word);
+                                        editor.setSelection({
+                                            startLineNumber: position.lineNumber,
+                                            startColumn: word.startColumn,
+                                            endLineNumber: position.lineNumber,
+                                            endColumn: word.endColumn
+                                        });
                                     } else {
-                                        console.log('[definition] start to jump definition: ', word);
+                                        //console.log('[definition] start to jump definition: ', word);
                                         vscode.postMessage({
                                                         type: 'jumpDefinition',
                                                         uri: uri,
