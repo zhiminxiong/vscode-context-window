@@ -7,3 +7,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 - Initial release
+
+## [0.4.2]
+
+- 支持右键选定token，用于查看相同文本
+- Support right-click to select a token for viewing identical text.
