@@ -265,8 +265,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         domReadOnly: true,
                         mouseStyle: 'pointer',
                         cursorWidth: 0,
-                        selectOnLineNumbers: false,  // 禁用行号选择
-                        selectionClipboard: false,    // 禁用选择到剪贴板
+                        selectOnLineNumbers: true,  // 禁用行号选择
+                        selectionClipboard: true,    // 禁用选择到剪贴板
                         contextmenu: false,           // 禁用右键菜单
                         links: false,  // 禁用所有链接功能
                         quickSuggestions: false,  // 禁用快速建议
@@ -451,7 +451,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     editor.onMouseDown((e) => {
                         e.event.preventDefault();
                         e.event.stopPropagation();
-                        console.log('[definition] onMouseDown: ', e);
+                        //console.log('[definition] onMouseDown: ', e);
                         return false;  // 阻止默认处理
                     });
 
