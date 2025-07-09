@@ -400,6 +400,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                     }
                                 } else {
                                     // 普通右键，执行你自己的逻辑
+                                    editor.focus();
                                     e.preventDefault();
                                     e.stopPropagation();
                                     // 这里写你自己的右键菜单逻辑
