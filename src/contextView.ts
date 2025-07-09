@@ -784,8 +784,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
                 /* 定义列表滚动条样式 */
                 #definition-list::-webkit-scrollbar {
-                    width: 8px;
-                    height: 8px;
+                    width: 6px;
+                    height: 6px;
                 }
 
                 #definition-list::-webkit-scrollbar-track {
@@ -858,10 +858,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 }
 
                 .definition-item {
-                    padding: 8px 12px;
+                    padding: 4px 6px;
                     cursor: pointer;
                     color: var(--vscode-foreground);
-                    font-size: 13px;
+                    font-size: 12px;
                     transition: background-color 0.2s ease;
                     white-space: nowrap;
                     overflow: visible;
@@ -870,7 +870,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     box-sizing: border-box;
                     display: flex;
                     align-items: center;
-                    min-height: 32px;
+                    min-height: 16px;
                 }
 
                 .definition-item:hover {
@@ -1358,7 +1358,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     const wordRange = document.getWordRangeAtPosition(new vscode.Position(range.start.line, range.start.character));
                     const symbolName = wordRange ? document.getText(wordRange) : `Definition ${index + 1}`;
 
-                                            return {
+                    return {
                             title: symbolName,
                             location: `${displayPath}:${range.start.line + 1}`,
                             filePath: displayPath, // 使用文件系统路径而不是URI
