@@ -687,6 +687,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             const filePath = def.filePath;
                             const lineNumber = def.lineNumber + 1; // 转换为1-based行号
                             const columnNumber = def.columnNumber || 1;
+
+                            //console.log('[definition] File name:', filePath, lineNumber, columnNumber);
                             
                             item.innerHTML = `
                                 <span class="definition-number">Definition ${index + 1}:</span>

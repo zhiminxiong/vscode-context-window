@@ -760,6 +760,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     width: 30%;
                     min-width: 150px;
                     max-width: 50%;
+                    cursor: default !important;
                     background-color: var(--vscode-editor-background);
                     border-right: 1px solid var(--vscode-editorWidget-border);
                     overflow-y: auto;
@@ -861,7 +862,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     padding: 4px 6px;
                     cursor: pointer;
                     color: var(--vscode-foreground);
-                    font-size: 12px;
+                    font-size: 13px;
                     transition: background-color 0.2s ease;
                     white-space: nowrap;
                     overflow: visible;
@@ -878,8 +879,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 }
 
                 .definition-item.active {
-                    background-color: #07c2db71;
-                    color: #000000;
+                    background-color: #198844;
+                    color:rgb(236, 236, 236);
                 }
 
                 .definition-item .definition-number {
