@@ -70,6 +70,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     });
                 }
             }
+            if (e.affectsConfiguration('contextView.contextWindow')) {
+                // 重新获取配置并发送给webview
+                const newConfig = this._getVSCodeEditorConfiguration();
+                this._view?.webview.postMessage({
+                    type: 'updateContextEditorCfg',
+                    contextEditorCfg: newConfig.contextEditorCfg
+                });
+            }
         }, null, this._disposables);
 
         // Listens for changes to workspace folders (when user adds/removes folders)
@@ -230,12 +238,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
     private _getVSCodeEditorConfiguration(): any {
         // 获取所有编辑器相关配置
         const editorConfig = vscode.workspace.getConfiguration('editor');
+        const contextWindowConfig = vscode.workspace.getConfiguration('contextView.contextWindow');
         const currentTheme = this._getVSCodeTheme();
         
         // 构建配置对象
         const config: {
             theme: string;
             editorOptions: any;
+            contextEditorCfg: any;
             customThemeRules?: any[];
         } = {
             theme: this._getVSCodeTheme(),
@@ -244,6 +254,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 ...Object.assign({}, editorConfig),
                 links: true
             },
+            contextEditorCfg: {
+                selectionBackground: contextWindowConfig.get('selectionBackground', '#07c2db71'),
+                inactiveSelectionBackground: contextWindowConfig.get('inactiveSelectionBackground', '#07c2db71'),
+                selectionHighlightBackground: contextWindowConfig.get('selectionHighlightBackground', '#5bdb0771'),
+                selectionHighlightBorder: contextWindowConfig.get('selectionHighlightBorder', '#5bdb0791')
+            }
         };
 
         // 只在 light 主题下添加自定义主题规则
@@ -876,11 +892,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
                 .definition-item:hover {
                     background-color: var(--vscode-list-hoverBackground);
+                    color: var(--vscode-list-hoverForeground);
                 }
 
                 .definition-item.active {
-                    background-color: #198844;
-                    color:rgb(236, 236, 236);
+                    background-color: var(--vscode-list-activeSelectionBackground);
+                    color: var(--vscode-list-activeSelectionForeground);
                 }
 
                 .definition-item .definition-number {

@@ -117,7 +117,27 @@
 						"The context view tracks the current cursor position. Display empty content if no symbol is found at the current position.",
 						"The context view tries to show the context for the symbol at the current cursor position. If there is none, it continues showing the last available context."
 					]
-				}
+				},
+                "contextView.contextWindow.selectionBackground": {
+                    "type": "string",
+                    "default": "#07c2db71",
+                    "description": "Context Window 选中区域背景色"
+                },
+                "contextView.contextWindow.inactiveSelectionBackground": {
+                    "type": "string",
+                    "default": "#07c2db71",
+                    "description": "Context Window 非活动选中区域背景色"
+                },
+                "contextView.contextWindow.selectionHighlightBackground": {
+                    "type": "string",
+                    "default": "#5bdb0771",
+                    "description": "Context Window 选中高亮背景色"
+                },
+                "contextView.contextWindow.selectionHighlightBorder": {
+                    "type": "string",
+                    "default": "#5bdb0791",
+                    "description": "Context Window 选中高亮边框色"
+                }
 			}
 		}
 	},

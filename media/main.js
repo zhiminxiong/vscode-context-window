@@ -108,17 +108,18 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
 
                 // 如果有自定义主题规则
                 if (window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.customThemeRules) {
+                    const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
                     // 定义自定义主题
                     monaco.editor.defineTheme('custom-vs', {
                         base: light ? 'vs' : 'vs-dark',  // 基于 vs 主题
                         inherit: true,  // 继承基础主题的规则
                         rules: window.vsCodeEditorConfiguration.customThemeRules,
                         colors: {
-                            "editor.selectionBackground": "#07c2db71",// #ffb7007f
+                            "editor.selectionBackground": contextEditorCfg.selectionBackground || "#07c2db71",// #ffb7007f
                             //"editor.selectionForeground": "#ffffffff",
-                            "editor.inactiveSelectionBackground": "#07c2db71",
-                            "editor.selectionHighlightBackground": "#5bdb0771",// Ffb700a0
-                            "editor.selectionHighlightBorder": "#5bdb0791",
+                            "editor.inactiveSelectionBackground": contextEditorCfg.inactiveSelectionBackground || "#07c2db71",
+                            "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || "#5bdb0771",// Ffb700a0
+                            "editor.selectionHighlightBorder": contextEditorCfg.selectionHighlightBorder || "#5bdb0791",
                             //"editor.background": "#e6e6e6",
                         }
                     });
@@ -943,6 +944,28 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                         }
                                     }
                                     break;*/
+                                case 'updateContextEditorCfg':
+                                    if (message.contextEditorCfg) {
+                                        // 重新定义主题
+                                        monaco.editor.defineTheme('custom-vs', {
+                                            base: light ? 'vs' : 'vs-dark',
+                                            inherit: true,
+                                            rules: window.vsCodeEditorConfiguration.customThemeRules,
+                                            colors: {
+                                                "editor.selectionBackground": message.contextEditorCfg.selectionBackground,
+                                                "editor.inactiveSelectionBackground": message.contextEditorCfg.inactiveSelectionBackground,
+                                                "editor.selectionHighlightBackground": message.contextEditorCfg.selectionHighlightBackground,
+                                                "editor.selectionHighlightBorder": message.contextEditorCfg.selectionHighlightBorder,
+                                                // ... 其他颜色
+                                            }
+                                        });
+                                        
+                                        // 重新应用主题
+                                        if (editor) {
+                                            editor.updateOptions({ theme: 'custom-vs' });
+                                        }
+                                    }
+                                    break;
                                 case 'updateTheme':
                                     // 更新编辑器主题
                                     if (editor && message.theme) {
