@@ -787,6 +787,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     padding-bottom: 10px;
                 }
 
+                /* todo: 以下滚动条的控制都可去掉，实际使用的是浏览器自己滚动条，以下代码无法控制 */
+
                 /* 调整垂直滚动条，避免覆盖拖拽区域 */
                 #definition-list::-webkit-scrollbar-track-piece:end {
                     margin-bottom: 10px;
