@@ -282,6 +282,17 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     // 初始化时设置为默认光标
                     forcePointerCursor(false);
 
+                    // 定义使用JavaScript提供器作为默认的语言列表
+                    const defaultLanguages = [
+                        'python', 'java', 'go', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
+                        'erlang', 
+                    ];
+
+                    // 为默认语言设置JavaScript提供器
+                    defaultLanguages.forEach(lang => {
+                        monaco.languages.setMonarchTokensProvider(lang, languageConfig_js);
+                    });
+
                     // 为 JavaScript 定义自定义 token 提供器
                     monaco.languages.setMonarchTokensProvider('javascript', languageConfig_js);
                     monaco.languages.setMonarchTokensProvider('typescript', languageConfig_js);
