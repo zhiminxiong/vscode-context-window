@@ -264,6 +264,41 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         }
                     });
 
+                    // 在 Monaco Editor 初始化后，清除默认的搜索快捷键
+                    function clearMonacoDefaultKeybindings() {
+                        if (!editor || !editor._standaloneKeybindingService) return;
+                        
+                        // Monaco 默认的搜索相关快捷键
+                        const defaultSearchCommands = [
+                            'actions.find',                    // Ctrl+F
+                            'toggleFindCaseSensitive',         // Alt+C
+                            'toggleFindWholeWord',             // Alt+W
+                            'toggleFindRegex',                 // Alt+R
+                            'editor.action.nextMatchFindAction', // F3
+                            'editor.action.previousMatchFindAction', // Shift+F3
+                            'editor.action.startFindReplaceAction', // Ctrl+H
+                            'editor.action.replaceAll',        // Ctrl+Shift+H
+                            'editor.action.selectAllMatches',  // Ctrl+Shift+L
+                            'editor.action.addSelectionToNextFindMatch', // Ctrl+D
+                            'editor.action.moveSelectionToNextFindMatch', // Ctrl+K Ctrl+D
+                            'editor.action.removeSelectionFromNextFindMatch' // Ctrl+U
+                        ];
+                        
+                        // 移除所有默认的搜索快捷键绑定
+                        defaultSearchCommands.forEach(command => {
+                            editor._standaloneKeybindingService.addDynamicKeybinding(
+                                `-${command}`,
+                                null,
+                                () => {}
+                            );
+                        });
+                        
+                        console.log('[definition] Cleared Monaco default search keybindings');
+                    }
+
+                    // 在 Monaco Editor 创建后调用
+                    clearMonacoDefaultKeybindings();
+
                     // 强制设置鼠标样式
                     const forcePointerCursor = (isOverText = false) => {
                         const editorContainer = editor.getDomNode();
@@ -355,11 +390,11 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     // 完全禁用键盘事件
                     editor.onKeyDown((e) => {
                         // 允许 Ctrl+C 复制操作
-                        if (e.ctrlKey && e.code === 'KeyC') {
-                            return;
-                        }
-                        e.preventDefault();
-                        e.stopPropagation();
+                        // if (e.ctrlKey && e.code === 'KeyC') {
+                        //     return;
+                        // }
+                        // e.preventDefault();
+                        // e.stopPropagation();
                     });
 
                     // 完全禁用选择
@@ -627,6 +662,24 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     });
 
                     //console.log('[definition] Monaco editor created');
+
+                    // Monaco 获得焦点时设置 context
+                    editor.onDidFocusEditorText(() => {
+                        //console.log('[definition] Monaco gained focus');
+                        window.vscode.postMessage({
+                            type: 'setContextFocus',
+                            hasFocus: true
+                        });
+                    });
+                    
+                    // Monaco 失去焦点时清除 context
+                    editor.onDidBlurEditorText(() => {
+                        //console.log('[definition] Monaco lost focus');
+                        window.vscode.postMessage({
+                            type: 'setContextFocus',
+                            hasFocus: false
+                        });
+                    });
 
                     // 通知扩展编辑器已准备好
                     vscode.postMessage({ type: 'editorReady' });
@@ -1196,6 +1249,30 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                     setTimeout(() => {
                                         document.querySelector('.loading').classList.remove('active');
                                     }, 200);
+                                    break;
+                                case 'contextView.contextWindow.find':
+                                    editor.trigger('keyboard', 'actions.find', {});
+                                    break;
+                                case 'contextView.contextWindow.toggleFindCaseSensitive':
+                                    editor.trigger('keyboard', 'toggleFindCaseSensitive', {});
+                                    break;
+                                case 'contextView.contextWindow.toggleFindWholeWord':
+                                    editor.trigger('keyboard', 'toggleFindWholeWord', {});
+                                    break;
+                                case 'contextView.contextWindow.toggleFindRegex':
+                                    editor.trigger('keyboard', 'toggleFindRegex', {});
+                                    break;
+                                case 'contextView.contextWindow.findNext':
+                                    editor.trigger('keyboard', 'editor.action.nextMatchFindAction', {});
+                                    break;
+                                case 'contextView.contextWindow.findPrevious':
+                                    editor.trigger('keyboard', 'editor.action.previousMatchFindAction', {});
+                                    break;
+                                case 'contextView.contextWindow.replace':
+                                    editor.trigger('keyboard', 'editor.action.startFindReplaceAction', {});
+                                    break;
+                                case 'contextView.contextWindow.replaceAll':
+                                    editor.trigger('keyboard', 'editor.action.replaceAll', {});
                                     break;
                                 //default:
                                     //console.log('[definition] Unknown message type:', message.type);

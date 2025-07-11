@@ -198,6 +198,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         }, null, this._disposables);
     }
 
+    public postMessage(message: any) {
+        if (this._view) {
+            console.log('[definition] postMessage', message);
+            this._view.webview.postMessage(message);
+        }
+    }
+
     private getCurrentContent() : HistoryInfo {
         return (this._history && this._history.length > this._historyIndex) ? this._history[this._historyIndex] : { content: undefined, curLine: -1 };
     }
@@ -441,6 +448,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async message => {
             //console.log('[definition] webview message', message);
             switch (message.type) {
+                case 'setContextFocus':
+                    // 直接设置 context，不做额外判断
+                    vscode.commands.executeCommand('setContext', 'contextView.context.focus', message.hasFocus);
+                    //console.log('[definition] Monaco focus set to:', message.hasFocus);
+                    break;
                 case 'navigate':
                     this.navigate(message.direction);
                     break;
