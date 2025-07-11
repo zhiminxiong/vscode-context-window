@@ -4,7 +4,7 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [0.4.3] 2025.07.10
+## [0.4.3] 2025.07.11
 
 - 默认token解析使用js
 - Apply js as the default token provider.
