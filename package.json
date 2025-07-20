@@ -64,7 +64,7 @@
             {
                 "command": "contextView.contextWindow.find",
                 "key": "ctrl+f",
-                "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
+                "when": "contextView.context.focus && contextView.context.visible && !contextView.context.findInputFocussed"
             },
             {
                 "command": "contextView.contextWindow.toggleFindCaseSensitive",
@@ -83,13 +83,13 @@
             },
             {
                 "command": "contextView.contextWindow.findNext",
-                "key": "f3",
+                "key": "ctrl+f3",
                 "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
             },
             {
                 "command": "contextView.contextWindow.findPrevious",
-                "key": "shift+f3",
-                "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
+                "key": "ctrl+f",
+                "when": "contextView.context.focus && contextView.context.visible && contextView.context.findInputFocussed"
             },
             {
                 "command": "contextView.contextWindow.replace",

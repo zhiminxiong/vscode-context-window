@@ -257,11 +257,11 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         links: false,  // 禁用所有链接功能
                         quickSuggestions: false,  // 禁用快速建议
                         keyboardHandler: null,       // 禁用键盘处理
-                        find: {                     // 禁用查找功能
-                            addExtraSpaceOnTop: false,
-                            autoFindInSelection: 'never',
-                            seedSearchStringFromSelection: 'never'
-                        }
+                        // find: {                     // 禁用查找功能
+                        //     addExtraSpaceOnTop: false,
+                        //     autoFindInSelection: 'never',
+                        //     seedSearchStringFromSelection: 'never'
+                        // }
                     });
 
                     // 在 Monaco Editor 初始化后，清除默认的搜索快捷键
@@ -481,12 +481,12 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         }
                     });
 
-                    editor.onMouseDown((e) => {
-                        e.event.preventDefault();
-                        e.event.stopPropagation();
-                        //console.log('[definition] onMouseDown: ', e);
-                        return false;  // 阻止默认处理
-                    });
+                    // editor.onMouseDown((e) => {
+                    //     e.event.preventDefault();
+                    //     e.event.stopPropagation();
+                    //     //console.log('[definition] onMouseDown: ', e);
+                    //     return false;  // 阻止默认处理
+                    // });
 
                     editor.onMouseLeave((e) => {
                         e.event.preventDefault();
@@ -680,6 +680,28 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             hasFocus: false
                         });
                     });
+
+                    const findController = editor.getContribution('editor.contrib.findController');
+const findState = findController.getState();
+
+// 检查是否在搜索状态
+function isInSearchMode() {
+    return findState.searchString && findState.searchString.length > 0;
+}
+
+// 定期检查搜索状态
+setInterval(() => {
+    if (isInSearchMode()) {
+        console.log('[definition]当前在搜索状态:', findState.searchString);
+    window.vscode.postMessage({
+                            type: 'setContextFindInputFocussed',
+                            findInputFocussed: isInSearchMode()
+                        });
+    }
+    
+}, 200);
+
+                    
 
                     // 通知扩展编辑器已准备好
                     vscode.postMessage({ type: 'editorReady' });
