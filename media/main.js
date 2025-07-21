@@ -257,11 +257,11 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         links: false,  // 禁用所有链接功能
                         quickSuggestions: false,  // 禁用快速建议
                         keyboardHandler: null,       // 禁用键盘处理
-                        // find: {                     // 禁用查找功能
-                        //     addExtraSpaceOnTop: false,
-                        //     autoFindInSelection: 'never',
-                        //     seedSearchStringFromSelection: 'never'
-                        // }
+                        find: {                     // 禁用查找功能
+                            addExtraSpaceOnTop: false,
+                            autoFindInSelection: 'never',
+                            seedSearchStringFromSelection: 'select'
+                        }
                     });
 
                     // 在 Monaco Editor 初始化后，清除默认的搜索快捷键
@@ -388,14 +388,14 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     );
 
                     // 完全禁用键盘事件
-                    editor.onKeyDown((e) => {
-                        // 允许 Ctrl+C 复制操作
-                        // if (e.ctrlKey && e.code === 'KeyC') {
-                        //     return;
-                        // }
-                        // e.preventDefault();
-                        // e.stopPropagation();
-                    });
+                    // editor.onKeyDown((e) => {
+                    //     // 允许 Ctrl+C 复制操作
+                    //     // if (e.ctrlKey && e.code === 'KeyC') {
+                    //     //     return;
+                    //     // }
+                    //     // e.preventDefault();
+                    //     // e.stopPropagation();
+                    // });
 
                     // 完全禁用选择
                     // editor.onDidChangeCursorSelection(() => {
@@ -424,8 +424,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                 return true;
                             }
 
-                            e.preventDefault();
-                            e.stopPropagation();
+                            //e.preventDefault();
+                            //e.stopPropagation();
                             // console.log('[definition] DOM 级别拦截到双击事件', e.target);
 
                             
@@ -436,7 +436,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                 });
                             }
 
-                            return false;
+                            return true;
                         }, true); // 使用捕获阶段，确保在事件到达 Monaco 之前拦截
 
                         editorDomNode.addEventListener('contextmenu', (e) => {
@@ -498,18 +498,18 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     //     return false;  // 阻止默认处理
                     // });
 
-                    editor.onMouseLeave((e) => {
-                        e.event.preventDefault();
-                        e.event.stopPropagation();
-                        forcePointerCursor(false);
-                        return false;  // 阻止默认处理
-                    });
+                    // editor.onMouseLeave((e) => {
+                    //     e.event.preventDefault();
+                    //     e.event.stopPropagation();
+                    //     forcePointerCursor(false);
+                    //     return false;  // 阻止默认处理
+                    // });
 
                     // 添加鼠标悬停事件处理
                     let currentDecorations = [];
                     editor.onMouseMove((e) => {
-                        e.event.preventDefault();
-                        e.event.stopPropagation();
+                        //e.event.preventDefault();
+                        //e.event.stopPropagation();
 
                         // 默认使用默认光标
                         let isOverText = false;
@@ -550,7 +550,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         // 根据鼠标位置更新光标样式
                         forcePointerCursor(isOverText);
 
-                        return false;  // 阻止默认处理
+                        return true;  // 阻止默认处理
                     });
 
                     // 完全禁用定义跳转功能
@@ -620,17 +620,17 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
 
                     // 处理链接点击事件 - 在Monaco内部跳转
                     editor.onMouseUp((e) => {
-                        if (e.target && (
-                                e.target.tagName === 'TEXTAREA' && e.target.className === 'input' ||
-                                e.target.getAttribute('aria-label') === 'Find' ||
-                                e.target.getAttribute('placeholder') === 'Find' ||
-                                e.target.getAttribute('title') === 'Find'
-                            )) {
-                                return true;
-                            }
-                        // 完全阻止事件传播
-                        e.event.preventDefault();
-                        e.event.stopPropagation();
+                        // if (e.target && (
+                        //         e.target.tagName === 'TEXTAREA' && e.target.className === 'input' ||
+                        //         e.target.getAttribute('aria-label') === 'Find' ||
+                        //         e.target.getAttribute('placeholder') === 'Find' ||
+                        //         e.target.getAttribute('title') === 'Find'
+                        //     )) {
+                        //         return true;
+                        //     }
+                        // // 完全阻止事件传播
+                        // e.event.preventDefault();
+                        // e.event.stopPropagation();
                         //console.log('[definition] Mouse up event:', e.target, e.event);
                         // 使用 e.event.buttons 判断鼠标按键
                         //const isLeftClick = (e.event.buttons & 1) === 1; // 左键
@@ -674,9 +674,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                     }
                                 }
                             }
-                            return false;
                         }
-                        return false;
+                        return true;
                     });
 
                     //console.log('[definition] Monaco editor created');
