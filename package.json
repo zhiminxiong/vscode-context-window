@@ -83,17 +83,22 @@
             },
             {
                 "command": "contextView.contextWindow.findNext",
-                "key": "ctrl+f3",
+                "key": "f3",
                 "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
             },
             {
                 "command": "contextView.contextWindow.findPrevious",
-                "key": "ctrl+f",
+                "key": "shift+f3",
                 "when": "contextView.context.focus && contextView.context.visible && contextView.context.findInputFocussed"
             },
             {
                 "command": "contextView.contextWindow.replace",
                 "key": "ctrl+h",
+                "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
+            },
+            {
+                "command": "contextView.contextWindow.gotoLine",
+                "key": "ctrl+g",
                 "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
             }
         ],

@@ -415,9 +415,19 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     const editorDomNode = editor.getDomNode();
                     if (editorDomNode) {
                         editorDomNode.addEventListener('dblclick', (e) => {
+                            if (e.target && (
+                                e.target.tagName === 'TEXTAREA' && e.target.className === 'input' ||
+                                e.target.getAttribute('aria-label') === 'Find' ||
+                                e.target.getAttribute('placeholder') === 'Find' ||
+                                e.target.getAttribute('title') === 'Find'
+                            )) {
+                                return true;
+                            }
+
                             e.preventDefault();
                             e.stopPropagation();
-                            //console.log('[definition] DOM 级别拦截到双击事件', e.target);
+                            // console.log('[definition] DOM 级别拦截到双击事件', e.target);
+
                             
                             if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) {
                                 vscode.postMessage({
@@ -610,6 +620,14 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
 
                     // 处理链接点击事件 - 在Monaco内部跳转
                     editor.onMouseUp((e) => {
+                        if (e.target && (
+                                e.target.tagName === 'TEXTAREA' && e.target.className === 'input' ||
+                                e.target.getAttribute('aria-label') === 'Find' ||
+                                e.target.getAttribute('placeholder') === 'Find' ||
+                                e.target.getAttribute('title') === 'Find'
+                            )) {
+                                return true;
+                            }
                         // 完全阻止事件传播
                         e.event.preventDefault();
                         e.event.stopPropagation();
@@ -1295,6 +1313,9 @@ setInterval(() => {
                                     break;
                                 case 'contextView.contextWindow.replaceAll':
                                     editor.trigger('keyboard', 'editor.action.replaceAll', {});
+                                    break;
+                                case 'contextView.contextWindow.gotoLine':
+                                    editor.trigger('keyboard', 'editor.action.gotoLine', {});
                                     break;
                                 //default:
                                     //console.log('[definition] Unknown message type:', message.type);

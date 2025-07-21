@@ -68,6 +68,12 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('contextView.contextWindow.gotoLine', () => {
+            provider.postMessage({ type: 'contextView.contextWindow.gotoLine' });
+        })
+    );
+
     const config = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
     const semanticHighlighting = (config?.get('textMateRules') || []) as Array<{
         scope: string;
