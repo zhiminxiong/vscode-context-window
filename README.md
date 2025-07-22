@@ -12,6 +12,8 @@ Please check out that extension if you just want documentation in the panel or s
 
 ## Features
 
+![feature](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature.gif?raw=true)
+
 - Like Source Insight, it automatically displays the context of the code at the cursor position.
 - Language independent. Works in any language.
 - The "Context" view shows in the panel by default. Move to other views or the panel just by dragging.
