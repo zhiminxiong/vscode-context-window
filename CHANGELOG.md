@@ -4,6 +4,11 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.5.0] 2025.07.22
+
+- 支持默认的查找以及gotoline，底部栏界面微调
+- Added support for default find and go-to-line; refined the bottom-bar UI.
+
 ## [0.4.3] 2025.07.11
 
 - 默认token解析使用js
