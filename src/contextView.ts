@@ -1045,7 +1045,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
             <!-- 添加双击区域 -->
             <div class="double-click-area">
-                <span>dbclick to open...</span>
+                <span>double-click: Jump to definition</span>
                 <span class="filename-display"></span>
             </div>
             
