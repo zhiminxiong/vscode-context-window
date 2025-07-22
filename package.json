@@ -22,7 +22,8 @@
 		"vscode": "^1.50.0"
 	},
 	"categories": [
-		"Other"
+		"Other",
+        "Programming Languages"
 	],
 	"activationEvents": [
 		"onView:contextView.context",
