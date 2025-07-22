@@ -240,9 +240,10 @@ export const languageConfig_js = {
             [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/[()<>]/, 'delimiter'],
-            [/[a-zA-Z_$][\w$]*(?=\s*>)/, { token: 'type', next: '@pop' }],  // 识别基类
+            //[/[a-zA-Z_$][\w$]*(?=\s*>)/, { token: 'type', next: '@pop' }],  // 识别基类
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别基类
             [/[\.|]/, 'delimiter'],
+            [/\s*,/, 'delimiter.bracket'],
             [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
         ],
