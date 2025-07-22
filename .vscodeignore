@@ -7,7 +7,13 @@ webpack.config.js
 
 **/*.ts
 **/*.map
+doc/*.*
 
 # Explicitly include non-bundled node_modules
-!node_modules
+# !node_modules
 node_modules/marked
+
+node_modules/monaco-editor/**
+!node_modules/monaco-editor/min/
+!node_modules/monaco-editor/min/vs/
+!node_modules/monaco-editor/min/vs/**
