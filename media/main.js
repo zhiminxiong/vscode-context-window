@@ -251,53 +251,18 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         domReadOnly: true,
                         mouseStyle: 'pointer',
                         cursorWidth: 0,
-                        selectOnLineNumbers: true,  // 禁用行号选择
+                        selectOnLineNumbers: true,
                         selectionClipboard: true,    // 禁用选择到剪贴板
                         contextmenu: false,           // 禁用右键菜单
                         links: false,  // 禁用所有链接功能
                         quickSuggestions: false,  // 禁用快速建议
                         keyboardHandler: null,       // 禁用键盘处理
-                        // find: {                     // 禁用查找功能
-                        //     addExtraSpaceOnTop: false,
-                        //     autoFindInSelection: 'never',
-                        //     seedSearchStringFromSelection: 'never'
-                        // }
+                        find: {                     // 禁用查找功能
+                            addExtraSpaceOnTop: false,
+                            autoFindInSelection: 'never',
+                            seedSearchStringFromSelection: 'select'
+                        }
                     });
-
-                    // 在 Monaco Editor 初始化后，清除默认的搜索快捷键
-                    function clearMonacoDefaultKeybindings() {
-                        if (!editor || !editor._standaloneKeybindingService) return;
-                        
-                        // Monaco 默认的搜索相关快捷键
-                        const defaultSearchCommands = [
-                            'actions.find',                    // Ctrl+F
-                            'toggleFindCaseSensitive',         // Alt+C
-                            'toggleFindWholeWord',             // Alt+W
-                            'toggleFindRegex',                 // Alt+R
-                            'editor.action.nextMatchFindAction', // F3
-                            'editor.action.previousMatchFindAction', // Shift+F3
-                            'editor.action.startFindReplaceAction', // Ctrl+H
-                            'editor.action.replaceAll',        // Ctrl+Shift+H
-                            'editor.action.selectAllMatches',  // Ctrl+Shift+L
-                            'editor.action.addSelectionToNextFindMatch', // Ctrl+D
-                            'editor.action.moveSelectionToNextFindMatch', // Ctrl+K Ctrl+D
-                            'editor.action.removeSelectionFromNextFindMatch' // Ctrl+U
-                        ];
-                        
-                        // 移除所有默认的搜索快捷键绑定
-                        defaultSearchCommands.forEach(command => {
-                            editor._standaloneKeybindingService.addDynamicKeybinding(
-                                `-${command}`,
-                                null,
-                                () => {}
-                            );
-                        });
-                        
-                        console.log('[definition] Cleared Monaco default search keybindings');
-                    }
-
-                    // 在 Monaco Editor 创建后调用
-                    clearMonacoDefaultKeybindings();
 
                     // 强制设置鼠标样式
                     const forcePointerCursor = (isOverText = false) => {
@@ -388,14 +353,14 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     );
 
                     // 完全禁用键盘事件
-                    editor.onKeyDown((e) => {
-                        // 允许 Ctrl+C 复制操作
-                        // if (e.ctrlKey && e.code === 'KeyC') {
-                        //     return;
-                        // }
-                        // e.preventDefault();
-                        // e.stopPropagation();
-                    });
+                    // editor.onKeyDown((e) => {
+                    //     // 允许 Ctrl+C 复制操作
+                    //     // if (e.ctrlKey && e.code === 'KeyC') {
+                    //     //     return;
+                    //     // }
+                    //     // e.preventDefault();
+                    //     // e.stopPropagation();
+                    // });
 
                     // 完全禁用选择
                     // editor.onDidChangeCursorSelection(() => {
@@ -423,11 +388,9 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             )) {
                                 return true;
                             }
-
-                            e.preventDefault();
-                            e.stopPropagation();
-                            // console.log('[definition] DOM 级别拦截到双击事件', e.target);
-
+                            //e.preventDefault();
+                            //e.stopPropagation();
+                            //console.log('[definition] DOM 级别拦截到双击事件', e.target);
                             
                             if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) {
                                 vscode.postMessage({
@@ -436,7 +399,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                 });
                             }
 
-                            return false;
+                            return true;
                         }, true); // 使用捕获阶段，确保在事件到达 Monaco 之前拦截
 
                         editorDomNode.addEventListener('contextmenu', (e) => {
@@ -498,19 +461,16 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     //     return false;  // 阻止默认处理
                     // });
 
-                    editor.onMouseLeave((e) => {
-                        e.event.preventDefault();
-                        e.event.stopPropagation();
-                        forcePointerCursor(false);
-                        return false;  // 阻止默认处理
-                    });
+                    // editor.onMouseLeave((e) => {
+                    //     //e.event.preventDefault();
+                    //     //e.event.stopPropagation();
+                    //     forcePointerCursor(false);
+                    //     return true;  // 阻止默认处理
+                    // });
 
                     // 添加鼠标悬停事件处理
                     let currentDecorations = [];
                     editor.onMouseMove((e) => {
-                        e.event.preventDefault();
-                        e.event.stopPropagation();
-
                         // 默认使用默认光标
                         let isOverText = false;
 
@@ -549,8 +509,16 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         }
                         // 根据鼠标位置更新光标样式
                         forcePointerCursor(isOverText);
+                        return true;
 
-                        return false;  // 阻止默认处理
+                        // if (isOverText) {
+                        //     e.event.preventDefault();
+                        //     e.event.stopPropagation();
+                        //     return false;  // 阻止默认处理
+                        // }
+                        // else {
+                        //     return true;
+                        // }
                     });
 
                     // 完全禁用定义跳转功能
@@ -620,18 +588,10 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
 
                     // 处理链接点击事件 - 在Monaco内部跳转
                     editor.onMouseUp((e) => {
-                        if (e.target && (
-                                e.target.tagName === 'TEXTAREA' && e.target.className === 'input' ||
-                                e.target.getAttribute('aria-label') === 'Find' ||
-                                e.target.getAttribute('placeholder') === 'Find' ||
-                                e.target.getAttribute('title') === 'Find'
-                            )) {
-                                return true;
-                            }
-                        // 完全阻止事件传播
-                        e.event.preventDefault();
-                        e.event.stopPropagation();
                         //console.log('[definition] Mouse up event:', e.target, e.event);
+                        // 完全阻止事件传播
+                        //e.event.preventDefault();
+                        //e.event.stopPropagation();
                         // 使用 e.event.buttons 判断鼠标按键
                         //const isLeftClick = (e.event.buttons & 1) === 1; // 左键
                         //const isRightClick = (e.event.buttons & 2) === 2; // 右键
@@ -674,52 +634,11 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                     }
                                 }
                             }
-                            return false;
                         }
-                        return false;
+                        return true;
                     });
 
                     //console.log('[definition] Monaco editor created');
-
-                    // Monaco 获得焦点时设置 context
-                    editor.onDidFocusEditorText(() => {
-                        //console.log('[definition] Monaco gained focus');
-                        window.vscode.postMessage({
-                            type: 'setContextFocus',
-                            hasFocus: true
-                        });
-                    });
-                    
-                    // Monaco 失去焦点时清除 context
-                    editor.onDidBlurEditorText(() => {
-                        //console.log('[definition] Monaco lost focus');
-                        window.vscode.postMessage({
-                            type: 'setContextFocus',
-                            hasFocus: false
-                        });
-                    });
-
-                    const findController = editor.getContribution('editor.contrib.findController');
-const findState = findController.getState();
-
-// 检查是否在搜索状态
-function isInSearchMode() {
-    return findState.searchString && findState.searchString.length > 0;
-}
-
-// 定期检查搜索状态
-setInterval(() => {
-    if (isInSearchMode()) {
-        console.log('[definition]当前在搜索状态:', findState.searchString);
-    window.vscode.postMessage({
-                            type: 'setContextFindInputFocussed',
-                            findInputFocussed: isInSearchMode()
-                        });
-    }
-    
-}, 200);
-
-                    
 
                     // 通知扩展编辑器已准备好
                     vscode.postMessage({ type: 'editorReady' });
@@ -1289,33 +1208,6 @@ setInterval(() => {
                                     setTimeout(() => {
                                         document.querySelector('.loading').classList.remove('active');
                                     }, 200);
-                                    break;
-                                case 'contextView.contextWindow.find':
-                                    editor.trigger('keyboard', 'actions.find', {});
-                                    break;
-                                case 'contextView.contextWindow.toggleFindCaseSensitive':
-                                    editor.trigger('keyboard', 'toggleFindCaseSensitive', {});
-                                    break;
-                                case 'contextView.contextWindow.toggleFindWholeWord':
-                                    editor.trigger('keyboard', 'toggleFindWholeWord', {});
-                                    break;
-                                case 'contextView.contextWindow.toggleFindRegex':
-                                    editor.trigger('keyboard', 'toggleFindRegex', {});
-                                    break;
-                                case 'contextView.contextWindow.findNext':
-                                    editor.trigger('keyboard', 'editor.action.nextMatchFindAction', {});
-                                    break;
-                                case 'contextView.contextWindow.findPrevious':
-                                    editor.trigger('keyboard', 'editor.action.previousMatchFindAction', {});
-                                    break;
-                                case 'contextView.contextWindow.replace':
-                                    editor.trigger('keyboard', 'editor.action.startFindReplaceAction', {});
-                                    break;
-                                case 'contextView.contextWindow.replaceAll':
-                                    editor.trigger('keyboard', 'editor.action.replaceAll', {});
-                                    break;
-                                case 'contextView.contextWindow.gotoLine':
-                                    editor.trigger('keyboard', 'editor.action.gotoLine', {});
                                     break;
                                 //default:
                                     //console.log('[definition] Unknown message type:', message.type);

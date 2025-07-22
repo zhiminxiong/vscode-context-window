@@ -2,7 +2,7 @@
 	"name": "context-window",
 	"displayName": "Context Window",
 	"description": "Display full code context in the panel, similar to the context window in Source Insight.",
-	"version": "0.4.3",
+	"version": "0.5.0",
 	"publisher": "zhiminxiong",
 	"keywords": [
         "context",
@@ -60,48 +60,6 @@
 				}
 			]
 		},
-        "keybindings": [
-            {
-                "command": "contextView.contextWindow.find",
-                "key": "ctrl+f",
-                "when": "contextView.context.focus && contextView.context.visible && !contextView.context.findInputFocussed"
-            },
-            {
-                "command": "contextView.contextWindow.toggleFindCaseSensitive",
-                "key": "alt+c",
-                "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
-            },
-            {
-                "command": "contextView.contextWindow.toggleFindWholeWord",
-                "key": "alt+w",
-                "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
-            },
-            {
-                "command": "contextView.contextWindow.toggleFindRegex",
-                "key": "alt+r",
-                "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
-            },
-            {
-                "command": "contextView.contextWindow.findNext",
-                "key": "f3",
-                "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
-            },
-            {
-                "command": "contextView.contextWindow.findPrevious",
-                "key": "shift+f3",
-                "when": "contextView.context.focus && contextView.context.visible && contextView.context.findInputFocussed"
-            },
-            {
-                "command": "contextView.contextWindow.replace",
-                "key": "ctrl+h",
-                "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
-            },
-            {
-                "command": "contextView.contextWindow.gotoLine",
-                "key": "ctrl+g",
-                "when": "contextView.context.focus && activePanel == 'workbench.view.extension.contextView-context'"
-            }
-        ],
 		"commands": [
 			{
 				"command": "contextView.contextWindow.pin",

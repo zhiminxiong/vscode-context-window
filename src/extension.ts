@@ -25,55 +25,6 @@ export function activate(context: vscode.ExtensionContext) {
             provider.show();
         }));
 
-    // 注册命令，当用户按下快捷键时触发
-    context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.find', () => {
-            provider.postMessage({ type: 'contextView.contextWindow.find' });
-        })
-    );
-    
-    context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.toggleFindCaseSensitive', () => {
-            provider.postMessage({ type: 'contextView.contextWindow.toggleFindCaseSensitive' });
-        })
-    );
-    
-    context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.toggleFindWholeWord', () => {
-            provider.postMessage({ type: 'contextView.contextWindow.toggleFindWholeWord' });
-        })
-    );
-    
-    context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.toggleFindRegex', () => {
-            provider.postMessage({ type: 'contextView.contextWindow.toggleFindRegex' });
-        })
-    );
-    
-    context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.findNext', () => {
-            provider.postMessage({ type: 'contextView.contextWindow.findNext' });
-        })
-    );
-    
-    context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.findPrevious', () => {
-            provider.postMessage({ type: 'contextView.contextWindow.findPrevious' });
-        })
-    );
-    
-    context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.replace', () => {
-            provider.postMessage({ type: 'contextView.contextWindow.replace' });
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.gotoLine', () => {
-            provider.postMessage({ type: 'contextView.contextWindow.gotoLine' });
-        })
-    );
-
     const config = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
     const semanticHighlighting = (config?.get('textMateRules') || []) as Array<{
         scope: string;
