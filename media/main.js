@@ -120,6 +120,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             "editor.inactiveSelectionBackground": contextEditorCfg.inactiveSelectionBackground || "#07c2db71",
                             "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || "#5bdb0771",// Ffb700a0
                             "editor.selectionHighlightBorder": contextEditorCfg.selectionHighlightBorder || "#5bdb0791",
+                            "editor.findMatchBackground": "#F4D03F",
                             //"editor.background": "#e6e6e6",
                         }
                     });
