@@ -707,7 +707,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     width: 100%;
                     height: 100%;
                     overflow: hidden;
-                    cursor: pointer !important; /* 强制全局手型光标 */
+                    cursor: default !important; /* 强制全局手型光标 */
                     box-sizing: border-box; /* 添加此行确保边框和内边距包含在元素宽高内 */
                 }
 
@@ -722,7 +722,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 
                 #container {
                     height: 100vh;
-                    cursor: pointer !important; /* 强制容器手型光标 */
+                    cursor: default !important; /* 强制容器手型光标 */
                     position: absolute;
                     top: 0;
                     left: 0;
@@ -756,7 +756,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 #main {
                     display: none;
                     padding: 10px;
-                    cursor: pointer !important; /* 强制主内容区手型光标 */
+                    cursor: default !important; /* 强制主内容区手型光标 */
                     margin-top: 0 !important;
                     overflow-x: auto !important; /* 添加横向滚动条 */
                 }
@@ -952,7 +952,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     color: var(--vscode-editor-foreground);
                     border: none;
                     padding: 0;
-                    cursor: pointer;
+                    cursor: default;
                     width: 24px;
                     height: 16px;
                     position: relative;
@@ -988,15 +988,51 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 .nav-button:hover::before {
                     opacity: 1;
                 }
+
+                .nav-jump {
+                    background-color: transparent;
+                    color: var(--vscode-editor-foreground);
+                    border: none;
+                    padding: 0;
+                    cursor: default;
+                    width: 24px;
+                    height: 16px;
+                    position: relative;
+                    border-radius: 4px;
+                    transition: all 0.2s ease;
+                    opacity: 0.7;
+                }
+
+                .nav-jump:hover {
+                    background-color: var(--vscode-editorWidget-background);
+                    opacity: 1;
+                }
+                .nav-jump::before {
+                    content: '';
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    width: 8px;
+                    height: 8px;
+                    border: 2px solid var(--vscode-editor-foreground);
+                    border-bottom: none;
+                    border-right: none;
+                    transform: translate(-50%, -50%) rotate(45deg);
+                    opacity: 0.7;
+                    transition: opacity 0.2s ease;
+                }
+                .nav-jump:hover::before {
+                    opacity: 1;
+                }
                 /* 添加双击区域样式 */
                 .double-click-area {
                     position: fixed;
                     bottom: 0; /* 与导航栏高度一致 */
-                    left: 80px;
+                    left: 120px;
                     right: 0;
                     height: 24px;
                     z-index: 1001;
-                    cursor: pointer;
+                    cursor: default;
                     background-color: rgba(89, 255, 0, 0.11); /* 调试用，可移除 */
                     display: flex;
                     align-items: left;
@@ -1077,14 +1113,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             
             <!-- 新增底部导航栏 -->
             <div class="nav-bar">
-                <button class="nav-button" id="nav-back">  </button>
-                <button class="nav-button" id="nav-forward">  </button>
+                <button class="nav-button" id="nav-back" title="Go Back">  </button>
+                <button class="nav-button" id="nav-forward" title="Go Forward">  </button>
+                <button class="nav-jump" id="nav-jump" title="Jump to definition"></button>
             </div>
 
             <script nonce="${nonce}">
                 // 导航按钮事件处理
                 const backButton = document.getElementById('nav-back');
                 const forwardButton = document.getElementById('nav-forward');
+                const jumpButton = document.getElementById('nav-jump');
 
                 backButton.addEventListener('click', () => {
                     window.vscode.postMessage({
@@ -1097,6 +1135,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     window.vscode.postMessage({
                         type: 'navigate',
                         direction: 'forward'
+                    });
+                });
+
+                jumpButton.addEventListener('click', () => {
+                    window.vscode.postMessage({
+                        type: 'doubleClick',
+                        location: 'bottomArea'
                     });
                 });
 
