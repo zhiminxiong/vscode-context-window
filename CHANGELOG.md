@@ -4,6 +4,10 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.5.1] 2025.07.23
+
+- Bug fix and optimize bundle size.
+
 ## [0.5.0] 2025.07.22
 
 - 支持默认的查找以及gotoline，底部栏界面微调
