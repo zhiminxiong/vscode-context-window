@@ -1163,6 +1163,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     e.preventDefault();
                     e.stopPropagation();
                 });
+                const navArea = document.querySelector('.nav-bar');
+                navArea.addEventListener('contextmenu', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
             </script>
         </body>
         </html>`;
