@@ -1159,6 +1159,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         location: 'bottomArea'
                     });
                 });
+                doubleClickArea.addEventListener('contextmenu', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
             </script>
         </body>
         </html>`;
