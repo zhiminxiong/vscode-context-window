@@ -1055,7 +1055,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     text-overflow: ellipsis;
                     white-space: pre;
                     z-index: 1002;
-                    padding-left: 60px;
+                    padding-left: 0px;
                 }
             </style>
 
@@ -1081,8 +1081,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             </div>
 
             <!-- 添加双击区域 -->
-            <div class="double-click-area">
-                <span>double-click: Jump to definition</span>
+            <div class="double-click-area" title="double-click: Jump to definition">
                 <span class="filename-display"></span>
             </div>
             
