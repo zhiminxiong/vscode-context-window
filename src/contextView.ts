@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Renderer, FileContentInfo } from './renderer';
+import * as path from 'path';
 
 enum UpdateMode {
     Live = 'live',
@@ -904,7 +905,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
                 .definition-item .definition-number {
                     font-weight: bold;
-                    margin-right: 8px;
+                    margin-right: 10px;
                     color: inherit;
                 }
 

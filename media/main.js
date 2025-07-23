@@ -703,6 +703,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             return;
                         }
 
+                        const getFileName = (path) => path.replace(/^.*[\\/]/, '');
+
                         // 创建定义项
                         definitions.forEach((def, index) => {
                             const item = document.createElement('div');
@@ -714,9 +716,11 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             const columnNumber = def.columnNumber || 1;
 
                             //console.log('[definition] File name:', filePath, lineNumber, columnNumber);
+                            const fileNameWithExt = getFileName(filePath);
+                            const symbolName = fileNameWithExt || `Definition ${index + 1}`;
                             
                             item.innerHTML = `
-                                <span class="definition-number">Definition ${index + 1}:</span>
+                                <span class="definition-number">${symbolName}</span>
                                 <div class="definition-info">
                                     <span class="file-path">${filePath}</span>
                                     <span class="line-info">- Line: ${lineNumber}, Column: ${columnNumber}</span>
