@@ -889,6 +889,11 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             handleDefinitionListKeydown = null;
                         }
                     }
+
+                    window.addEventListener('blur', () => {
+                        const menu = document.getElementById('custom-context-menu');
+                        if (menu) menu.remove();
+                    });
                     
                     // 处理来自扩展的消息
                     window.addEventListener('message', event => {

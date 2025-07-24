@@ -1057,6 +1057,39 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     z-index: 1002;
                     padding-left: 0px;
                 }
+                .custom-context-menu {
+                    position: fixed;
+                    background: var(--vscode-menu-background, #fff);
+                    color: var(--vscode-menu-foreground, #333);
+                    border: 1px solid var(--vscode-menu-border, #ccc);
+                    border-radius: 4px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                    min-width: 160px;
+                    z-index: 9999;
+                    padding: 4px 0;
+                    font-size: 13px;
+                    font-family: var(--vscode-font-family, "Segoe UI", Arial, sans-serif);
+                    user-select: none;
+                }
+
+                .custom-context-menu-item {
+                    padding: 3px 24px 3px 16px;
+                    cursor: pointer;
+                    white-space: nowrap;
+                    transition: background 0.2s;
+                }
+
+                .custom-context-menu-item:hover {
+                    background: var(--vscode-menu-selectionBackground, #e5f3ff);
+                    color: var(--vscode-menu-selectionForeground, #000);
+                }
+
+                .custom-context-menu-separator {
+                    height: 1px;
+                    margin: 4px 0;
+                    background: var(--vscode-menu-separatorBackground, #e5e5e5);
+                    border: none;
+                }
             </style>
 
             <link href="${styleUri}" rel="stylesheet">
@@ -1162,6 +1195,98 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 doubleClickArea.addEventListener('contextmenu', e => {
                     e.preventDefault();
                     e.stopPropagation();
+                    // 先移除已有菜单
+                    const oldMenu = document.getElementById('custom-context-menu');
+                    if (oldMenu) oldMenu.remove();
+
+                    // 创建菜单
+                    const menu = document.createElement('div');
+                    menu.id = 'custom-context-menu';
+                    menu.style.position = 'fixed';
+                    menu.style.background = '#fff';
+                    menu.style.border = '1px solid #ccc';
+                    menu.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+                    menu.style.zIndex = 9999;
+                    menu.style.minWidth = '120px';
+                    menu.style.visibility = 'hidden'; // 先隐藏，后面再显示
+
+                    // 阻止事件穿透
+                    menu.addEventListener('mousedown', e => e.stopPropagation());
+                    menu.addEventListener('mouseup', e => e.stopPropagation());
+                    menu.addEventListener('click', e => e.stopPropagation());
+
+                    // 菜单项
+                    const items = [
+                        { label: 'Pin', action: () => window.vscode.postMessage({ type: 'pin' }) },
+                        { label: 'Unpin', action: () => window.vscode.postMessage({ type: 'unpin' }) },
+                        { type: 'separator' }, // 分割条
+                        { label: 'Copy filename', action: () => {
+                            const filenameDisplay = document.querySelector('.filename-display')?.textContent || '';
+                            // 提取第一个左括号前的内容
+                            const idx = filenameDisplay.indexOf('(');
+                            let filename;
+                            if (idx > 0) {
+                                filename = filenameDisplay.slice(0, idx).trim();
+                            } else {
+                                filename = filenameDisplay.trim();
+                            }
+
+                            if (filename) {
+                                navigator.clipboard.writeText(filename);
+                            }
+                        }}
+                    ];
+
+                    items.forEach(item => {
+                        if (item.type === 'separator') {
+                            const sep = document.createElement('div');
+                            sep.className = 'custom-context-menu-separator';
+                            //sep.style.height = '1px';
+                            //sep.style.margin = '4px 0';
+                            //sep.style.background = '#eee';
+                            menu.appendChild(sep);
+                            return;
+                        }
+                        const el = document.createElement('div');
+                        el.textContent = item.label;
+                        el.className = 'custom-context-menu-item';
+                        //el.style.padding = '6px 16px';
+                        //el.style.cursor = 'pointer';
+                        //el.onmouseenter = () => el.style.background = '#eee';
+                        //el.onmouseleave = () => el.style.background = '#fff';
+                        el.onclick = () => {
+                            item.action();
+                            menu.remove();
+                        };
+                        menu.appendChild(el);
+                    });
+
+                    document.body.appendChild(menu);
+
+                    // 计算菜单位置，防止溢出
+                    const menuRect = menu.getBoundingClientRect();
+                    let left = e.clientX;
+                    let top = e.clientY;
+                    const padding = 4; // 距离边缘的最小距离
+
+                    if (left + menuRect.width > window.innerWidth - padding) {
+                        left = window.innerWidth - menuRect.width - padding;
+                    }
+                    if (top + menuRect.height > window.innerHeight - padding) {
+                        top = window.innerHeight - menuRect.height - padding;
+                    }
+                    left = Math.max(left, padding);
+                    top = Math.max(top, padding);
+
+                    menu.style.left = left + 'px';
+                    menu.style.top = top + 'px';
+                    menu.style.visibility = 'visible';
+
+                    // 点击其它地方关闭菜单
+                    document.addEventListener('mousedown', function onDocClick() {
+                        menu.remove();
+                        document.removeEventListener('mousedown', onDocClick);
+                    });
                 });
                 const navArea = document.querySelector('.nav-bar');
                 navArea.addEventListener('contextmenu', e => {
