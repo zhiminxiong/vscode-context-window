@@ -442,6 +442,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async message => {
             //console.log('[definition] webview message', message);
             switch (message.type) {
+                case 'pin':
+                    vscode.commands.executeCommand('contextView.contextWindow.pin');
+                    break;
+                case 'unpin':
+                    vscode.commands.executeCommand('contextView.contextWindow.unpin');
+                    break;
                 case 'navigate':
                     this.navigate(message.direction);
                     break;
