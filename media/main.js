@@ -7,6 +7,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
 (function() {
     const vscode = acquireVsCodeApi();
     window.vscode = vscode;
+    window.isPined = false;
     //console.log('[definition] WebView script started from main.js');
 
     // 确保 WebView 使用 VS Code 的颜色主题
@@ -894,6 +895,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         const menu = document.getElementById('custom-context-menu');
                         if (menu) menu.remove();
                     });
+
+                    const doubleClickArea = document.querySelector('.double-click-area');
                     
                     // 处理来自扩展的消息
                     window.addEventListener('message', event => {
@@ -902,6 +905,16 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         
                         try {
                             switch (message.type) {
+                                case 'pinState':
+                                    window.isPinned = message.pinned;
+                                    if (doubleClickArea) {
+                                        if (isPinned) {
+                                            doubleClickArea.style.backgroundColor = 'rgba(255, 0, 0, 0.08)'; // 淡红色
+                                        } else {
+                                            doubleClickArea.style.backgroundColor = 'rgba(89, 255, 0, 0.11)'; // 你现在的默认色
+                                        }
+                                    }
+                                    break;
                                 /*case 'updateEditorConfiguration':
                                     // 更新编辑器配置
                                     if (editor && message.configuration) {

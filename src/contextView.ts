@@ -611,6 +611,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态，不主动查找定义
             // 只有用户主动点击符号时才会触发定义查找
         }
+
+        this._view.webview.postMessage({
+            type: 'pinState',
+            pinned: this._pinned
+        });
     }
 
     public pin() {
@@ -637,6 +642,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
         this._pinned = value;
         vscode.commands.executeCommand('setContext', ContextWindowProvider.pinnedContext, value);
+        // 通知 Webview
+        this._view?.webview.postMessage({
+            type: 'pinState',
+            pinned: this._pinned
+        });
 
         this.update();
     }
@@ -1229,8 +1239,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
                     // 菜单项
                     const items = [
-                        { label: 'Pin', action: () => window.vscode.postMessage({ type: 'pin' }) },
-                        { label: 'Unpin', action: () => window.vscode.postMessage({ type: 'unpin' }) },
+                        { 
+                            label: 'Pin',
+                            checked: window.isPinned,
+                            action: () => window.vscode.postMessage({ type: 'pin' }) 
+                        },
+                        {
+                            label: 'Unpin',
+                            checked: !window.isPinned,
+                            action: () => window.vscode.postMessage({ type: 'unpin' }) 
+                        },
                         { type: 'separator' }, // 分割条
                         { label: 'Copy filename', action: () => {
                             const filenameDisplay = document.querySelector('.filename-display')?.textContent || '';
@@ -1260,7 +1278,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                             return;
                         }
                         const el = document.createElement('div');
-                        el.textContent = item.label;
+                        el.textContent = (item.checked ? '✔ ' : '') + item.label;
                         el.className = 'custom-context-menu-item';
                         //el.style.padding = '6px 16px';
                         //el.style.cursor = 'pointer';
