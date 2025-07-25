@@ -69,3 +69,442 @@ ol {
 	padding-left: 20px;
 	margin: 8px;
 }
+
+/* ==================== Panel 样式 ==================== */
+
+.loading {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.08);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+}
+.loading.active {
+    display: flex;
+}
+.loading.show {
+    opacity: 1;
+}
+.loading::after {
+    content: '';
+    width: 20px;
+    height: 20px;
+    border: 2px solid #0078d4;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 重置现有body样式冲突 */
+body {
+    word-wrap: break-word;
+    margin: 0 !important;  /* 覆盖原来的 1em 0 */
+    padding: 0 !important;
+    font-size: 14px;
+    line-height: 20px;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    position: absolute;  /* 覆盖原来的 relative */
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    cursor: default !important;
+    box-sizing: border-box;
+}
+
+html, #container {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    cursor: default !important;
+    box-sizing: border-box;
+}
+
+#container {
+    height: 100vh;
+    cursor: default !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+}
+
+/* 专门针对 Monaco Editor 的滚动条样式 */
+.monaco-editor .monaco-scrollable-element .slider.horizontal {
+    height: 15px !important;
+}
+
+.monaco-editor .monaco-scrollable-element .scrollbar.horizontal {
+    height: 18px !important;
+    bottom: 0 !important;
+}
+
+.monaco-editor {
+    overflow-x: visible !important;
+}
+
+.monaco-editor .monaco-scrollable-element {
+    overflow-x: visible !important;
+}
+
+#main {
+    display: none;
+    padding: 10px;
+    cursor: default !important;
+    margin-top: 0 !important;
+    overflow-x: auto !important;
+}
+
+/* ========== 左侧列表布局样式 ========== */
+#main-container {
+    display: flex;
+    flex-direction: row;
+    height: calc(100vh - 24px);
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+}
+
+#definition-list {
+    width: 30%;
+    min-width: 150px;
+    max-width: 50%;
+    cursor: default !important;
+    background-color: var(--vscode-editor-background);
+    border-right: 1px solid var(--vscode-editorWidget-border);
+    overflow-y: auto;
+    overflow-x: auto;
+    resize: horizontal;
+    display: none;
+    flex-direction: column;
+    padding-bottom: 10px;
+}
+
+/* 定义列表滚动条样式 */
+#definition-list::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+#definition-list::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 4px;
+}
+
+#definition-list::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0);
+    border-radius: 4px;
+    transition: all 0.3s ease;
+}
+
+#definition-list:hover::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.4);
+}
+
+#definition-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(128, 128, 128, 0.6);
+}
+
+#definition-list::-webkit-scrollbar-thumb:active {
+    background: rgba(128, 128, 128, 0.8);
+}
+
+#definition-list::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+#definition-list .list-header {
+    padding: 8px 12px;
+    background-color: var(--vscode-editorGroupHeader-tabsBackground);
+    border-bottom: 1px solid var(--vscode-editorWidget-border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    flex-shrink: 0;
+}
+
+#definition-list .list-items {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: visible;
+    width: max-content;
+    min-width: 100%;
+}
+
+.definition-item {
+    padding: 4px 6px;
+    cursor: pointer;
+    color: var(--vscode-foreground);
+    font-size: 13px;
+    transition: background-color 0.2s ease;
+    white-space: nowrap;
+    overflow: visible;
+    flex-shrink: 0;
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    min-height: 16px;
+}
+
+.definition-item:hover {
+    background-color: var(--vscode-list-hoverBackground);
+    color: var(--vscode-list-hoverForeground);
+}
+
+.definition-item.active {
+    background-color: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+}
+
+.definition-item .definition-number {
+    font-weight: bold;
+    margin-right: 10px;
+    color: inherit;
+}
+
+.definition-item .definition-info {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.definition-item .file-path {
+    color: inherit;
+    font-weight: bold;
+}
+
+.definition-item .line-info {
+    color: inherit;
+    margin-left: 4px;
+}
+
+/* ========== 底部导航栏样式 ========== */
+.nav-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 24px;
+    background-color: var(--vscode-editor-background);
+    border-top: 1px solid var(--vscode-editorWidget-border);
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    z-index: 1000;
+    padding-left: 20px;
+}
+
+.nav-button {
+    background-color: transparent;
+    color: var(--vscode-editor-foreground);
+    border: none;
+    padding: 0;
+    cursor: default;
+    width: 24px;
+    height: 16px;
+    position: relative;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    opacity: 0.7;
+}
+
+.nav-button:hover {
+    background-color: var(--vscode-editorWidget-background);
+    opacity: 1;
+}
+
+.nav-button::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    border: 2px solid var(--vscode-editor-foreground);
+    border-top: none;
+    border-right: none;
+    transform: translate(-50%, -50%) rotate(45deg);
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+#nav-forward::before {
+    transform: translate(-50%, -50%) rotate(225deg);
+}
+
+.nav-button:hover::before {
+    opacity: 1;
+}
+
+.nav-jump {
+    background-color: transparent;
+    color: var(--vscode-editor-foreground);
+    border: none;
+    padding: 0;
+    cursor: default;
+    width: 24px;
+    height: 16px;
+    position: relative;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    opacity: 0.7;
+}
+
+.nav-jump:hover {
+    background-color: var(--vscode-editorWidget-background);
+    opacity: 1;
+}
+
+.nav-jump::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    border: 2px solid var(--vscode-editor-foreground);
+    border-bottom: none;
+    border-right: none;
+    transform: translate(-50%, -50%) rotate(45deg);
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.nav-jump:hover::before {
+    opacity: 1;
+}
+
+/* 双击区域样式 */
+.double-click-area {
+    position: fixed;
+    bottom: 0;
+    left: 120px;
+    right: 0;
+    height: 24px;
+    z-index: 1001;
+    cursor: default;
+    background-color: rgba(89, 255, 0, 0.11);
+    display: flex;
+    align-items: left;
+    justify-content: left;
+    color: rgba(128, 128, 128, 0.8);
+    font-size: 14px;
+    font-style: italic;
+    padding-left: 10px;
+}
+
+/* 文件名显示样式 */
+.filename-display {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    color: rgba(128, 128, 128, 0.8);
+    font-size: 14px;
+    font-weight: normal;
+    font-style: normal;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    z-index: 1002;
+    padding-left: 0px;
+}
+
+.filename-text {
+    color: rgba(128, 128, 128, 1.0);
+    white-space: nowrap;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.filename-path {
+    display: flex;
+    color: rgba(128, 128, 128, 0.8);
+    font-size: 13px;
+    margin-left: 12px;
+    white-space: nowrap;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+    gap: 0;
+}
+
+.filename-icon {
+    font-size: 15px;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0;
+    opacity: 0.7;
+    display: inline-block;
+}
+
+.filename-path-text {
+    overflow: hidden;
+    margin: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+    padding: 0;
+}
+
+/* 自定义右键菜单样式 */
+.custom-context-menu {
+    position: fixed;
+    background: var(--vscode-menu-background, #fff);
+    color: var(--vscode-menu-foreground, #333);
+    border: 1px solid var(--vscode-menu-border, #ccc);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    min-width: 160px;
+    z-index: 9999;
+    padding: 4px 0;
+    font-size: 13px;
+    font-family: var(--vscode-font-family, "Segoe UI", Arial, sans-serif);
+    user-select: none;
+}
+
+.custom-context-menu-item {
+    padding: 3px 24px 3px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s;
+}
+
+.custom-context-menu-item:hover {
+    background: var(--vscode-menu-selectionBackground, #e5f3ff);
+    color: var(--vscode-menu-selectionForeground, #000);
+}
+
+.custom-context-menu-separator {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--vscode-menu-separatorBackground, #e5e5e5);
+    border: none;
+}
