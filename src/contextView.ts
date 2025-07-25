@@ -665,6 +665,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         
         const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.js'));
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
+        const navigationScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'navigation.js'));
 
         const nonce = getNonce();
 
@@ -755,156 +756,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 <button class="nav-jump" id="nav-jump" title="Jump to definition"></button>
             </div>
 
-            <script nonce="${nonce}">
+            <script nonce="${nonce}" src="${navigationScriptUri}">
                 // 导航按钮事件处理
-                const backButton = document.getElementById('nav-back');
-                const forwardButton = document.getElementById('nav-forward');
-                const jumpButton = document.getElementById('nav-jump');
-
-                backButton.addEventListener('click', () => {
-                    window.vscode.postMessage({
-                        type: 'navigate',
-                        direction: 'back'
-                    });
-                });
-
-                forwardButton.addEventListener('click', () => {
-                    window.vscode.postMessage({
-                        type: 'navigate',
-                        direction: 'forward'
-                    });
-                });
-
-                jumpButton.addEventListener('click', () => {
-                    window.vscode.postMessage({
-                        type: 'doubleClick',
-                        location: 'bottomArea'
-                    });
-                });
-
-                // 更新按钮状态
-                function updateNavButtons(canGoBack, canGoForward) {
-                    backButton.disabled = !canGoBack;
-                    forwardButton.disabled = !canGoForward;
-                }
-                // 双击事件处理
-                const doubleClickArea = document.querySelector('.double-click-area');
-                doubleClickArea.addEventListener('dblclick', () => {
-                    //console.log('[definition] doubleClickArea');
-                    window.vscode.postMessage({
-                        type: 'doubleClick',
-                        location: 'bottomArea'
-                    });
-                });
-                doubleClickArea.addEventListener('contextmenu', e => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // 先移除已有菜单
-                    const oldMenu = document.getElementById('custom-context-menu');
-                    if (oldMenu) oldMenu.remove();
-
-                    // 创建菜单
-                    const menu = document.createElement('div');
-                    menu.id = 'custom-context-menu';
-                    menu.style.position = 'fixed';
-                    menu.style.background = '#fff';
-                    menu.style.border = '1px solid #ccc';
-                    menu.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
-                    menu.style.zIndex = 9999;
-                    menu.style.minWidth = '120px';
-                    menu.style.visibility = 'hidden'; // 先隐藏，后面再显示
-
-                    // 阻止事件穿透
-                    menu.addEventListener('mousedown', e => e.stopPropagation());
-                    menu.addEventListener('mouseup', e => e.stopPropagation());
-                    menu.addEventListener('click', e => e.stopPropagation());
-
-                    // 菜单项
-                    const items = [
-                        { 
-                            label: 'Pin',
-                            checked: window.isPinned,
-                            action: () => window.vscode.postMessage({ type: 'pin' }) 
-                        },
-                        {
-                            label: 'Unpin',
-                            checked: !window.isPinned,
-                            action: () => window.vscode.postMessage({ type: 'unpin' }) 
-                        },
-                        { type: 'separator' }, // 分割条
-                        { label: 'Copy filename', action: () => {
-                            const filename = document.querySelector('.filename-text')?.textContent || '';
-                            // 提取第一个左括号前的内容
-                            //const idx = filenameDisplay.indexOf('(');
-                            //let filename;
-                            //if (idx > 0) {
-                            //    filename = filenameDisplay.slice(0, idx).trim();
-                            //} else {
-                            //    filename = filenameDisplay.trim();
-                            //}
-
-                            if (filename) {
-                                navigator.clipboard.writeText(filename);
-                            }
-                        }}
-                    ];
-
-                    items.forEach(item => {
-                        if (item.type === 'separator') {
-                            const sep = document.createElement('div');
-                            sep.className = 'custom-context-menu-separator';
-                            //sep.style.height = '1px';
-                            //sep.style.margin = '4px 0';
-                            //sep.style.background = '#eee';
-                            menu.appendChild(sep);
-                            return;
-                        }
-                        const el = document.createElement('div');
-                        el.textContent = (item.checked ? '✔ ' : '') + item.label;
-                        el.className = 'custom-context-menu-item';
-                        //el.style.padding = '6px 16px';
-                        //el.style.cursor = 'pointer';
-                        //el.onmouseenter = () => el.style.background = '#eee';
-                        //el.onmouseleave = () => el.style.background = '#fff';
-                        el.onclick = () => {
-                            item.action();
-                            menu.remove();
-                        };
-                        menu.appendChild(el);
-                    });
-
-                    document.body.appendChild(menu);
-
-                    // 计算菜单位置，防止溢出
-                    const menuRect = menu.getBoundingClientRect();
-                    let left = e.clientX;
-                    let top = e.clientY;
-                    const padding = 4; // 距离边缘的最小距离
-
-                    if (left + menuRect.width > window.innerWidth - padding) {
-                        left = window.innerWidth - menuRect.width - padding;
-                    }
-                    if (top + menuRect.height > window.innerHeight - padding) {
-                        top = window.innerHeight - menuRect.height - padding;
-                    }
-                    left = Math.max(left, padding);
-                    top = Math.max(top, padding);
-
-                    menu.style.left = left + 'px';
-                    menu.style.top = top + 'px';
-                    menu.style.visibility = 'visible';
-
-                    // 点击其它地方关闭菜单
-                    document.addEventListener('mousedown', function onDocClick() {
-                        menu.remove();
-                        document.removeEventListener('mousedown', onDocClick);
-                    });
-                });
-                const navArea = document.querySelector('.nav-bar');
-                navArea.addEventListener('contextmenu', e => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                });
             </script>
         </body>
         </html>`;
