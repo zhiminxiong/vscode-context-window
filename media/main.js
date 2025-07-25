@@ -653,6 +653,9 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     // 更新文件名显示函数
                     function updateFilenameDisplay(uri) {
                         const filenameDisplay = document.querySelector('.filename-display');
+                        const pathContainer = filenameDisplay?.querySelector('.filename-path');
+                        const icon = pathContainer?.querySelector('.filename-icon');
+                        const pathText = pathContainer?.querySelector('.filename-path-text');
                         if (uri && filenameDisplay) {
                             // 从URI中提取文件名
                             const filename = uri.split('/').pop().split('\\').pop();
@@ -663,11 +666,18 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                 //console.log('[definition] Error decoding URI:', e);
                                 filePath = uri;
                             }
-                            const displayText = `${filename}       (${filePath})`;
+                            //const displayText = `${filename}       (${filePath})`;
                             //console.log('[definition] File name:', filename, uri);
-                            filenameDisplay.textContent = displayText || '';
+                            //filenameDisplay.textContent = displayText || '';
+                            filenameDisplay.querySelector('.filename-text').textContent = filename;
+                            icon.textContent = '📄'; // 你想用的Unicode图标
+                            icon.style.display = 'inline-block';
+                            pathText.textContent = filePath;
                         } else if (filenameDisplay) {
-                            filenameDisplay.textContent = '';
+                            ilenameDisplay.querySelector('.filename-text').textContent = "";
+                            icon.textContent = "";
+                            icon.style.display = 'none';
+                            pathText.textContent = "";
                         }
                     }
 

@@ -1067,7 +1067,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 }
                 /* 添加文件名显示样式 */
                 .filename-display {
-                    text-align: left;
+                    display: flex;
+                    align-items: center;          /* 垂直居中 */
+                    justify-content: flex-start;  /* 左对齐 */
                     color: rgba(128, 128, 128, 0.8);
                     font-size: 14px;
                     font-weight: normal;
@@ -1075,9 +1077,49 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     max-width: 100%;
                     overflow: hidden;
                     text-overflow: ellipsis;
-                    white-space: pre;
+                    //white-space: pre;
                     z-index: 1002;
                     padding-left: 0px;
+                }
+                .filename-text {
+                    //font-weight: bold;
+                    color: rgba(128, 128, 128, 1.0);
+                    white-space: nowrap;
+                    text-align: left;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    max-width: 200px;
+                }
+                .filename-path {
+                    display: flex;
+                    color: rgba(128, 128, 128, 0.8);
+                    font-size: 13px;
+                    margin-left: 12px;
+                    white-space: nowrap;
+                    text-align: left;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    //max-width: 60%;
+                    min-width: 0;
+                    flex: 1;
+                    gap: 0
+                }
+                .filename-icon {
+                    font-size: 15px;
+                    margin: 0;
+                    padding: 0;
+                    flex-shrink: 0;
+                    opacity: 0.7;
+                    display: inline-block;
+                }
+                .filename-path-text {
+                    overflow: hidden;
+                    margin: 0;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    min-width: 0;
+                    flex: 1;
+                    padding: 0;
                 }
                 .custom-context-menu {
                     position: fixed;
@@ -1137,7 +1179,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
             <!-- 添加双击区域 -->
             <div class="double-click-area" title="double-click: Jump to definition">
-                <span class="filename-display"></span>
+                <span class="filename-display">
+                    <span class="filename-text"></span>
+                    <span class="filename-path">
+                        <span class="filename-icon"></span>
+                        <span class="filename-path-text"></span>
+                    </span>
+                </span>
             </div>
             
             <!-- 添加一个简单的初始化脚本，用于调试和传递Monaco路径 -->
@@ -1251,15 +1299,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                         },
                         { type: 'separator' }, // 分割条
                         { label: 'Copy filename', action: () => {
-                            const filenameDisplay = document.querySelector('.filename-display')?.textContent || '';
+                            const filename = document.querySelector('.filename-text')?.textContent || '';
                             // 提取第一个左括号前的内容
-                            const idx = filenameDisplay.indexOf('(');
-                            let filename;
-                            if (idx > 0) {
-                                filename = filenameDisplay.slice(0, idx).trim();
-                            } else {
-                                filename = filenameDisplay.trim();
-                            }
+                            //const idx = filenameDisplay.indexOf('(');
+                            //let filename;
+                            //if (idx > 0) {
+                            //    filename = filenameDisplay.slice(0, idx).trim();
+                            //} else {
+                            //    filename = filenameDisplay.trim();
+                            //}
 
                             if (filename) {
                                 navigator.clipboard.writeText(filename);
