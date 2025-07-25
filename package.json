@@ -138,6 +138,16 @@
                     "type": "string",
                     "default": "#5bdb0791",
                     "description": "Context Window 选中高亮边框色"
+                },
+                "contextView.contextWindow.fontSize": {
+                    "type": "number",
+                    "default": 14,
+                    "description": "Context Window fontSize"
+                },
+                "contextView.contextWindow.fontFamily": {
+                    "type": "string",
+                    "default": "Consolas, monospace",
+                    "description": "Context Window fontFamily"
                 }
 			}
 		}

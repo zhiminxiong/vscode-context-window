@@ -106,10 +106,10 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                 //console.log('[definition] Monaco editor loaded');
 
                 let light = window.vsCodeEditorConfiguration?.theme === 'vs';
+                const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
 
                 // 如果有自定义主题规则
                 if (window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.customThemeRules) {
-                    const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
                     // 定义自定义主题
                     monaco.editor.defineTheme('custom-vs', {
                         base: light ? 'vs' : 'vs-dark',  // 基于 vs 主题
@@ -152,6 +152,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     // 处理 VS Code 编辑器配置
                     const createEditorOptions = () => {
                         const vsCodeConfig = window.vsCodeEditorConfiguration?.editorOptions || {};
+                        vsCodeConfig.fontSize = contextEditorCfg.fontSize || vsCodeConfig.fontSize;
+                        vsCodeConfig.fontFamily = contextEditorCfg.fontFamily || vsCodeConfig.fontFamily;
                         
                         // 基础配置
                         const baseOptions = {
@@ -1007,7 +1009,13 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                         
                                         // 重新应用主题
                                         if (editor) {
-                                            editor.updateOptions({ theme: 'custom-vs' });
+                                            editor.updateOptions(
+                                                {
+                                                    theme: 'custom-vs',
+                                                    fontsize: message.contextEditorCfg.fontSize,
+                                                    fontfamily: message.contextEditorCfg.fontFamily
+                                                }
+                                            );
                                         }
                                     }
                                     break;
