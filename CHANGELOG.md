@@ -9,6 +9,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Add a custom context menu to the bottom area (support for pin/unpin and copy filename).
 - Refined the bottom-area UI.
 - Refined the definition list.
+- Refactor the js code.
 
 ## [0.5.1] 2025.07.23
 
