@@ -4,7 +4,7 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [0.5.2] 2025.07.24
+## [0.5.2] 2025.07.25
 
 - Add a custom context menu to the bottom area (support for pin/unpin and copy filename).
 - Refined the bottom-area UI.
