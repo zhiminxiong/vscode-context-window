@@ -1012,10 +1012,11 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                             editor.updateOptions(
                                                 {
                                                     theme: 'custom-vs',
-                                                    fontsize: message.contextEditorCfg.fontSize,
-                                                    fontfamily: message.contextEditorCfg.fontFamily
+                                                    fontSize: message.contextEditorCfg.fontSize,
+                                                    fontFamily: message.contextEditorCfg.fontFamily
                                                 }
                                             );
+                                            editor.layout();
                                         }
                                     }
                                     break;
@@ -1152,6 +1153,12 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                             model.setValue(message.body);
                                         }
 
+                                        const lineCount = model.getLineCount();
+                                        const requiredChars = Math.max(3, lineCount.toString().length+1);
+
+                                        editor.updateOptions({ lineNumbersMinChars: requiredChars });
+                                        editor.layout();
+
                                         const initialTheme = editor.getOption(monaco.editor.EditorOption.theme);
                                         //console.log('[definition] 初始主题:', initialTheme);
 
@@ -1169,8 +1176,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                         // 滚动到指定行
                                         if (message.scrollToLine) {
                                             //console.log('[definition] Scrolling to line:', message.curLine);
-                                            // force layout before scrolling
-                                            editor.layout();
 
                                             let line = message.scrollToLine;
                                             if (message.curLine && message.curLine !== -1)
