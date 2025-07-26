@@ -154,6 +154,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         const vsCodeConfig = window.vsCodeEditorConfiguration?.editorOptions || {};
                         vsCodeConfig.fontSize = contextEditorCfg.fontSize || vsCodeConfig.fontSize;
                         vsCodeConfig.fontFamily = contextEditorCfg.fontFamily || vsCodeConfig.fontFamily;
+                        vsCodeConfig.minimap = { enabled: contextEditorCfg.minimap };
                         
                         // 基础配置
                         const baseOptions = {
@@ -202,7 +203,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                             minimap: minimap || { enabled: false },
                             scrollBeyondLastLine: scrollBeyondLastLine ?? false,
                             lineNumbers: lineNumbers || 'on',
-                            renderWhitespace: renderWhitespace || 'true',
+                            renderWhitespace: renderWhitespace || 'all',
                             // 光标选项
                             cursorStyle: 'pointer',
                             mouseStyle: 'pointer',
@@ -1012,6 +1013,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                             editor.updateOptions(
                                                 {
                                                     theme: 'custom-vs',
+                                                    minimap: { enabled: message.contextEditorCfg.minimap },
                                                     fontSize: message.contextEditorCfg.fontSize,
                                                     fontFamily: message.contextEditorCfg.fontFamily
                                                 }

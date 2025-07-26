@@ -262,6 +262,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 selectionHighlightBorder: contextWindowConfig.get('selectionHighlightBorder', '#5bdb0791'),
                 fontSize: contextWindowConfig.get('fontSize', 14),
                 fontFamily: contextWindowConfig.get('fontFamily', 'Consolas, monospace'),
+                minimap: contextWindowConfig.get('minimap', true),
             }
         };
 

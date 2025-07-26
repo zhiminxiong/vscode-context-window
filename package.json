@@ -2,7 +2,7 @@
 	"name": "context-window",
 	"displayName": "Context Window",
 	"description": "Display full code context in the panel, similar to the context window in Source Insight.",
-	"version": "0.5.2",
+	"version": "0.5.3",
 	"publisher": "zhiminxiong",
 	"keywords": [
         "context",
@@ -138,6 +138,11 @@
                     "type": "string",
                     "default": "#5bdb0791",
                     "description": "Context Window 选中高亮边框色"
+                },
+                "contextView.contextWindow.minimap": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Controls whether the Context Window minimap is shown."
                 },
                 "contextView.contextWindow.fontSize": {
                     "type": "number",
