@@ -153,6 +153,16 @@
                     "type": "string",
                     "default": "Consolas, monospace",
                     "description": "Context Window fontFamily"
+                },
+                "contextView.contextWindow.useDefaultTheme": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Using the default theme of Monaco Editor.\nTake effect when VSCode starts."
+                },
+                "contextView.contextWindow.fixToken": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "In VSCode, treat #include, #pragma, #region, and #endregion as distinct tokens, separate from #directive.\nTake effect when VSCode starts."
                 }
 			}
 		}

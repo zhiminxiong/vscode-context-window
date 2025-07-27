@@ -107,6 +107,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
 
                 let light = window.vsCodeEditorConfiguration?.theme === 'vs';
                 const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
+                if (!contextEditorCfg.useDefaultTheme)
+                    light = true; // 如果不使用默认主题，则强制使用自定义浅色主题
 
                 // 如果有自定义主题规则
                 if (window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.customThemeRules) {
@@ -288,26 +290,28 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     // 初始化时设置为默认光标
                     forcePointerCursor(false);
 
-                    // 定义使用JavaScript提供器作为默认的语言列表
-                    const defaultLanguages = [
-                        'python', 'java', 'go', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
-                        'erlang', 
-                    ];
+                    if (!contextEditorCfg.useDefaultTheme) {
+                        // 定义使用JavaScript提供器作为默认的语言列表
+                        const defaultLanguages = [
+                            'python', 'java', 'go', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
+                            'erlang', 
+                        ];
 
-                    // 为默认语言设置JavaScript提供器
-                    defaultLanguages.forEach(lang => {
-                        monaco.languages.setMonarchTokensProvider(lang, languageConfig_js);
-                    });
+                        // 为默认语言设置JavaScript提供器
+                        defaultLanguages.forEach(lang => {
+                            monaco.languages.setMonarchTokensProvider(lang, languageConfig_js);
+                        });
 
-                    // 为 JavaScript 定义自定义 token 提供器
-                    monaco.languages.setMonarchTokensProvider('javascript', languageConfig_js);
-                    monaco.languages.setMonarchTokensProvider('typescript', languageConfig_js);
+                        // 为 JavaScript 定义自定义 token 提供器
+                        monaco.languages.setMonarchTokensProvider('javascript', languageConfig_js);
+                        monaco.languages.setMonarchTokensProvider('typescript', languageConfig_js);
 
-                    // 为 C/C++ 定义自定义 token 提供器
-                    monaco.languages.setMonarchTokensProvider('cpp', languageConfig_cpp);
-                    monaco.languages.setMonarchTokensProvider('c', languageConfig_cpp);
+                        // 为 C/C++ 定义自定义 token 提供器
+                        monaco.languages.setMonarchTokensProvider('cpp', languageConfig_cpp);
+                        monaco.languages.setMonarchTokensProvider('c', languageConfig_cpp);
 
-                    monaco.languages.setMonarchTokensProvider('csharp', languageConfig_cs);
+                        monaco.languages.setMonarchTokensProvider('csharp', languageConfig_cs);
+                    }
 
                     // 添加一个简单的 token 检测函数
                     // function logTokenInfo() {

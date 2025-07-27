@@ -4,10 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [0.5.3] 2025.07.26
+## [0.5.3] 2025.07.27
 
-- Add custom font family and size.
-- Add control whether the minimap is shown.
+- Add custom font family and size. issue #1.
+- Add control whether the minimap is shown. issue #1.
+- Fix: The definition list can't display.
+- Feat: Add a toggle for #include... issue(#2)
+- Feat: Add a toggle for custom themes issue(#2)
 
 ## [0.5.2] 2025.07.25
 

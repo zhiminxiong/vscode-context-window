@@ -25,6 +25,10 @@ export function activate(context: vscode.ExtensionContext) {
             provider.show();
         }));
 
+    const contextWindowConfig = vscode.workspace.getConfiguration('contextView.contextWindow');
+    if (!contextWindowConfig.get('fixToken', false))
+        return;
+
     const config = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
     const semanticHighlighting = (config?.get('textMateRules') || []) as Array<{
         scope: string;
@@ -95,6 +99,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (e.affectsConfiguration('editor.fontWeight') ||
             e.affectsConfiguration('editor.fontSize') ||
             e.affectsConfiguration('editor.tokenColorCustomizations')) {
+
             // 重新获取颜色设置
             const config = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
             const semanticHighlighting = (config?.get('textMateRules') || []) as Array<{

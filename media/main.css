@@ -267,7 +267,7 @@ body {
     left: 0;
     right: 0;
     height: 24px;
-    background-color: var(--vscode-editor-background);
+    background-color: #efefef;/* var(--vscode-editor-background); */
     border-top: 1px solid var(--vscode-editorWidget-border);
     display: flex;
     align-items: center;
@@ -279,7 +279,7 @@ body {
 
 .nav-button {
     background-color: transparent;
-    color: var(--vscode-editor-foreground);
+    color: #000000;/* var(--vscode-editor-foreground); */
     border: none;
     padding: 0;
     cursor: default;
@@ -292,7 +292,7 @@ body {
 }
 
 .nav-button:hover {
-    background-color: var(--vscode-editorWidget-background);
+    background-color: #e0e0e0;/* var(--vscode-editorWidget-background); */
     opacity: 1;
 }
 
@@ -303,7 +303,7 @@ body {
     left: 50%;
     width: 8px;
     height: 8px;
-    border: 2px solid var(--vscode-editor-foreground);
+    border: 2px solid #000000;/* var(--vscode-editor-foreground); */
     border-top: none;
     border-right: none;
     transform: translate(-50%, -50%) rotate(45deg);
@@ -321,7 +321,7 @@ body {
 
 .nav-jump {
     background-color: transparent;
-    color: var(--vscode-editor-foreground);
+    color: #000000;/* var(--vscode-editor-foreground); */
     border: none;
     padding: 0;
     cursor: default;
@@ -334,7 +334,7 @@ body {
 }
 
 .nav-jump:hover {
-    background-color: var(--vscode-editorWidget-background);
+    background-color: #e0e0e0;/* var(--vscode-editorWidget-background); */
     opacity: 1;
 }
 .nav-jump::before {
@@ -344,7 +344,7 @@ body {
     left: 50%;
     width: 8px;
     height: 8px;
-    border: 2px solid var(--vscode-editor-foreground);
+    border: 2px solid #000000;/* var(--vscode-editor-foreground); */;
     border-bottom: none;
     border-right: none;
     transform: translate(-50%, -50%) rotate(45deg);
@@ -430,9 +430,9 @@ body {
 }
 .custom-context-menu {
     position: fixed;
-    background: var(--vscode-menu-background, #fff);
-    color: var(--vscode-menu-foreground, #333);
-    border: 1px solid var(--vscode-menu-border, #ccc);
+    background: #ffffff;/*var(--vscode-menu-background, #fff);*/
+    color: #000000;/* var(--vscode-menu-foreground, #333); */
+    border: 1px solid #cccccc;/* var(--vscode-menu-border, #ccc); */
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     min-width: 160px;
@@ -451,14 +451,14 @@ body {
 }
 
 .custom-context-menu-item:hover {
-    background: var(--vscode-menu-selectionBackground, #e5f3ff);
-    color: var(--vscode-menu-selectionForeground, #000);
+    background: #1d8705;/* var(--vscode-menu-selectionBackground, #e5f3ff); */
+    color: #ffffff;/* var(--vscode-menu-selectionForeground, #000); */
 }
 
 .custom-context-menu-separator {
     height: 1px;
     margin: 4px 0;
-    background: var(--vscode-menu-separatorBackground, #e5e5e5);
+    background: #e5e5e5;/* var(--vscode-menu-separatorBackground, #e5e5e5); */
     border: none;
 }
 /* ========================================================================================= */

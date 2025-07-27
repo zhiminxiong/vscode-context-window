@@ -224,6 +224,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         if (!theme) {
             theme = vscode.window.activeColorTheme;
         }
+
+        const contextWindowConfig = vscode.workspace.getConfiguration('contextView.contextWindow');
+        if (!contextWindowConfig.get('useDefaultTheme', true))
+            return 'vs';
         
         switch (theme.kind) {
             case vscode.ColorThemeKind.Dark:
@@ -263,11 +267,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 fontSize: contextWindowConfig.get('fontSize', 14),
                 fontFamily: contextWindowConfig.get('fontFamily', 'Consolas, monospace'),
                 minimap: contextWindowConfig.get('minimap', true),
+                useDefaultTheme: contextWindowConfig.get('useDefaultTheme', true),
             }
         };
 
         // 只在 light 主题下添加自定义主题规则
-        if (currentTheme === 'vs') {
+        if (currentTheme === 'vs' && !config.contextEditorCfg.useDefaultTheme) {
             config.customThemeRules = [
                 // 关键字和控制流
                 { token: 'keyword', foreground: '#0000ff' },           // 关键字：蓝色
