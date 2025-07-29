@@ -78,6 +78,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     type: 'updateContextEditorCfg',
                     contextEditorCfg: newConfig.contextEditorCfg
                 });
+                this.updateConfiguration();
             }
         }, null, this._disposables);
 
@@ -170,11 +171,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             //console.log('[definition] needsRender update');
             this.update(/* force */ true);
         }, undefined, this._disposables);
-
-        // Listens for VS Code settings changes
-        vscode.workspace.onDidChangeConfiguration(() => {
-            this.updateConfiguration();
-        }, null, this._disposables);
 
         this.updateConfiguration();
         //this.update(); // 此时view还未创建，无法更新
