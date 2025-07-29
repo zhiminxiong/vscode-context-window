@@ -104,29 +104,37 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
             // 初始化编辑器
             require(['vs/editor/editor.main'], function() {
                 //console.log('[definition] Monaco editor loaded');
-
-                let light = window.vsCodeEditorConfiguration?.theme === 'vs';
-                const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
-                if (!contextEditorCfg.useDefaultTheme)
-                    light = true; // 如果不使用默认主题，则强制使用自定义浅色主题
-
-                // 如果有自定义主题规则
-                if (window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.customThemeRules) {
-                    // 定义自定义主题
+                function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, light) {
                     monaco.editor.defineTheme('custom-vs', {
-                        base: light ? 'vs' : 'vs-dark',  // 基于 vs 主题
-                        inherit: true,  // 继承基础主题的规则
-                        rules: window.vsCodeEditorConfiguration.customThemeRules,
+                        base: light ? 'vs' : 'vs-dark',
+                        inherit: true,
+                        rules: vsCodeEditorConfiguration.customThemeRules,
                         colors: {
-                            "editor.selectionBackground": contextEditorCfg.selectionBackground || "#07c2db71",// #ffb7007f
+                            "editor.selectionBackground": contextEditorCfg.selectionBackground || "#07c2db71",
                             //"editor.selectionForeground": "#ffffffff",
                             "editor.inactiveSelectionBackground": contextEditorCfg.inactiveSelectionBackground || "#07c2db71",
-                            "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || "#5bdb0771",// Ffb700a0
+                            "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || "#5bdb0771",
                             "editor.selectionHighlightBorder": contextEditorCfg.selectionHighlightBorder || "#5bdb0791",
                             "editor.findMatchBackground": "#F4D03F",
                             //"editor.background": "#e6e6e6",
                         }
                     });
+                }
+                function isLightTheme() {
+                    let light = window.vsCodeEditorConfiguration?.theme === 'vs';
+                    const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
+                    if (!contextEditorCfg.useDefaultTheme)
+                        light = true; // 如果不使用默认主题，则强制使用自定义浅色主题
+                    return light;
+                }
+
+                const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
+                let light = isLightTheme();
+
+                // 如果有自定义主题规则
+                if (window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.customThemeRules) {
+                    // 定义自定义主题
+                    applyMonacoTheme(window.vsCodeEditorConfiguration, contextEditorCfg, light);
                     
                     // 使用自定义主题
                     window.vsCodeTheme = 'custom-vs';
@@ -998,19 +1006,10 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                     break;*/
                                 case 'updateContextEditorCfg':
                                     if (message.contextEditorCfg) {
+                                        window.vsCodeEditorConfiguration.contextEditorCfg = message.contextEditorCfg;
+                                        let light = isLightTheme();
                                         // 重新定义主题
-                                        monaco.editor.defineTheme('custom-vs', {
-                                            base: light ? 'vs' : 'vs-dark',
-                                            inherit: true,
-                                            rules: window.vsCodeEditorConfiguration.customThemeRules,
-                                            colors: {
-                                                "editor.selectionBackground": message.contextEditorCfg.selectionBackground,
-                                                "editor.inactiveSelectionBackground": message.contextEditorCfg.inactiveSelectionBackground,
-                                                "editor.selectionHighlightBackground": message.contextEditorCfg.selectionHighlightBackground,
-                                                "editor.selectionHighlightBorder": message.contextEditorCfg.selectionHighlightBorder,
-                                                // ... 其他颜色
-                                            }
-                                        });
+                                        applyMonacoTheme(window.vsCodeEditorConfiguration, message.contextEditorCfg, light);
                                         
                                         // 重新应用主题
                                         if (editor) {
