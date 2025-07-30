@@ -13,6 +13,21 @@ interface HistoryInfo {
     curLine: number;
 }
 
+interface TokenColorSetting {
+    foreground?: string;
+    background?: string;
+    fontStyle?: string;
+}
+
+interface SemanticTokenColorCustomizations {
+    rules?: { [scope: string]: string | TokenColorSetting };
+    enabled?: boolean;
+}
+
+interface TokenColorCustomizations {
+    [scope: string]: string | TokenColorSetting;
+}
+
 export class ContextWindowProvider implements vscode.WebviewViewProvider {
     // Add a new property to cache the last content
     private _history: HistoryInfo[] = [];
@@ -235,6 +250,754 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    // 获取默认的Monaco token规则（基于VSCode默认主题）
+private _getDefaultMonacoTokenRules(isLight: boolean): any[] {
+    if (isLight) {
+        // 浅色主题的默认token配色（基于VSCode Light主题）
+        return [
+            // 关键字类
+            { token: 'keyword', foreground: '0000FF' },                    // 关键字：蓝色
+            { token: 'keyword.type', foreground: '0000FF' },               // 类型关键字：蓝色
+            { token: 'keyword.control', foreground: 'AF00DB' },            // 控制流：紫色
+            { token: 'keyword.operator', foreground: '000000' },           // 操作符关键字：黑色
+            { token: 'keyword.other', foreground: '0000FF' },              // 其他关键字：蓝色
+            { token: 'keyword.declaration', foreground: '0000FF' },        // 声明关键字：蓝色
+            { token: 'keyword.modifier', foreground: '0000FF' },           // 修饰符：蓝色
+            { token: 'keyword.conditional', foreground: 'AF00DB' },        // 条件关键字：紫色
+            { token: 'keyword.repeat', foreground: 'AF00DB' },             // 循环关键字：紫色
+            { token: 'keyword.exception', foreground: 'AF00DB' },          // 异常关键字：紫色
+            { token: 'keyword.function', foreground: 'AF00DB' },           // 函数关键字：紫色
+            { token: 'keyword.directive', foreground: '0000FF' },          // 预处理指令：蓝色
+            { token: 'keyword.directive.control', foreground: 'AF00DB' },  // 预处理控制：紫色
+            
+            // 字符串类
+            { token: 'string', foreground: 'A31515' },                     // 字符串：红色
+            { token: 'string.quoted', foreground: 'A31515' },              // 引号字符串：红色
+            { token: 'string.quoted.single', foreground: 'A31515' },       // 单引号字符串：红色
+            { token: 'string.quoted.double', foreground: 'A31515' },       // 双引号字符串：红色
+            { token: 'string.template', foreground: 'A31515' },            // 模板字符串：红色
+            { token: 'string.escape', foreground: 'FF0000' },              // 转义字符：亮红色
+            
+            // 注释类
+            { token: 'comment', foreground: '008000' },                    // 注释：绿色
+            { token: 'comment.line', foreground: '008000' },               // 行注释：绿色
+            { token: 'comment.block', foreground: '008000' },              // 块注释：绿色
+            { token: 'comment.doc', foreground: '008000' },                // 文档注释：绿色
+            { token: 'comment.documentation', foreground: '008000' },      // 文档注释：绿色
+            
+            // 数字和常量类
+            { token: 'number', foreground: '098658' },                     // 数字：深绿色
+            { token: 'constant.numeric', foreground: '098658' },           // 数字常量：深绿色
+            { token: 'constant.language', foreground: '0000FF' },          // 语言常量：蓝色
+            { token: 'constant.other', foreground: '0070C1' },             // 其他常量：深蓝色
+            { token: 'constant', foreground: '0070C1' },                   // 常量：深蓝色
+            { token: 'boolean', foreground: '0000FF' },                    // 布尔值：蓝色
+            { token: 'null', foreground: '0000FF' },                       // null：蓝色
+            
+            // 函数和方法类
+            { token: 'function', foreground: '795E26' },                   // 函数：棕色
+            { token: 'function.name', foreground: '795E26' },              // 函数名：棕色
+            { token: 'function.call', foreground: '795E26' },              // 函数调用：棕色
+            { token: 'method', foreground: '795E26' },                     // 方法：棕色
+            { token: 'method.name', foreground: '795E26' },                // 方法名：棕色
+            { token: 'method.call', foreground: '795E26' },                // 方法调用：棕色
+            { token: 'constructor', foreground: '795E26' },                // 构造函数：棕色
+            
+            // 变量和标识符类
+            { token: 'variable', foreground: '001080' },                   // 变量：深蓝色
+            { token: 'variable.name', foreground: '001080' },              // 变量名：深蓝色
+            { token: 'variable.other', foreground: '001080' },             // 其他变量：深蓝色
+            { token: 'variable.parameter', foreground: '001080' },         // 参数变量：深蓝色
+            { token: 'variable.language', foreground: 'AF00DB' },          // 语言变量：紫色
+            { token: 'variable.predefined', foreground: 'AF00DB' },        // 预定义变量：紫色
+            { token: 'identifier', foreground: '000000' },                 // 标识符：黑色
+            
+            // 类型和类
+            { token: 'type', foreground: '267F99' },                       // 类型：青色
+            { token: 'type.declaration', foreground: '267F99' },           // 类型声明：青色
+            { token: 'class', foreground: '267F99' },                      // 类：青色
+            { token: 'class.name', foreground: '267F99' },                 // 类名：青色
+            { token: 'interface', foreground: '267F99' },                  // 接口：青色
+            { token: 'enum', foreground: '267F99' },                       // 枚举：青色
+            { token: 'struct', foreground: '267F99' },                     // 结构体：青色
+            { token: 'namespace', foreground: '267F99' },                  // 命名空间：青色
+            
+            // 属性和成员类
+            { token: 'property', foreground: '001080' },                   // 属性：深蓝色
+            { token: 'property.declaration', foreground: '001080' },       // 属性声明：深蓝色
+            { token: 'member', foreground: '001080' },                     // 成员：深蓝色
+            { token: 'field', foreground: '001080' },                      // 字段：深蓝色
+            
+            // 操作符和分隔符类
+            { token: 'operator', foreground: '000000' },                   // 运算符：黑色
+            { token: 'delimiter', foreground: '000000' },                  // 分隔符：黑色
+            { token: 'delimiter.bracket', foreground: '000000' },          // 括号：黑色
+            { token: 'delimiter.parenthesis', foreground: '000000' },      // 圆括号：黑色
+            { token: 'delimiter.square', foreground: '000000' },           // 方括号：黑色
+            { token: 'delimiter.curly', foreground: '000000' },            // 花括号：黑色
+            
+            // 标签和属性类
+            { token: 'tag', foreground: '800000' },                        // 标签：暗红色
+            { token: 'tag.attribute.name', foreground: 'FF0000' },         // 标签属性名：红色
+            { token: 'attribute.name', foreground: 'FF0000' },             // 属性名：红色
+            { token: 'attribute.value', foreground: '0000FF' },            // 属性值：蓝色
+            
+            // 特殊类型
+            { token: 'decorator', foreground: '800080' },                  // 装饰器：紫色
+            { token: 'macro', foreground: 'A00000', fontStyle: 'italic' }, // 宏：暗红色斜体
+            { token: 'regexp', foreground: '811F3F' },                     // 正则表达式：暗红色
+            { token: 'modifier', foreground: '0000FF' },                   // 修饰符：蓝色
+        ];
+    } else {
+        // 深色主题的默认token配色（基于VSCode Dark主题）
+        return [
+            // 关键字类
+            { token: 'keyword', foreground: '569CD6' },                    // 关键字：浅蓝色
+            { token: 'keyword.type', foreground: '569CD6' },               // 类型关键字：浅蓝色
+            { token: 'keyword.control', foreground: 'C586C0' },            // 控制流：粉紫色
+            { token: 'keyword.operator', foreground: 'D4D4D4' },           // 操作符关键字：灰色
+            { token: 'keyword.other', foreground: '569CD6' },              // 其他关键字：浅蓝色
+            { token: 'keyword.declaration', foreground: '569CD6' },        // 声明关键字：浅蓝色
+            { token: 'keyword.modifier', foreground: '569CD6' },           // 修饰符：浅蓝色
+            { token: 'keyword.conditional', foreground: 'C586C0' },        // 条件关键字：粉紫色
+            { token: 'keyword.repeat', foreground: 'C586C0' },             // 循环关键字：粉紫色
+            { token: 'keyword.exception', foreground: 'C586C0' },          // 异常关键字：粉紫色
+            { token: 'keyword.function', foreground: 'C586C0' },           // 函数关键字：粉紫色
+            { token: 'keyword.directive', foreground: '569CD6' },          // 预处理指令：浅蓝色
+            { token: 'keyword.directive.control', foreground: 'C586C0' },  // 预处理控制：粉紫色
+            
+            // 字符串类
+            { token: 'string', foreground: 'CE9178' },                     // 字符串：橙色
+            { token: 'string.quoted', foreground: 'CE9178' },              // 引号字符串：橙色
+            { token: 'string.quoted.single', foreground: 'CE9178' },       // 单引号字符串：橙色
+            { token: 'string.quoted.double', foreground: 'CE9178' },       // 双引号字符串：橙色
+            { token: 'string.template', foreground: 'CE9178' },            // 模板字符串：橙色
+            { token: 'string.escape', foreground: 'D7BA7D' },              // 转义字符：金色
+            
+            // 注释类
+            { token: 'comment', foreground: '6A9955' },                    // 注释：绿色
+            { token: 'comment.line', foreground: '6A9955' },               // 行注释：绿色
+            { token: 'comment.block', foreground: '6A9955' },              // 块注释：绿色
+            { token: 'comment.doc', foreground: '6A9955' },                // 文档注释：绿色
+            { token: 'comment.documentation', foreground: '6A9955' },      // 文档注释：绿色
+            
+            // 数字和常量类
+            { token: 'number', foreground: 'B5CEA8' },                     // 数字：浅绿色
+            { token: 'constant.numeric', foreground: 'B5CEA8' },           // 数字常量：浅绿色
+            { token: 'constant.language', foreground: '569CD6' },          // 语言常量：浅蓝色
+            { token: 'constant.other', foreground: '4FC1FF' },             // 其他常量：亮蓝色
+            { token: 'constant', foreground: '4FC1FF' },                   // 常量：亮蓝色
+            { token: 'boolean', foreground: '569CD6' },                    // 布尔值：浅蓝色
+            { token: 'null', foreground: '569CD6' },                       // null：浅蓝色
+            
+            // 函数和方法类
+            { token: 'function', foreground: 'DCDCAA' },                   // 函数：黄色
+            { token: 'function.name', foreground: 'DCDCAA' },              // 函数名：黄色
+            { token: 'function.call', foreground: 'DCDCAA' },              // 函数调用：黄色
+            { token: 'method', foreground: 'DCDCAA' },                     // 方法：黄色
+            { token: 'method.name', foreground: 'DCDCAA' },                // 方法名：黄色
+            { token: 'method.call', foreground: 'DCDCAA' },                // 方法调用：黄色
+            { token: 'constructor', foreground: 'DCDCAA' },                // 构造函数：黄色
+            
+            // 变量和标识符类
+            { token: 'variable', foreground: '9CDCFE' },                   // 变量：浅青色
+            { token: 'variable.name', foreground: '9CDCFE' },              // 变量名：浅青色
+            { token: 'variable.other', foreground: '9CDCFE' },             // 其他变量：浅青色
+            { token: 'variable.parameter', foreground: '9CDCFE' },         // 参数变量：浅青色
+            { token: 'variable.language', foreground: 'C586C0' },          // 语言变量：粉紫色
+            { token: 'variable.predefined', foreground: 'C586C0' },        // 预定义变量：粉紫色
+            { token: 'identifier', foreground: 'D4D4D4' },                 // 标识符：灰色
+            
+            // 类型和类
+            { token: 'type', foreground: '4EC9B0' },                       // 类型：青绿色
+            { token: 'type.declaration', foreground: '4EC9B0' },           // 类型声明：青绿色
+            { token: 'class', foreground: '4EC9B0' },                      // 类：青绿色
+            { token: 'class.name', foreground: '4EC9B0' },                 // 类名：青绿色
+            { token: 'interface', foreground: '4EC9B0' },                  // 接口：青绿色
+            { token: 'enum', foreground: '4EC9B0' },                       // 枚举：青绿色
+            { token: 'struct', foreground: '4EC9B0' },                     // 结构体：青绿色
+            { token: 'namespace', foreground: '4EC9B0' },                  // 命名空间：青绿色
+            
+            // 属性和成员类
+            { token: 'property', foreground: '9CDCFE' },                   // 属性：浅青色
+            { token: 'property.declaration', foreground: '9CDCFE' },       // 属性声明：浅青色
+            { token: 'member', foreground: '9CDCFE' },                     // 成员：浅青色
+            { token: 'field', foreground: '9CDCFE' },                      // 字段：浅青色
+            
+            // 操作符和分隔符类
+            { token: 'operator', foreground: 'D4D4D4' },                   // 运算符：灰色
+            { token: 'delimiter', foreground: 'D4D4D4' },                  // 分隔符：灰色
+            { token: 'delimiter.bracket', foreground: 'D4D4D4' },          // 括号：灰色
+            { token: 'delimiter.parenthesis', foreground: 'D4D4D4' },      // 圆括号：灰色
+            { token: 'delimiter.square', foreground: 'D4D4D4' },           // 方括号：灰色
+            { token: 'delimiter.curly', foreground: 'D4D4D4' },            // 花括号：灰色
+            
+            // 标签和属性类
+            { token: 'tag', foreground: '92C5F7' },                        // 标签：浅蓝色
+            { token: 'tag.attribute.name', foreground: '9CDCFE' },         // 标签属性名：浅青色
+            { token: 'attribute.name', foreground: '9CDCFE' },             // 属性名：浅青色
+            { token: 'attribute.value', foreground: 'CE9178' },            // 属性值：橙色
+            
+            // 特殊类型
+            { token: 'decorator', foreground: 'C586C0' },                  // 装饰器：粉紫色
+            { token: 'macro', foreground: 'DCDCAA', fontStyle: 'italic' }, // 宏：黄色斜体
+            { token: 'regexp', foreground: 'D16969' },                     // 正则表达式：红色
+            { token: 'modifier', foreground: '569CD6' },                   // 修饰符：浅蓝色
+        ];
+    }
+}
+
+// 获取VSCode主题CSS变量映射
+private _getVSCodeThemeVariables(): any {
+    return {
+        // 编辑器基础颜色
+        'editor.background': '--vscode-editor-background',
+        'editor.foreground': '--vscode-editor-foreground',
+        'editorLineNumber.foreground': '--vscode-editorLineNumber-foreground',
+        'editorLineNumber.activeForeground': '--vscode-editorLineNumber-activeForeground',
+        'editorCursor.foreground': '--vscode-editorCursor-foreground',
+        
+        // 选择和高亮相关
+        'editor.selectionBackground': '--vscode-editor-selectionBackground',
+        'editor.inactiveSelectionBackground': '--vscode-editor-inactiveSelectionBackground',
+        'editor.selectionHighlightBackground': '--vscode-editor-selectionHighlightBackground',
+        'editor.selectionHighlightBorder': '--vscode-editor-selectionHighlightBorder',
+        'editor.wordHighlightBackground': '--vscode-editor-wordHighlightBackground',
+        'editor.wordHighlightStrongBackground': '--vscode-editor-wordHighlightStrongBackground',
+        'editor.wordHighlightBorder': '--vscode-editor-wordHighlightBorder',
+        'editor.wordHighlightStrongBorder': '--vscode-editor-wordHighlightStrongBorder',
+        
+        // 查找相关
+        'editor.findMatchBackground': '--vscode-editor-findMatchBackground',
+        'editor.findMatchBorder': '--vscode-editor-findMatchBorder',
+        'editor.findMatchHighlightBackground': '--vscode-editor-findMatchHighlightBackground',
+        'editor.findMatchHighlightBorder': '--vscode-editor-findMatchHighlightBorder',
+        'editor.findRangeHighlightBackground': '--vscode-editor-findRangeHighlightBackground',
+        'editor.findRangeHighlightBorder': '--vscode-editor-findRangeHighlightBorder',
+        
+        // 行高亮
+        'editor.lineHighlightBackground': '--vscode-editor-lineHighlightBackground',
+        'editor.lineHighlightBorder': '--vscode-editor-lineHighlightBorder',
+        
+        // 滚动条
+        'scrollbarSlider.background': '--vscode-scrollbarSlider-background',
+        'scrollbarSlider.hoverBackground': '--vscode-scrollbarSlider-hoverBackground',
+        'scrollbarSlider.activeBackground': '--vscode-scrollbarSlider-activeBackground',
+        
+        // 编辑器装订线
+        'editorGutter.background': '--vscode-editorGutter-background',
+        'editorGutter.modifiedBackground': '--vscode-editorGutter-modifiedBackground',
+        'editorGutter.addedBackground': '--vscode-editorGutter-addedBackground',
+        'editorGutter.deletedBackground': '--vscode-editorGutter-deletedBackground',
+        
+        // 代码折叠
+        'editorGutter.foldingControlForeground': '--vscode-editorGutter-foldingControlForeground',
+        
+        // 缩进参考线
+        'editorIndentGuide.background': '--vscode-editorIndentGuide-background',
+        'editorIndentGuide.activeBackground': '--vscode-editorIndentGuide-activeBackground',
+        
+        // 其他编辑器颜色
+        'editor.hoverHighlightBackground': '--vscode-editor-hoverHighlightBackground',
+        'editor.rangeHighlightBackground': '--vscode-editor-rangeHighlightBackground',
+        'editor.symbolHighlightBackground': '--vscode-editor-symbolHighlightBackground',
+        'editorLink.activeForeground': '--vscode-editorLink-activeForeground',
+        
+        // 错误和警告
+        'editorError.foreground': '--vscode-editorError-foreground',
+        'editorError.border': '--vscode-editorError-border',
+        'editorWarning.foreground': '--vscode-editorWarning-foreground',
+        'editorWarning.border': '--vscode-editorWarning-border',
+        'editorInfo.foreground': '--vscode-editorInfo-foreground',
+        'editorInfo.border': '--vscode-editorInfo-border',
+        'editorHint.foreground': '--vscode-editorHint-foreground',
+        'editorHint.border': '--vscode-editorHint-border',
+        
+        // 编辑器建议（自动完成）
+        'editorSuggestWidget.background': '--vscode-editorSuggestWidget-background',
+        'editorSuggestWidget.border': '--vscode-editorSuggestWidget-border',
+        'editorSuggestWidget.foreground': '--vscode-editorSuggestWidget-foreground',
+        'editorSuggestWidget.selectedBackground': '--vscode-editorSuggestWidget-selectedBackground',
+        'editorSuggestWidget.highlightForeground': '--vscode-editorSuggestWidget-highlightForeground',
+        
+        // 编辑器悬停
+        'editorHoverWidget.background': '--vscode-editorHoverWidget-background',
+        'editorHoverWidget.border': '--vscode-editorHoverWidget-border',
+        'editorHoverWidget.foreground': '--vscode-editorHoverWidget-foreground',
+        
+        // 编辑器状态栏
+        'editorHoverWidget.statusBarBackground': '--vscode-editorHoverWidget-statusBarBackground'
+    };
+}
+
+// 转换VSCode的tokenColorCustomizations到Monaco格式
+private _convertVSCodeTokensToMonaco(tokenCustomizations: any): any[] {
+    const rules: any[] = [];
+    
+    console.log('[definition] Converting VSCode token customizations...', tokenCustomizations);
+    
+    for (const [scope, setting] of Object.entries(tokenCustomizations)) {
+        if (typeof setting === 'string') {
+            // 简单颜色字符串格式: "scope": "#FF0000"
+            const monacoTokens = this._mapVSCodeScopeToMonacoToken(scope);
+            if (monacoTokens && monacoTokens.length > 0) {
+                monacoTokens.forEach(token => {
+                    rules.push({
+                        token: token,
+                        foreground: setting.replace('#', '').toUpperCase()
+                    });
+                    console.log(`[definition] Token rule: ${scope} -> ${token} (${setting})`);
+                });
+            }
+        } else if (typeof setting === 'object' && setting) {
+            // 复杂设置对象格式: "scope": { "foreground": "#FF0000", "fontStyle": "bold" }
+            const settingObj = setting as any;
+            const monacoTokens = this._mapVSCodeScopeToMonacoToken(scope);
+            
+            if (monacoTokens && monacoTokens.length > 0 && settingObj.foreground) {
+                monacoTokens.forEach(token => {
+                    const rule: any = {
+                        token: token,
+                        foreground: settingObj.foreground.replace('#', '').toUpperCase()
+                    };
+                    
+                    // 添加背景色（如果有）
+                    if (settingObj.background) {
+                        rule.background = settingObj.background.replace('#', '').toUpperCase();
+                    }
+                    
+                    // 添加字体样式（如果有）
+                    if (settingObj.fontStyle) {
+                        rule.fontStyle = settingObj.fontStyle;
+                    }
+                    
+                    rules.push(rule);
+                    console.log(`[definition] Complex token rule: ${scope} -> ${token}`, rule);
+                });
+            }
+        }
+    }
+    
+    console.log(`[definition] Converted ${rules.length} token customization rules`);
+    return rules;
+}
+
+// 转换VSCode的semanticTokenColorCustomizations到Monaco格式
+private _convertVSCodeSemanticTokensToMonaco(semanticRules: any): any[] {
+    const rules: any[] = [];
+    
+    console.log('[definition] Converting VSCode semantic token customizations...');
+    
+    for (const [scope, setting] of Object.entries(semanticRules)) {
+        if (typeof setting === 'string') {
+            // 简单颜色字符串格式: "function": "#FF0000"
+            const monacoTokens = this._mapVSCodeSemanticScopeToMonacoToken(scope);
+            if (monacoTokens && monacoTokens.length > 0) {
+                monacoTokens.forEach(token => {
+                    rules.push({
+                        token: token,
+                        foreground: setting.replace('#', '').toUpperCase()
+                    });
+                    console.log(`[definition] Semantic rule: ${scope} -> ${token} (${setting})`);
+                });
+            }
+        } else if (typeof setting === 'object' && setting) {
+            // 复杂设置对象格式: "function": { "foreground": "#FF0000", "fontStyle": "bold" }
+            const settingObj = setting as any;
+            const monacoTokens = this._mapVSCodeSemanticScopeToMonacoToken(scope);
+            
+            if (monacoTokens && monacoTokens.length > 0 && settingObj.foreground) {
+                monacoTokens.forEach(token => {
+                    const rule: any = {
+                        token: token,
+                        foreground: settingObj.foreground.replace('#', '').toUpperCase()
+                    };
+                    
+                    // 语义token通常不支持background，但我们保留这个逻辑以防万一
+                    if (settingObj.background) {
+                        rule.background = settingObj.background.replace('#', '').toUpperCase();
+                    }
+                    
+                    // 添加字体样式（如果有）
+                    if (settingObj.fontStyle) {
+                        rule.fontStyle = settingObj.fontStyle;
+                    }
+                    
+                    rules.push(rule);
+                    console.log(`[definition] Complex semantic rule: ${scope} -> ${token}`, rule);
+                });
+            }
+        }
+    }
+    
+    console.log(`[definition] Converted ${rules.length} semantic token customization rules`);
+    return rules;
+}
+
+// 映射VSCode的TextMate scope到Monaco token
+private _mapVSCodeScopeToMonacoToken(scope: string): string[] {
+    // VSCode TextMate scope到Monaco token的映射表
+    const scopeMap: { [key: string]: string[] } = {
+        // 关键字类
+        'keyword': ['keyword'],
+        'keyword.control': ['keyword.control'],
+        'keyword.control.conditional': ['keyword.conditional'],
+        'keyword.control.repeat': ['keyword.repeat'],
+        'keyword.control.exception': ['keyword.exception'],
+        'keyword.operator': ['keyword.operator'],
+        'keyword.other': ['keyword.other'],
+        'storage.type': ['keyword.type'],
+        'storage.modifier': ['keyword.modifier'],
+        'storage.modifier.async': ['keyword.modifier'],
+        'keyword.function': ['keyword.function'],
+        'keyword.control.import': ['keyword.control'],
+        'keyword.control.export': ['keyword.control'],
+        'keyword.control.from': ['keyword.control'],
+        'keyword.control.as': ['keyword.control'],
+        
+        // 字符串类
+        'string': ['string'],
+        'string.quoted': ['string'],
+        'string.quoted.single': ['string'],
+        'string.quoted.double': ['string'],
+        'string.template': ['string'],
+        'string.regexp': ['regexp'],
+        'constant.character.escape': ['string.escape'],
+        'constant.character': ['string'],
+        
+        // 注释类
+        'comment': ['comment'],
+        'comment.line': ['comment'],
+        'comment.line.double-slash': ['comment'],
+        'comment.block': ['comment'],
+        'comment.block.documentation': ['comment.doc'],
+        'comment.documentation': ['comment.doc'],
+        
+        // 数字和常量类
+        'constant.numeric': ['number'],
+        'constant.numeric.integer': ['number'],
+        'constant.numeric.float': ['number'],
+        'constant.numeric.hex': ['number'],
+        'constant.numeric.octal': ['number'],
+        'constant.numeric.binary': ['number'],
+        'constant.language': ['constant.language'],
+        'constant.language.boolean': ['boolean'],
+        'constant.language.null': ['null'],
+        'constant.language.undefined': ['constant.language'],
+        'constant.other': ['constant'],
+        
+        // 函数类
+        'entity.name.function': ['function.name'],
+        'entity.name.function.constructor': ['constructor'],
+        'entity.name.function.destructor': ['function.name'],
+        'support.function': ['function'],
+        'support.function.builtin': ['function'],
+        'meta.function-call': ['function'],
+        'meta.function-call.generic': ['function'],
+        
+        // 变量类
+        'variable': ['variable'],
+        'variable.other': ['variable'],
+        'variable.other.readwrite': ['variable'],
+        'variable.other.constant': ['variable'],
+        'variable.parameter': ['variable.parameter'],
+        'variable.language': ['variable.language'],
+        'variable.language.this': ['variable.language'],
+        'variable.language.super': ['variable.language'],
+        
+        // 类型和类
+        'entity.name.type': ['type'],
+        'entity.name.type.class': ['class.name'],
+        'entity.name.type.interface': ['interface'],
+        'entity.name.type.enum': ['enum'],
+        'entity.name.type.struct': ['struct'],
+        'entity.name.type.union': ['type'],
+        'entity.name.type.typedef': ['type'],
+        'entity.other.inherited-class': ['class'],
+        'support.type': ['type'],
+        'support.class': ['class'],
+        'support.type.primitive': ['type'],
+        
+        // 属性和成员类
+        'variable.other.property': ['property'],
+        'variable.other.object.property': ['property'],
+        'support.property': ['property'],
+        'meta.object-literal.key': ['property'],
+        'entity.name.tag.yaml': ['property'],
+        
+        // 操作符类
+        'keyword.operator.assignment': ['operator'],
+        'keyword.operator.arithmetic': ['operator'],
+        'keyword.operator.comparison': ['operator'],
+        'keyword.operator.logical': ['operator'],
+        'keyword.operator.bitwise': ['operator'],
+        'keyword.operator.increment': ['operator'],
+        'keyword.operator.decrement': ['operator'],
+        'keyword.operator.ternary': ['operator'],
+        'keyword.operator.sizeof': ['operator'],
+        'keyword.operator.new': ['operator'],
+        'keyword.operator.delete': ['operator'],
+        
+        // 分隔符类
+        'punctuation': ['delimiter'],
+        'punctuation.separator': ['delimiter'],
+        'punctuation.separator.comma': ['delimiter'],
+        'punctuation.separator.semicolon': ['delimiter'],
+        'punctuation.terminator': ['delimiter'],
+        'punctuation.bracket': ['delimiter.bracket'],
+        'punctuation.bracket.round': ['delimiter.parenthesis'],
+        'punctuation.bracket.square': ['delimiter.square'],
+        'punctuation.bracket.curly': ['delimiter.curly'],
+        'punctuation.parenthesis': ['delimiter.parenthesis'],
+        'punctuation.parenthesis.begin': ['delimiter.parenthesis'],
+        'punctuation.parenthesis.end': ['delimiter.parenthesis'],
+        
+        // 标签相关（HTML/XML）
+        'entity.name.tag': ['tag'],
+        'entity.other.attribute-name': ['attribute.name'],
+        'entity.other.attribute-name.html': ['attribute.name'],
+        'entity.other.attribute-name.id': ['attribute.name'],
+        'entity.other.attribute-name.class': ['attribute.name'],
+        'string.quoted.double.html': ['attribute.value'],
+        'string.quoted.single.html': ['attribute.value'],
+        
+        // 命名空间
+        'entity.name.namespace': ['namespace'],
+        'entity.name.scope-resolution': ['namespace'],
+        
+        // 预处理器
+        'meta.preprocessor': ['keyword.directive'],
+        'entity.name.function.preprocessor': ['keyword.directive'],
+        'keyword.control.directive': ['keyword.directive.control'],
+        'keyword.control.directive.include': ['keyword.directive'],
+        'keyword.control.directive.define': ['keyword.directive'],
+        'keyword.control.directive.if': ['keyword.directive.control'],
+        'keyword.control.directive.ifdef': ['keyword.directive.control'],
+        'keyword.control.directive.ifndef': ['keyword.directive.control'],
+        'keyword.control.directive.else': ['keyword.directive.control'],
+        'keyword.control.directive.endif': ['keyword.directive.control'],
+        
+        // 特殊类型
+        'entity.name.function.macro': ['macro'],
+        'support.function.macro': ['macro'],
+        'meta.decorator': ['decorator'],
+        'entity.name.function.decorator': ['decorator'],
+        'storage.modifier.static': ['modifier'],
+        'storage.modifier.const': ['modifier'],
+        'storage.modifier.final': ['modifier'],
+        'storage.modifier.abstract': ['modifier'],
+        'storage.modifier.public': ['modifier'],
+        'storage.modifier.private': ['modifier'],
+        'storage.modifier.protected': ['modifier'],
+    };
+    
+    // 直接匹配
+    if (scopeMap[scope]) {
+        return scopeMap[scope];
+    }
+    
+    // 前缀匹配（从最长到最短）
+    const sortedScopes = Object.keys(scopeMap).sort((a, b) => b.length - a.length);
+    for (const mappedScope of sortedScopes) {
+        if (scope.startsWith(mappedScope)) {
+            return scopeMap[mappedScope];
+        }
+    }
+    
+    // 模糊匹配（包含关系）
+    const fuzzyMatches: string[] = [];
+    if (scope.includes('function')) fuzzyMatches.push('function');
+    if (scope.includes('method')) fuzzyMatches.push('method');
+    if (scope.includes('class')) fuzzyMatches.push('class');
+    if (scope.includes('type')) fuzzyMatches.push('type');
+    if (scope.includes('variable')) fuzzyMatches.push('variable');
+    if (scope.includes('string')) fuzzyMatches.push('string');
+    if (scope.includes('comment')) fuzzyMatches.push('comment');
+    if (scope.includes('keyword')) fuzzyMatches.push('keyword');
+    if (scope.includes('number') || scope.includes('numeric')) fuzzyMatches.push('number');
+    if (scope.includes('constant')) fuzzyMatches.push('constant');
+    if (scope.includes('operator')) fuzzyMatches.push('operator');
+    if (scope.includes('delimiter') || scope.includes('punctuation')) fuzzyMatches.push('delimiter');
+    
+    if (fuzzyMatches.length > 0) {
+        console.log(`[definition] Fuzzy matched scope: ${scope} -> [${fuzzyMatches.join(', ')}]`);
+        return fuzzyMatches;
+    }
+    
+    // 无法映射
+    console.warn(`[definition] Unable to map VSCode scope: ${scope}`);
+    return [];
+}
+
+// 映射VSCode的semantic token scope到Monaco token
+private _mapVSCodeSemanticScopeToMonacoToken(scope: string): string[] {
+    // VSCode semantic token到Monaco token的映射表
+    const semanticMap: { [key: string]: string[] } = {
+        // 函数相关
+        'function': ['function'],
+        'function.declaration': ['function.name'],
+        'function.defaultLibrary': ['function'],
+        'method': ['method'],
+        'method.declaration': ['method.name'],
+        'method.defaultLibrary': ['method'],
+        
+        // 变量相关
+        'variable': ['variable'],
+        'variable.declaration': ['variable.name'],
+        'variable.defaultLibrary': ['variable'],
+        'variable.readonly': ['variable'],
+        'variable.local': ['variable'],
+        'variable.global': ['variable'],
+        'parameter': ['variable.parameter'],
+        'parameter.declaration': ['variable.parameter'],
+        
+        // 属性相关
+        'property': ['property'],
+        'property.declaration': ['property.declaration'],
+        'property.defaultLibrary': ['property'],
+        'property.readonly': ['property'],
+        'property.static': ['property'],
+        'member': ['member'],
+        'field': ['field'],
+        
+        // 类型相关
+        'class': ['class'],
+        'class.declaration': ['class.name'],
+        'class.defaultLibrary': ['class'],
+        'interface': ['interface'],
+        'interface.declaration': ['interface'],
+        'type': ['type'],
+        'type.declaration': ['type.declaration'],
+        'typeParameter': ['type'],
+        'typeParameter.declaration': ['type'],
+        'enum': ['enum'],
+        'enum.declaration': ['enum'],
+        'enumMember': ['constant'],
+        'enumMember.declaration': ['constant'],
+        'struct': ['struct'],
+        'struct.declaration': ['struct'],
+        
+        // 命名空间
+        'namespace': ['namespace'],
+        'namespace.declaration': ['namespace'],
+        'module': ['namespace'],
+        'module.declaration': ['namespace'],
+        
+        // 关键字和修饰符
+        'keyword': ['keyword'],
+        'modifier': ['modifier'],
+        'decorator': ['decorator'],
+        'annotation': ['decorator'],
+        
+        // 常量和字面量
+        'number': ['number'],
+        'string': ['string'],
+        'boolean': ['boolean'],
+        'regexp': ['regexp'],
+        
+        // 操作符
+        'operator': ['operator'],
+        'operatorOverloaded': ['operator'],
+        
+        // 注释
+        'comment': ['comment'],
+        'comment.documentation': ['comment.doc'],
+        
+        // 宏
+        'macro': ['macro'],
+        'macro.declaration': ['macro'],
+        
+        // 事件（特定语言）
+        'event': ['function'],
+        'event.declaration': ['function.name'],
+        
+        // 标签（特定语言）
+        'label': ['tag'],
+        'label.declaration': ['tag'],
+        
+        // 其他语义类型
+        'selfKeyword': ['variable.language'],
+        'lifetime': ['type'],
+        'unresolvedReference': ['identifier'],
+        'formatSpecifier': ['string.escape'],
+        'generic': ['type'],
+        'builtinType': ['type'],
+        'magicFunction': ['function'],
+        'attributeBracket': ['delimiter.bracket'],
+        'attribute': ['decorator'],
+        'derive': ['decorator'],
+        'toolModule': ['namespace'],
+        'crateRoot': ['namespace'],
+        'punctuation': ['delimiter'],
+        'angle': ['delimiter.bracket'],
+        'arithmetic': ['operator'],
+        'logical': ['operator'],
+        'comparison': ['operator'],
+        'bitwise': ['operator'],
+        'assignment': ['operator'],
+        'unaryPrefix': ['operator'],
+        'unaryPostfix': ['operator'],
+        'dot': ['delimiter'],
+        'escapeSequence': ['string.escape'],
+        'parenthesis': ['delimiter.parenthesis'],
+        'bracket': ['delimiter.bracket'],
+        'brace': ['delimiter.curly'],
+        'semicolon': ['delimiter'],
+        'comma': ['delimiter'],
+        'colon': ['delimiter'],
+        'typeHint': ['type'],
+        'builtinConstant': ['constant.language'],
+        'static': ['modifier'],
+        'consuming': ['modifier'],
+        'callable': ['function'],
+        'intraDocLink': ['tag'],
+        'library': ['namespace'],
+        'controlFlow': ['keyword.control']
+    };
+    
+    // 直接匹配
+    if (semanticMap[scope]) {
+        return semanticMap[scope];
+    }
+    
+    // 处理带修饰符的语义token（如 "function.async", "variable.readonly"）
+    const parts = scope.split('.');
+    if (parts.length > 1) {
+        const baseScope = parts[0];
+        if (semanticMap[baseScope]) {
+            return semanticMap[baseScope];
+        }
+    }
+    
+    // 模糊匹配
+    const fuzzyMatches: string[] = [];
+    if (scope.includes('function')) fuzzyMatches.push('function');
+    if (scope.includes('method')) fuzzyMatches.push('method');
+    if (scope.includes('variable')) fuzzyMatches.push('variable');
+    if (scope.includes('property')) fuzzyMatches.push('property');
+    if (scope.includes('class')) fuzzyMatches.push('class');
+    if (scope.includes('type')) fuzzyMatches.push('type');
+    if (scope.includes('interface')) fuzzyMatches.push('interface');
+    if (scope.includes('enum')) fuzzyMatches.push('enum');
+    if (scope.includes('namespace')) fuzzyMatches.push('namespace');
+    if (scope.includes('constant')) fuzzyMatches.push('constant');
+    if (scope.includes('keyword')) fuzzyMatches.push('keyword');
+    if (scope.includes('operator')) fuzzyMatches.push('operator');
+    if (scope.includes('string')) fuzzyMatches.push('string');
+    if (scope.includes('number')) fuzzyMatches.push('number');
+    if (scope.includes('comment')) fuzzyMatches.push('comment');
+    if (scope.includes('macro')) fuzzyMatches.push('macro');
+    
+    if (fuzzyMatches.length > 0) {
+        console.log(`[definition] Fuzzy matched semantic scope: ${scope} -> [${fuzzyMatches.join(', ')}]`);
+        return fuzzyMatches;
+    }
+    
+    // 无法映射
+    console.warn(`[definition] Unable to map VSCode semantic scope: ${scope}`);
+    return [];
+}
+
     // 获取 VS Code 编辑器完整配置
     private _getVSCodeEditorConfiguration(): any {
         // 获取所有编辑器相关配置
@@ -247,7 +1010,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             theme: string;
             editorOptions: any;
             contextEditorCfg: any;
-            customThemeRules?: any[];
+            customThemeRules: any[];
+            themeInfo?: any;
+    tokenColorCustomizations?: any;
+    semanticTokenColorCustomizations?: any;
+    vsCodeThemeColors?: any;
         } = {
             theme: this._getVSCodeTheme(),
             // 将编辑器配置转换为对象
@@ -264,7 +1031,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 fontFamily: contextWindowConfig.get('fontFamily', 'Consolas, monospace'),
                 minimap: contextWindowConfig.get('minimap', true),
                 useDefaultTheme: contextWindowConfig.get('useDefaultTheme', true),
-            }
+            },
+            customThemeRules: []
         };
 
         // 只在 light 主题下添加自定义主题规则
@@ -351,6 +1119,61 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 { token: 'decorator', foreground: '#800080' },         // 装饰器：青色
                 { token: 'macro', foreground: '#A00000', fontStyle: 'italic' }              // 宏：紫色
             ];
+        } else if (config.contextEditorCfg.useDefaultTheme) {
+            // 获取VSCode主题配置
+    const workbenchConfig = vscode.workspace.getConfiguration('workbench');
+    const activeTheme = vscode.window.activeColorTheme;
+    
+    // 获取VSCode的token配色配置
+    const tokenColorCustomizations = editorConfig.get<TokenColorCustomizations>('tokenColorCustomizations', {});
+    const semanticTokenColorCustomizations = editorConfig.get<SemanticTokenColorCustomizations>('semanticTokenColorCustomizations', {});
+    
+    console.log('[definition] VSCode Token customizations:', tokenColorCustomizations);
+    console.log('[definition] VSCode Semantic customizations:', semanticTokenColorCustomizations);
+    
+    // **核心：始终生成Monaco token规则**
+    const monacoTokenRules: any[] = [];
+    
+    // 1. 添加基础默认token配色（基于VSCode默认主题）
+    const defaultTokenRules = this._getDefaultMonacoTokenRules(currentTheme === 'vs');
+    monacoTokenRules.push(...defaultTokenRules);
+    console.log('[definition] Added default token rules:', defaultTokenRules.length, 'rules');
+    
+    // 2. 处理VSCode的tokenColorCustomizations（覆盖默认规则）
+    if (tokenColorCustomizations && Object.keys(tokenColorCustomizations).length > 0) {
+        const customTokenRules = this._convertVSCodeTokensToMonaco(tokenColorCustomizations);
+        monacoTokenRules.push(...customTokenRules);
+        console.log('[definition] Added VSCode token customization rules:', customTokenRules.length, 'rules');
+    }
+    
+    // 3. 处理VSCode的semanticTokenColorCustomizations（最高优先级）
+    if (semanticTokenColorCustomizations.rules && Object.keys(semanticTokenColorCustomizations.rules).length > 0) {
+        const semanticTokenRules = this._convertVSCodeSemanticTokensToMonaco(semanticTokenColorCustomizations.rules);
+        monacoTokenRules.push(...semanticTokenRules);
+        console.log('[definition] Added VSCode semantic token rules:', semanticTokenRules.length, 'rules');
+    }
+    
+    // **关键：确保customThemeRules始终存在且不为空**
+    config.customThemeRules = monacoTokenRules.length > 0 ? monacoTokenRules : this._getDefaultMonacoTokenRules(currentTheme === 'vs');
+    
+    // 添加其他配置信息（用于调试和扩展）
+    config.themeInfo = {
+        id: 'unknown',
+        kind: activeTheme.kind,
+        label: 'Unknown Theme'
+    };
+    
+    config.tokenColorCustomizations = tokenColorCustomizations;
+    config.semanticTokenColorCustomizations = semanticTokenColorCustomizations;
+    config.vsCodeThemeColors = this._getVSCodeThemeVariables();
+    
+    console.log('[definition] Final Monaco token rules count:', config.customThemeRules.length);
+    console.log('[definition] VSCode theme applied:', config.themeInfo.label);
+    console.log('[definition] Sample rules:', config.customThemeRules.slice(0, 5));
+        } else {
+            // **新增：确保其他情况也有customThemeRules**
+            config.customThemeRules = this._getDefaultMonacoTokenRules(currentTheme === 'vs');
+            console.log('[definition] Using fallback default theme rules');
         }
 
         //console.log('[definition] editor', editorConfig);
