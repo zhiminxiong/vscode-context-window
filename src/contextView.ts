@@ -249,7 +249,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             contextEditorCfg: any;
             customThemeRules?: any[];
         } = {
-            theme: this._getVSCodeTheme(),
+            theme: currentTheme,
             // 将编辑器配置转换为对象
             editorOptions: {
                 ...Object.assign({}, editorConfig),
@@ -267,90 +267,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             }
         };
 
-        // 只在 light 主题下添加自定义主题规则
-        if (currentTheme === 'vs' && !config.contextEditorCfg.useDefaultTheme) {
-            config.customThemeRules = [
-                // 关键字和控制流
-                { token: 'keyword', foreground: '#0000ff' },           // 关键字：蓝色
-                { token: 'keyword.type', foreground: '#ff0000', fontStyle: 'bold' },      // 流程控制关键字：红色
-                { token: 'keyword.flow', foreground: '#ff0000', fontStyle: 'bold' },      // 流程控制关键字：红色
-                { token: 'keyword.control', foreground: '#ff0000' },   // 控制关键字：红色
-                { token: 'keyword.operator', foreground: '#800080' },  // 操作符关键字：红色
-                { token: 'keyword.declaration', foreground: '#0000ff' }, // 声明关键字：蓝色
-                { token: 'keyword.modifier', foreground: '#0000ff' },  // 修饰符关键字：蓝色
-                { token: 'keyword.conditional', foreground: '#ff0000' }, // 条件关键字：红色
-                { token: 'keyword.repeat', foreground: '#ff0000' },    // 循环关键字：红色
-                { token: 'keyword.exception', foreground: '#ff0000' }, // 异常关键字：红色
-                { token: 'keyword.other', foreground: '#0000ff' },     // 其他关键字：蓝色
-                { token: 'keyword.predefined', foreground: '#0000ff' }, // 预定义关键字：蓝色
-                { token: 'keyword.function', foreground: '#ff0000', fontStyle: 'bold' }, // 预定义关键字：蓝色
-                { token: 'keyword.directive', foreground: '#0000ff' }, // include
-                { token: 'keyword.directive.control', foreground: '#ff0000', fontStyle: 'bold' }, // #if #else
-                
-                // 变量和标识符
-                { token: 'variable', foreground: '#000080' },          // 变量：红色
-                { token: 'variable.name', foreground: '#000080', fontStyle: 'bold' },     // 变量名：红色
-                { token: 'variable.parameter', foreground: '#000080' },//, fontStyle: 'bold' }, // 参数变量：红色
-                { token: 'variable.predefined', foreground: '#ff0000', fontStyle: 'bold' }, // 预定义变量：红色
-                { token: 'identifier', foreground: '#000080' },        // 标识符：青色
-                
-                // 类型和类
-                { token: 'type', foreground: '#0000ff' },              // 类型：蓝色
-                { token: 'type.declaration', foreground: '#0000ff' },  // 类型声明：蓝色
-                { token: 'class', foreground: '#ff0000' },             // 类：红色
-                { token: 'class.name', foreground: '#0000ff', fontStyle: 'bold' },        // 类名：蓝色
-                { token: 'entity.name.type.class', foreground: '#ff0000', fontStyle: 'bold' },  // 类名：红色加粗
-                { token: 'entity.name.type', foreground: '#ff0000', fontStyle: 'bold' },        // 类型名：红色加粗
-                { token: 'interface', foreground: '#ff0000' },         // 接口：青色
-                { token: 'enum', foreground: '#ff0000' },              // 枚举：青色
-                { token: 'struct', foreground: '#ff0000' },            // 结构体：青色
-                
-                // 函数和方法
-                { token: 'function', foreground: '#a00000' },          // 函数：棕色
-                { token: 'function.name', foreground: '#a00000', fontStyle: 'bold' },     // 函数名：棕色
-                { token: 'function.call', foreground: '#a00000' },     // 函数调用：棕色
-                { token: 'method', foreground: '#a00000' },            // 方法：棕色
-                { token: 'method.name', foreground: '#a00000', fontStyle: 'bold' },       // 方法名：棕色
-                
-                // 字面量
-                { token: 'string', foreground: '#005700' },            // 字符串：红色
-                { token: 'string.escape', foreground: '#005700' },     // 转义字符：红色
-                { token: 'number', foreground: '#ff0000' },            // 数字：绿色
-                { token: 'boolean', foreground: '#800080' },           // 布尔值：蓝色
-                { token: 'regexp', foreground: '#811f3f' },            // 正则表达式：暗红色
-                { token: 'null', foreground: '#0000ff' },              // null：蓝色
-                
-                // 注释
-                { token: 'comment', foreground: '#005700' },           // 注释：绿色
-                { token: 'comment.doc', foreground: '#005700' },       // 文档注释：绿色
-                
-                // 属性和成员
-                { token: 'property', foreground: '#000080' },          // 属性：深蓝色
-                { token: 'property.declaration', foreground: '#000080' }, // 属性声明：深蓝色
-                { token: 'member', foreground: '#000080' },            // 成员：深蓝色
-                { token: 'field', foreground: '#000080' },             // 字段：深蓝色
-                
-                // 操作符和分隔符
-                { token: 'operator', foreground: '#800080' },          // 运算符：紫色
-                { token: 'delimiter', foreground: '#000000' },         // 分隔符：黑色
-                { token: 'delimiter.bracket', foreground: '#000000' }, // 括号：黑色
-                { token: 'delimiter.parenthesis', foreground: '#000000' }, // 圆括号：黑色
-                
-                // 标签和特殊元素
-                { token: 'tag', foreground: '#800000' },               // 标签：暗红色
-                { token: 'tag.attribute.name', foreground: '#000080' }, // 标签属性名：红色
-                { token: 'attribute.name', foreground: '#000080' },    // 属性名：红色
-                { token: 'attribute.value', foreground: '#0000ff' },   // 属性值：蓝色
-                
-                // 其他类型
-                { token: 'namespace', foreground: '#ff0000' },         // 命名空间：青色
-                { token: 'constant', foreground: '#800080' },          // 常量：暗红色
-                { token: 'constant.language', foreground: '#0000ff' }, // 语言常量：蓝色
-                { token: 'modifier', foreground: '#0000ff' },          // 修饰符：蓝色
-                { token: 'constructor', foreground: '#a00000' },       // 构造函数：棕色
-                { token: 'decorator', foreground: '#800080' },         // 装饰器：青色
-                { token: 'macro', foreground: '#A00000', fontStyle: 'italic' }              // 宏：紫色
-            ];
+        // 根据当前主题类型获取对应的自定义主题规则
+        if (!config.contextEditorCfg.useDefaultTheme) {
+            if (currentTheme === 'vs') {
+                // light主题
+                config.customThemeRules = contextWindowConfig.get('lightThemeRules', []);
+            } else {
+                // dark或hc-black主题
+                config.customThemeRules = contextWindowConfig.get('darkThemeRules', []);
+            }
         } else {
             config.customThemeRules = [];
         }
