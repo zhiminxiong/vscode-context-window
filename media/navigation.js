@@ -116,6 +116,10 @@
                         navigator.clipboard.writeText(filename);
                     }
                 }
+            },
+            {
+                label: 'Float',
+                action: () => window.vscode.postMessage({ type: 'float' })
             }
         ];
 

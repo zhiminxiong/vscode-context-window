@@ -413,6 +413,21 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         return (curFileContentInfo && curFileContentInfo.content) ? (curFileContentInfo.content.jmpUri === uri) : false;
     }
 
+    private showFloatingWebview() {
+        if (this._currentPanel) {
+            // 如果面板已经存在，直接显示
+            this._currentPanel.reveal(vscode.ViewColumn.Two, true);
+        } else {
+            // 创建新的浮动Webview
+            this.createFloatingWebview().then(() => {
+                // 等待面板准备就绪
+                this.waitForPanelReady().then(() => {
+                    //console.log('[definition] Floating webview is ready');
+                });
+            });
+        }
+    }
+
     private async createFloatingWebview(): Promise<any> {
         return new Promise<any>((resolve) => {
             this._currentPanel = vscode.window.createWebviewPanel(
@@ -479,6 +494,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'unpin':
                     vscode.commands.executeCommand('contextView.contextWindow.unpin');
+                    break;
+                case 'float':
+                    this.showFloatingWebview();
                     break;
                 case 'navigate':
                     this.navigate(message.direction);
@@ -648,8 +666,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             type: 'pinState',
             pinned: this._pinned
         });
-
-        this.createFloatingWebview();
     }
 
     public pin() {
@@ -840,12 +856,28 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 symbolName: contentInfo.symbolName // 添加符号名称
             });
 
+            this._currentPanel?.webview.postMessage({
+                type: 'update',
+                body: contentInfo.content,
+                uri: contentInfo.jmpUri.toString(),
+                languageId: contentInfo.languageId, // 添加语言ID
+                updateMode: this._updateMode,
+                scrollToLine: contentInfo.line + 1,
+                curLine: (curLine !== -1) ? curLine + 1 : -1,
+                symbolName: contentInfo.symbolName // 添加符号名称
+            });
+
             // Hide loading after content is updated
             //this._view?.webview.postMessage({ type: 'endLoading' });
             // 等待面板确认渲染完成
             await this.waitForPanelReady();
         } else {
             this._view?.webview.postMessage({
+                type: 'noContent',
+                body: '&nbsp;&nbsp;No symbol found at current cursor position',
+                updateMode: this._updateMode,
+            });
+            this._currentPanel?.webview.postMessage({
                 type: 'noContent',
                 body: '&nbsp;&nbsp;No symbol found at current cursor position',
                 updateMode: this._updateMode,
