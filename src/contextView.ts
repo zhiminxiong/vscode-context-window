@@ -76,7 +76,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 const newConfig = this._getVSCodeEditorConfiguration();
                 this._view?.webview.postMessage({
                     type: 'updateContextEditorCfg',
-                    contextEditorCfg: newConfig.contextEditorCfg
+                    contextEditorCfg: newConfig.contextEditorCfg,
+                    customThemeRules: newConfig.customThemeRules
                 });
                 this.updateConfiguration();
             }
@@ -221,10 +222,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             theme = vscode.window.activeColorTheme;
         }
 
-        const contextWindowConfig = vscode.workspace.getConfiguration('contextView.contextWindow');
-        if (!contextWindowConfig.get('useDefaultTheme', true))
-            return 'vs';
-        
         switch (theme.kind) {
             case vscode.ColorThemeKind.Dark:
                 return 'vs-dark';
@@ -397,7 +394,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                             );
 
                             if (definitions && definitions.length > 0) {
-                                console.log('[definition] jumpDefinition: ', definitions);
+                                //console.log('[definition] jumpDefinition: ', definitions);
                                 
                                 // 主动隐藏定义列表（在处理新的跳转前）
                                 if (this._view && definitions.length === 1) {

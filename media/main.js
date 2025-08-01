@@ -121,11 +121,11 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     });
                 }
                 function isLightTheme() {
-                    let light = window.vsCodeEditorConfiguration?.theme === 'vs';
-                    const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
-                    if (!contextEditorCfg.useDefaultTheme)
-                        light = true; // 如果不使用默认主题，则强制使用自定义浅色主题
-                    return light;
+                    return window.vsCodeEditorConfiguration?.theme === 'vs';
+                    // const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
+                    // if (!contextEditorCfg.useDefaultTheme)
+                    //     light = true; // 如果不使用默认主题，则强制使用自定义浅色主题
+                    // return light;
                 }
 
                 const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
@@ -1007,9 +1007,10 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                 case 'updateContextEditorCfg':
                                     if (message.contextEditorCfg) {
                                         window.vsCodeEditorConfiguration.contextEditorCfg = message.contextEditorCfg;
-                                        let light = isLightTheme();
+                                        window.vsCodeEditorConfiguration.customThemeRules = message.customThemeRules;
+
                                         // 重新定义主题
-                                        applyMonacoTheme(window.vsCodeEditorConfiguration, message.contextEditorCfg, light);
+                                        applyMonacoTheme(window.vsCodeEditorConfiguration, message.contextEditorCfg, isLightTheme());
                                         
                                         // 重新应用主题
                                         if (editor) {

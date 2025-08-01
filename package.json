@@ -168,7 +168,7 @@
                     "type": "array",
                     "default": [
                     { "token": "keyword", "foreground": "#0000ff" },
-                    { "token": "keyword.type", "foreground": "#ff0000", "fontStyle": "bold" },
+                    { "token": "keyword.type", "foreground": "#ff0000", "fontStyle": "bold", "description": "keyword such as function class etc." },
                     { "token": "keyword.flow", "foreground": "#ff0000", "fontStyle": "bold" },
                     { "token": "keyword.control", "foreground": "#ff0000" },
                     { "token": "keyword.operator", "foreground": "#800080" },
