@@ -87,8 +87,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         vscode.workspace.onDidChangeWorkspaceFolders(() => {
             if (this._currentPanel) {
                 //ContextWindowProvider.outputChannel.appendLine('[definition] onDidChangeWorkspaceFolders dispose');
-                this._currentPanel.dispose();
-                this._currentPanel = undefined;
+                //this._currentPanel.dispose();
+                //this._currentPanel = undefined;
             }
         }, null, this._disposables);
 
@@ -96,8 +96,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         vscode.window.onDidChangeWindowState((e) => {
             if (!e.focused && this._currentPanel) {
                 //ContextWindowProvider.outputChannel.appendLine('[definition] onDidChangeWindowState dispose');
-                this._currentPanel.dispose();
-                this._currentPanel = undefined;
+                //this._currentPanel.dispose();
+                //this._currentPanel = undefined;
             }
         }, null, this._disposables);
 
@@ -413,6 +413,43 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         return (curFileContentInfo && curFileContentInfo.content) ? (curFileContentInfo.content.jmpUri === uri) : false;
     }
 
+    private async createFloatingWebview(): Promise<any> {
+        return new Promise<any>((resolve) => {
+            this._currentPanel = vscode.window.createWebviewPanel(
+                'FloatContextView',
+                'Context Window',
+                vscode.ViewColumn.Two,
+                {
+                    enableScripts: true,
+                    enableForms: true,
+                    retainContextWhenHidden: true
+                }
+            );
+
+            const panel = this._currentPanel;
+            let isResolved = false;
+
+            panel.webview.html = this._getHtmlForWebview(panel.webview);
+
+            // 先设置事件监听
+            panel.webview.onDidReceiveMessage(async message => {
+                //console.log('[definition] Received message from webview:', message);
+                if (message.command === 'selectDefinition' && !isResolved) {
+                    resolve(undefined);
+                }
+            });
+
+            panel.onDidDispose(() => {
+                this._pickItems = undefined; // Clear stored items
+                if (!isResolved) {
+                    isResolved = true;
+                    this._currentPanel = undefined;
+                    resolve(undefined);
+                }
+            });
+        });
+    }
+
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
@@ -611,6 +648,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             type: 'pinState',
             pinned: this._pinned
         });
+
+        this.createFloatingWebview();
     }
 
     public pin() {
@@ -920,8 +959,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
         // 确保关闭之前的面板
         if (this._currentPanel) {
-            this._currentPanel.dispose();
-            this._currentPanel = undefined;
+            //this._currentPanel.dispose();
+            //this._currentPanel = undefined;
         }
 
         if (definitions.length > 1) {
