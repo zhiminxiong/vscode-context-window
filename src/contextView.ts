@@ -448,9 +448,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
 
         if (this._currentPanel) {
             vscode.window.withProgress({
-                location: vscode.ProgressLocation.Notification,
+                location: vscode.ProgressLocation.Window,
                 title: "Loading context window...",
-                cancellable: false
+                cancellable: true
             }, async () => {
                 await new Promise(resolve => setTimeout(resolve, 500));
             });
@@ -534,9 +534,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                             const line = this.currentLine;//message.line - 1; // VSCode的行号从0开始
                             const range = new vscode.Range(line, 0, line, 0);
 
+                            let column = this._currentPanel ? vscode.ViewColumn.One : vscode.ViewColumn.Active;
+
                             const editor = await vscode.window.showTextDocument(document, {
                                 selection: range,
-                                viewColumn: vscode.ViewColumn.Active,
+                                viewColumn: column,
                                 preserveFocus: false,
                                 preview: false
                             });
