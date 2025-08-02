@@ -25,6 +25,11 @@ export function activate(context: vscode.ExtensionContext) {
             provider.show();
         }));
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('vscode-context-window.float', () => {
+            provider.showFloatingWebview();
+        }));
+
     const contextWindowConfig = vscode.workspace.getConfiguration('contextView.contextWindow');
     if (!contextWindowConfig.get('fixToken', false))
         return;

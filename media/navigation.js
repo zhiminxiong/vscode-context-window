@@ -117,6 +117,7 @@
                     }
                 }
             },
+            { type: 'separator' }, // 分割条
             {
                 label: 'Float',
                 action: () => window.vscode.postMessage({ type: 'float' })

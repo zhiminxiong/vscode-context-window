@@ -432,10 +432,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         return (curFileContentInfo && curFileContentInfo.content) ? (curFileContentInfo.content.jmpUri === uri) : false;
     }
 
-    private showFloatingWebview() {
+    public showFloatingWebview() {
         if (this._currentPanel) {
             // 如果面板已经存在，直接显示
-            this._currentPanel.reveal(vscode.ViewColumn.Two, true);
+            this._currentPanel.reveal(vscode.ViewColumn.Beside, true);
         } else {
             // 创建新的浮动Webview
             this.createFloatingWebview();
@@ -445,16 +445,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             type: 'pinState',
             pinned: this._pinned
         });
-
-        if (this._currentPanel) {
-            vscode.window.withProgress({
-                location: vscode.ProgressLocation.Window,
-                title: "Loading context window...",
-                cancellable: true
-            }, async () => {
-                await new Promise(resolve => setTimeout(resolve, 500));
-            });
-        }
     }
 
     private async handleWebviewMessage(webview: vscode.Webview) {

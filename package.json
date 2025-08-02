@@ -77,8 +77,19 @@
             {
                 "command": "vscode-context-window.showContextWindow",
                 "title": "Show Context Window"
+            },
+            {
+                "command": "vscode-context-window.float",
+                "title": "Display the floating window for the Context Window."
             }
 		],
+        "keybindings": [
+            {
+                "command": "vscode-context-window.float",
+                "key": "ctrl+shift+9",
+                "mac": "cmd+shift+9"
+            }
+        ],
 		"menus": {
 			"commandPalette": [
 				{
