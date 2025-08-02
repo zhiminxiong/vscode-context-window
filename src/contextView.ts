@@ -58,23 +58,37 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     theme: this._getVSCodeTheme(theme)
                 });
             }
+
+            this._currentPanel?.webview.postMessage({
+                    type: 'updateTheme',
+                    theme: this._getVSCodeTheme(theme)
+                });
         });
 
         // 监听编辑器配置变化
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('editor')) {
+                const updatedConfig = this._getVSCodeEditorConfiguration();
                 if (this._view) {
-                    const updatedConfig = this._getVSCodeEditorConfiguration();
                     this._view.webview.postMessage({
                         type: 'updateEditorConfiguration',
                         configuration: updatedConfig
                     });
                 }
+                this._currentPanel?.webview.postMessage({
+                        type: 'updateEditorConfiguration',
+                        configuration: updatedConfig
+                    });
             }
             if (e.affectsConfiguration('contextView.contextWindow')) {
                 // 重新获取配置并发送给webview
                 const newConfig = this._getVSCodeEditorConfiguration();
                 this._view?.webview.postMessage({
+                    type: 'updateContextEditorCfg',
+                    contextEditorCfg: newConfig.contextEditorCfg,
+                    customThemeRules: newConfig.customThemeRules
+                });
+                this._currentPanel?.webview.postMessage({
                     type: 'updateContextEditorCfg',
                     contextEditorCfg: newConfig.contextEditorCfg,
                     customThemeRules: newConfig.customThemeRules
@@ -397,6 +411,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     type: 'clearDefinitionList'
                 });
             }
+            if (this._currentPanel) {
+                this._currentPanel.webview.postMessage({
+                    type: 'clearDefinitionList'
+                });
+            }
             
             const contentInfo = this._history[this._historyIndex];
             this.updateContent(contentInfo?.content, contentInfo.curLine);
@@ -419,81 +438,35 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             this._currentPanel.reveal(vscode.ViewColumn.Two, true);
         } else {
             // 创建新的浮动Webview
-            this.createFloatingWebview().then(() => {
-                // 等待面板准备就绪
-                this.waitForPanelReady().then(() => {
-                    //console.log('[definition] Floating webview is ready');
-                });
+            this.createFloatingWebview();
+        }
+
+        this._currentPanel?.webview.postMessage({
+            type: 'pinState',
+            pinned: this._pinned
+        });
+
+        if (this._currentPanel) {
+            vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Loading context window...",
+                cancellable: false
+            }, async () => {
+                await new Promise(resolve => setTimeout(resolve, 500));
             });
         }
     }
 
-    private async createFloatingWebview(): Promise<any> {
-        return new Promise<any>((resolve) => {
-            this._currentPanel = vscode.window.createWebviewPanel(
-                'FloatContextView',
-                'Context Window',
-                vscode.ViewColumn.Two,
-                {
-                    enableScripts: true,
-                    enableForms: true,
-                    retainContextWhenHidden: true
-                }
-            );
-
-            const panel = this._currentPanel;
-            let isResolved = false;
-
-            panel.webview.html = this._getHtmlForWebview(panel.webview);
-
-            // 先设置事件监听
-            panel.webview.onDidReceiveMessage(async message => {
-                //console.log('[definition] Received message from webview:', message);
-                if (message.command === 'selectDefinition' && !isResolved) {
-                    resolve(undefined);
-                }
-            });
-
-            panel.onDidDispose(() => {
-                this._pickItems = undefined; // Clear stored items
-                if (!isResolved) {
-                    isResolved = true;
-                    this._currentPanel = undefined;
-                    resolve(undefined);
-                }
-            });
-        });
-    }
-
-    public resolveWebviewView(
-        webviewView: vscode.WebviewView,
-        _context: vscode.WebviewViewResolveContext,
-        _token: vscode.CancellationToken,
-    ) {
-        this._view = webviewView;
-
+    private async handleWebviewMessage(webview: vscode.Webview) {
         const editor = vscode.window.activeTextEditor;
-
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this._extensionUri, 'media'),
-                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor') // 添加 Monaco Editor 资源路径
-            ]
-        };
-    
-        // 使用 _getHtmlForWebview 方法生成 HTML 内容
-        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
-
-        // 添加webview消息处理
-        webviewView.webview.onDidReceiveMessage(async message => {
+        webview.onDidReceiveMessage(async message => {
             //console.log('[definition] webview message', message);
             switch (message.type) {
                 case 'pin':
-                    vscode.commands.executeCommand('contextView.contextWindow.pin');
+                    await vscode.commands.executeCommand('contextView.contextWindow.pin');
                     break;
                 case 'unpin':
-                    vscode.commands.executeCommand('contextView.contextWindow.unpin');
+                    await vscode.commands.executeCommand('contextView.contextWindow.unpin');
                     break;
                 case 'float':
                     this.showFloatingWebview();
@@ -521,6 +494,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                                 // 主动隐藏定义列表（在处理新的跳转前）
                                 if (this._view && definitions.length === 1) {
                                     this._view.webview.postMessage({
+                                        type: 'clearDefinitionList'
+                                    });
+                                }
+
+                                if (this._currentPanel && definitions.length === 1) {
+                                    this._currentPanel.webview.postMessage({
                                         type: 'clearDefinitionList'
                                     });
                                 }
@@ -595,9 +574,57 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     this._view?.webview.postMessage({
                         type: 'clearDefinitionList'
                     });
+                    this._currentPanel?.webview.postMessage({
+                        type: 'clearDefinitionList'
+                    });
                     break;
             }
         });
+    }
+
+    private async createFloatingWebview() {
+        this._currentPanel = vscode.window.createWebviewPanel(
+            'FloatContextView',
+            'Context Window',
+            vscode.ViewColumn.Beside,
+            {
+                enableScripts: true,
+                enableForms: true,
+                retainContextWhenHidden: true
+            }
+        );
+
+        const panel = this._currentPanel;
+        panel.webview.html = this._getHtmlForWebview(panel.webview);
+
+        this.handleWebviewMessage(panel.webview);
+
+        panel.onDidDispose(() => {
+            //this._pickItems = undefined; // Clear stored items
+            this._currentPanel = undefined;
+        });
+    }
+
+    public resolveWebviewView(
+        webviewView: vscode.WebviewView,
+        _context: vscode.WebviewViewResolveContext,
+        _token: vscode.CancellationToken,
+    ) {
+        this._view = webviewView;
+
+        webviewView.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this._extensionUri, 'media'),
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor') // 添加 Monaco Editor 资源路径
+            ]
+        };
+    
+        // 使用 _getHtmlForWebview 方法生成 HTML 内容
+        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+        // 添加webview消息处理
+        this.handleWebviewMessage(webviewView.webview);
 
         webviewView.onDidChangeVisibility(() => {
             if (this._view?.visible) {
@@ -626,8 +653,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 }
             } else {
                 if (this._currentPanel) {
-                    this._currentPanel.dispose();
-                    this._currentPanel = undefined;
+                    //this._currentPanel.dispose();
+                    //this._currentPanel = undefined;
                 }
             }
         });
@@ -694,6 +721,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         vscode.commands.executeCommand('setContext', ContextWindowProvider.pinnedContext, value);
         // 通知 Webview
         this._view?.webview.postMessage({
+            type: 'pinState',
+            pinned: this._pinned
+        });
+
+        this._currentPanel?.webview.postMessage({
             type: 'pinState',
             pinned: this._pinned
         });
@@ -886,7 +918,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
     }
 
     private async update(ignoreCache = false) {
-        if (!this._view?.visible) {
+        if (!this._view?.visible && !this._currentPanel?.visible) {
             //console.log('[definition] update no view');
             return;
         }
@@ -1009,6 +1041,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                     type: 'clearDefinitionList'
                 });
             }
+            this._currentPanel?.webview.postMessage({
+                type: 'clearDefinitionList'
+            });
         }
 
         //console.log(definitions);
@@ -1123,6 +1158,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 });
                 
                 this._view.webview.postMessage({
+                    type: 'updateDefinitionList',
+                    definitions: validDefinitions
+                });
+
+                this._currentPanel?.webview.postMessage({
                     type: 'updateDefinitionList',
                     definitions: validDefinitions
                 });
