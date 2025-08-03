@@ -454,17 +454,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     public showFloatingWebview() {
         if (this._currentPanel) {
-            // 如果面板已经存在，直接显示
-            this._currentPanel.reveal(vscode.ViewColumn.Beside, true);
+            return;
+            // 如果面板已经存在，直接显示, 但会导致进入preview模式
+            //this._currentPanel.reveal(vscode.ViewColumn.Beside, true);
         } else {
             // 创建新的浮动Webview
             this.createFloatingWebview();
         }
-
-        this._currentPanel?.webview.postMessage({
-            type: 'pinState',
-            pinned: this._pinned
-        });
     }
 
     private async handleWebviewMessage(webview: vscode.Webview) {
@@ -613,6 +609,40 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         panel.onDidDispose(() => {
             // this.saveState();
             this._currentPanel = undefined;
+        });
+
+        panel.onDidChangeViewState(() => {
+            if (this._currentPanel?.visible) {
+                let curContext = this.getCurrentContent();
+                //console.log('[definition] onDidChangeVisibility');
+                // If we have cached content, restore it immediately
+                if (curContext?.content) {
+                    // Show loading
+                    //this._view?.webview.postMessage({ type: 'startLoading' });
+                    this._currentPanel.webview.postMessage({
+                        type: 'update',
+                        body: curContext.content.content,
+                        uri: curContext.content.jmpUri,
+                        languageId: curContext.content.languageId,
+                        updateMode: this._updateMode,
+                        scrollToLine: curContext.content.line + 1,
+                        curLine: curContext.curLine + 1,
+                        symbolName: curContext.content.symbolName
+                    });
+                    // Hide loading after content is updated
+                    //this._view?.webview.postMessage({ type: 'endLoading' });
+                }
+                else {
+                    // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态
+                    // 不主动查找定义，也不显示"No symbol found..."
+                }
+            } else {
+            }
+        });
+
+        this._currentPanel?.webview.postMessage({
+            type: 'pinState',
+            pinned: this._pinned
         });
     }
 
