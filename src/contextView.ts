@@ -53,14 +53,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     ) {
         // 监听主题变化
         this._themeListener = vscode.window.onDidChangeActiveColorTheme(theme => {
-            if (this._view) {
-                this._view.webview.postMessage({
-                    type: 'updateTheme',
-                    theme: this._getVSCodeTheme(theme)
-                });
-            }
-
-            this._currentPanel?.webview.postMessage({
+            this.postMessageToWebview({
                     type: 'updateTheme',
                     theme: this._getVSCodeTheme(theme)
                 });
@@ -70,13 +63,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('editor')) {
                 const updatedConfig = this._getVSCodeEditorConfiguration();
-                if (this._view) {
-                    this._view.webview.postMessage({
-                        type: 'updateEditorConfiguration',
-                        configuration: updatedConfig
-                    });
-                }
-                this._currentPanel?.webview.postMessage({
+                this.postMessageToWebview({
                         type: 'updateEditorConfiguration',
                         configuration: updatedConfig
                     });
@@ -84,12 +71,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             if (e.affectsConfiguration('contextView.contextWindow')) {
                 // 重新获取配置并发送给webview
                 const newConfig = this._getVSCodeEditorConfiguration();
-                this._view?.webview.postMessage({
-                    type: 'updateContextEditorCfg',
-                    contextEditorCfg: newConfig.contextEditorCfg,
-                    customThemeRules: newConfig.customThemeRules
-                });
-                this._currentPanel?.webview.postMessage({
+                this.postMessageToWebview({
                     type: 'updateContextEditorCfg',
                     contextEditorCfg: newConfig.contextEditorCfg,
                     customThemeRules: newConfig.customThemeRules
@@ -427,16 +409,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
         if (lastIdx !== this._historyIndex) {
             // 主动隐藏定义列表
-            if (this._view) {
-                this._view.webview.postMessage({
+            this.postMessageToWebview({
                     type: 'clearDefinitionList'
                 });
-            }
-            if (this._currentPanel) {
-                this._currentPanel.webview.postMessage({
-                    type: 'clearDefinitionList'
-                });
-            }
             
             const contentInfo = this._history[this._historyIndex];
             this.updateContent(contentInfo?.content, contentInfo.curLine);
@@ -504,14 +479,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                     //console.log('[definition] jumpDefinition: ', definitions);
                                     
                                     // 主动隐藏定义列表（在处理新的跳转前）
-                                    if (this._view && definitions.length === 1) {
-                                        this._view.webview.postMessage({
-                                            type: 'clearDefinitionList'
-                                        });
-                                    }
-
-                                    if (this._currentPanel && definitions.length === 1) {
-                                        this._currentPanel.webview.postMessage({
+                                    if (definitions.length === 1) {
+                                        this.postMessageToWebview({
                                             type: 'clearDefinitionList'
                                         });
                                     }
@@ -588,10 +557,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'closeDefinitionList':
                     // 处理关闭定义列表的请求
-                    this._view?.webview.postMessage({
-                        type: 'clearDefinitionList'
-                    });
-                    this._currentPanel?.webview.postMessage({
+                    this.postMessageToWebview({
                         type: 'clearDefinitionList'
                     });
                     break;
@@ -648,6 +614,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 }
             } else {
             }
+            //vscode.commands.executeCommand('workbench.action.lockActiveEditorGroup');
         });
 
         this._currentPanel?.webview.postMessage({
@@ -771,12 +738,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         this._pinned = value;
         vscode.commands.executeCommand('setContext', ContextWindowProvider.pinnedContext, value);
         // 通知 Webview
-        this._view?.webview.postMessage({
-            type: 'pinState',
-            pinned: this._pinned
-        });
-
-        this._currentPanel?.webview.postMessage({
+        this.postMessageToWebview({
             type: 'pinState',
             pinned: this._pinned
         });
@@ -932,18 +894,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // Show loading
             //this._view?.webview.postMessage({ type: 'startLoading' });
 
-            this._view?.webview.postMessage({
-                type: 'update',
-                body: contentInfo.content,
-                uri: contentInfo.jmpUri.toString(),
-                languageId: contentInfo.languageId, // 添加语言ID
-                updateMode: this._updateMode,
-                scrollToLine: contentInfo.line + 1,
-                curLine: (curLine !== -1) ? curLine + 1 : -1,
-                symbolName: contentInfo.symbolName // 添加符号名称
-            });
-
-            this._currentPanel?.webview.postMessage({
+            this.postMessageToWebview({
                 type: 'update',
                 body: contentInfo.content,
                 uri: contentInfo.jmpUri.toString(),
@@ -959,12 +910,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // 等待面板确认渲染完成
             //await this.waitForPanelReady();
         } else {
-            this._view?.webview.postMessage({
-                type: 'noContent',
-                body: '&nbsp;&nbsp;No symbol found at current cursor position',
-                updateMode: this._updateMode,
-            });
-            this._currentPanel?.webview.postMessage({
+            this.postMessageToWebview({
                 type: 'noContent',
                 body: '&nbsp;&nbsp;No symbol found at current cursor position',
                 updateMode: this._updateMode,
@@ -1107,12 +1053,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             definitions = [selectedDefinition];
         } else {
             // 主动隐藏定义列表
-            if (this._view) {
-                this._view.webview.postMessage({
-                    type: 'clearDefinitionList'
-                });
-            }
-            this._currentPanel?.webview.postMessage({
+            this.postMessageToWebview({
                 type: 'clearDefinitionList'
             });
         }
@@ -1228,12 +1169,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     }
                 });
                 
-                this._view.webview.postMessage({
-                    type: 'updateDefinitionList',
-                    definitions: validDefinitions
-                });
-
-                this._currentPanel?.webview.postMessage({
+                this.postMessageToWebview({
                     type: 'updateDefinitionList',
                     definitions: validDefinitions
                 });
