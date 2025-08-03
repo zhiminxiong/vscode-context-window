@@ -13,7 +13,7 @@ interface HistoryInfo {
     curLine: number;
 }
 
-export class ContextWindowProvider implements vscode.WebviewViewProvider {
+export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode.WebviewPanelSerializer {
     // Add a new property to cache the last content
     private _history: HistoryInfo[] = [];
     private _historyIndex: number = 0;
@@ -120,7 +120,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
             vscode.Disposable.from({
                 dispose: () => {
                     if (this._currentPanel) {
-                        //ContextWindowProvider.outputChannel.appendLine('[definition] dispose');
                         this._currentPanel.dispose();
                         this._currentPanel = undefined;
                     }
@@ -208,6 +207,27 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
                 this.update(/* force */ true);
             }
         }, null, this._disposables);
+    }
+
+    async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: any): Promise<void> {
+        this._currentPanel = webviewPanel;
+        
+        webviewPanel.webview.options = {
+            enableScripts: true,
+            enableForms: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this._extensionUri, 'media'),
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor')
+            ]
+        };
+
+        webviewPanel.webview.html = this._getHtmlForWebview(webviewPanel.webview);
+        
+        this.handleWebviewMessage(webviewPanel.webview);
+
+        webviewPanel.onDidDispose(() => {
+            this._currentPanel = undefined;
+        });
     }
 
     private getCurrentContent() : HistoryInfo {
@@ -450,7 +470,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
     private async handleWebviewMessage(webview: vscode.Webview) {
         const editor = vscode.window.activeTextEditor;
         webview.onDidReceiveMessage(async message => {
-            //console.log('[definition] webview message', message);
             switch (message.type) {
                 case 'pin':
                     await vscode.commands.executeCommand('contextView.contextWindow.pin');
@@ -592,7 +611,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider {
         this.handleWebviewMessage(panel.webview);
 
         panel.onDidDispose(() => {
-            //this._pickItems = undefined; // Clear stored items
+            // this.saveState();
             this._currentPanel = undefined;
         });
     }

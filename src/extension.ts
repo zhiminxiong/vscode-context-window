@@ -9,6 +9,10 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(ContextWindowProvider.viewType, provider));
 
+    context.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('FloatContextView', provider)
+    );
+
 	context.subscriptions.push(
 		vscode.commands.registerCommand('contextView.contextWindow.pin', () => {
 			provider.pin();

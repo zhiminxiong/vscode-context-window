@@ -18,6 +18,7 @@ Please check out that extension if you just want documentation in the panel or s
 - Language independent. Works in any language.
 - The "Context" view shows in the panel by default. Move to other views or the panel just by dragging.
 - Supports syntax highlighting in the context view.
+- Floating windows are supported—you can trigger them via a keyboard shortcut or by right-clicking and selecting "Float".
 
 ## Configuration
 

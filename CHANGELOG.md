@@ -4,6 +4,11 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.6.0] 2025.08.02
+
+- Feat: Add custom token settings for custom theme.
+- Feat: Support floating window. issue(#4)
+
 ## [0.5.3] 2025.07.27
 
 - Add custom font family and size. issue #1.
