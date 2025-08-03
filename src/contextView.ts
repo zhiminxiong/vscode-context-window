@@ -204,13 +204,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             ]
         };
 
-        webviewPanel.webview.html = this._getHtmlForWebview(webviewPanel.webview);
-        
-        this.handleWebviewMessage(webviewPanel.webview);
-
-        webviewPanel.onDidDispose(() => {
-            this._currentPanel = undefined;
-        });
+        this.resetWebviewPanel(this._currentPanel);
     }
 
     private getCurrentContent() : HistoryInfo {
@@ -565,19 +559,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         });
     }
 
-    private async createFloatingWebview() {
-        this._currentPanel = vscode.window.createWebviewPanel(
-            'FloatContextView',
-            'Context Window',
-            vscode.ViewColumn.Beside,
-            {
-                enableScripts: true,
-                enableForms: true,
-                retainContextWhenHidden: true
-            }
-        );
-
-        const panel = this._currentPanel;
+    private resetWebviewPanel(panel: vscode.WebviewPanel) {
         panel.webview.html = this._getHtmlForWebview(panel.webview);
 
         this.handleWebviewMessage(panel.webview);
@@ -612,10 +594,31 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态
                     // 不主动查找定义，也不显示"No symbol found..."
                 }
+
+                if (this._currentPanel.active) {
+                    //vscode.window.activeTextEditor?.viewColumn;
+                    //console.log('[definition] onDidChangeViewState', panel.viewColumn);
+                    //vscode.commands.executeCommand('workbench.action.toggleEditorGroupLock', { group: panel.viewColumn });
+                    //vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+                }
             } else {
             }
-            //vscode.commands.executeCommand('workbench.action.lockActiveEditorGroup');
         });
+    }
+
+    private async createFloatingWebview() {
+        this._currentPanel = vscode.window.createWebviewPanel(
+            'FloatContextView',
+            'Context Window',
+            vscode.ViewColumn.Beside,
+            {
+                enableScripts: true,
+                enableForms: true,
+                retainContextWhenHidden: true
+            }
+        );
+
+        this.resetWebviewPanel(this._currentPanel);
 
         this._currentPanel?.webview.postMessage({
             type: 'pinState',
