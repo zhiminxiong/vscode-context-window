@@ -80,7 +80,7 @@
             },
             {
                 "command": "vscode-context-window.float",
-                "title": "Display the floating window for the Context Window."
+                "title": "Display the floating Context Window"
             }
 		],
         "keybindings": [
