@@ -260,6 +260,48 @@ body {
     position: relative;
 }
 
+.progress-bar {
+    position: fixed;
+    bottom: 24px; /* 导航栏高度 */
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: transparent;
+    overflow: hidden;
+    z-index: 1001;
+}
+
+.progress-bar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -120px; /* 调整为与容器宽度相同 */
+    width: 120px;
+    height: 100%;
+    background-color: var(--vscode-progressBar-background, #0e70c0);
+    animation: progress-animation 1.5s ease-in-out infinite;
+}
+
+@keyframes progress-animation {
+    0% {
+        left: -120px;
+    }
+    100% {
+        left: 100%;
+    }
+}
+
+/* 添加一个容器来控制进度条显示/隐藏 */
+.progress-container {
+    position: fixed;
+    bottom: 24px;
+    left: 0;
+    right: 0;
+    display: none;
+    height: 2px;
+    z-index: 1001;
+}
+
 /* ========== 底部导航栏样式 ========== */
 .nav-bar {
     position: fixed;

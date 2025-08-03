@@ -1125,11 +1125,18 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                     // 清空定义列表
                                     clearDefinitionList();
                                     break;
+                                case 'beginProgress':
+                                    document.querySelector('.progress-container').style.display = 'block';
+                                    break;
+                                case 'endProgress':
+                                    document.querySelector('.progress-container').style.display = 'none';
+                                    break;
                                 case 'update':
                                     //console.log('[definition] Updating editor content');
                                     // 显示编辑器，隐藏原始内容区域
                                     document.getElementById('container').style.display = 'block';
                                     document.getElementById('main').style.display = 'none';
+                                    document.querySelector('.progress-container').style.display = 'block';
 
                                     uri = message.uri;
                                     //console.log('[definition] Updating editor content with URI:', uri);
@@ -1230,12 +1237,13 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                             }
                                         }
                                         // 内容设置完成后，发送确认消息
-                                        setTimeout(() => {
-                                            vscode.postMessage({ type: 'contentReady' });
-                                        }, 1); // 稍微延迟确保渲染完成
+                                        // setTimeout(() => {
+                                        //     vscode.postMessage({ type: 'contentReady' });
+                                        // }, 1); // 稍微延迟确保渲染完成
                                     } else {
                                         console.error('[definition] Editor not initialized');
                                     }
+                                    document.querySelector('.progress-container').style.display = 'none';
                                     break;
                                     
                                 case 'noContent':

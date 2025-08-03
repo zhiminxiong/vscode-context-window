@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Renderer, FileContentInfo } from './renderer';
 import * as path from 'path';
+import { time } from 'console';
 
 enum UpdateMode {
     Live = 'live',
@@ -463,6 +464,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    private postMessageToWebview(message: any) {
+        this._view?.webview.postMessage(message);
+        this._currentPanel?.webview.postMessage(message);
+    }
+
     private async handleWebviewMessage(webview: vscode.Webview) {
         const editor = vscode.window.activeTextEditor;
         webview.onDidReceiveMessage(async message => {
@@ -487,42 +493,46 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             // 缓存点击的token文本
                             this._currentSelectedText = message.token || '';
 
-                            let definitions = await vscode.commands.executeCommand<vscode.Location[]>(
-                                'vscode.executeDefinitionProvider',
-                                vscode.Uri.parse(message.uri),
-                                new vscode.Position(message.position.line, message.position.character)
-                            );
+                            const updatePromise = (async () => {
+                                let definitions = await vscode.commands.executeCommand<vscode.Location[]>(
+                                    'vscode.executeDefinitionProvider',
+                                    vscode.Uri.parse(message.uri),
+                                    new vscode.Position(message.position.line, message.position.character)
+                                );
 
-                            if (definitions && definitions.length > 0) {
-                                //console.log('[definition] jumpDefinition: ', definitions);
-                                
-                                // 主动隐藏定义列表（在处理新的跳转前）
-                                if (this._view && definitions.length === 1) {
-                                    this._view.webview.postMessage({
-                                        type: 'clearDefinitionList'
-                                    });
-                                }
-
-                                if (this._currentPanel && definitions.length === 1) {
-                                    this._currentPanel.webview.postMessage({
-                                        type: 'clearDefinitionList'
-                                    });
-                                }
-                                
-                                // 如果有多个定义，传递给 Monaco Editor
-                                if (definitions.length > 1) {
-                                    const currentPosition = new vscode.Position(message.position.line, message.position.character);
-                                    const selectedDefinition = await this.showDefinitionPicker(definitions, editor, currentPosition);
-                                    definitions = selectedDefinition ? [selectedDefinition] : [];
-                                }
-                                //console.log('[definition] jumpDefinition: ', message.token);
                                 if (definitions && definitions.length > 0) {
-                                    const contentInfo = await this._renderer.renderDefinitions(editor.document, definitions, message.token);
-                                    this.updateContent(contentInfo);
-                                    this.addToHistory(contentInfo, message.position.line);
-                                    //console.log('[definition] jumpDefinition: ', contentInfo);
+                                    //console.log('[definition] jumpDefinition: ', definitions);
+                                    
+                                    // 主动隐藏定义列表（在处理新的跳转前）
+                                    if (this._view && definitions.length === 1) {
+                                        this._view.webview.postMessage({
+                                            type: 'clearDefinitionList'
+                                        });
+                                    }
+
+                                    if (this._currentPanel && definitions.length === 1) {
+                                        this._currentPanel.webview.postMessage({
+                                            type: 'clearDefinitionList'
+                                        });
+                                    }
+                                    
+                                    // 如果有多个定义，传递给 Monaco Editor
+                                    if (definitions.length > 1) {
+                                        const currentPosition = new vscode.Position(message.position.line, message.position.character);
+                                        const selectedDefinition = await this.showDefinitionPicker(definitions, editor, currentPosition);
+                                        definitions = selectedDefinition ? [selectedDefinition] : [];
+                                    }
+                                    //console.log('[definition] jumpDefinition: ', message.token);
+                                    if (definitions && definitions.length > 0) {
+                                        const contentInfo = await this._renderer.renderDefinitions(editor.document, definitions, message.token);
+                                        this.updateContent(contentInfo);
+                                        this.addToHistory(contentInfo, message.position.line);
+                                        //console.log('[definition] jumpDefinition: ', contentInfo);
+                                    }
                                 }
-                            }
+                            })();
+
+                            this.withProgress<void>(()=>updatePromise);
                         }
                     }
                     break;
@@ -845,6 +855,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     </span>
                 </span>
             </div>
+
+            <div class="progress-container">
+                <div class="progress-bar"></div>
+            </div>
             
             <!-- 添加一个简单的初始化脚本，用于调试和传递Monaco路径 -->
             <script nonce="${nonce}">
@@ -943,7 +957,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // Hide loading after content is updated
             //this._view?.webview.postMessage({ type: 'endLoading' });
             // 等待面板确认渲染完成
-            await this.waitForPanelReady();
+            //await this.waitForPanelReady();
         } else {
             this._view?.webview.postMessage({
                 type: 'noContent',
@@ -955,6 +969,20 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 body: '&nbsp;&nbsp;No symbol found at current cursor position',
                 updateMode: this._updateMode,
             });
+        }
+    }
+
+    private async withProgress<T>(operation: () => Promise<T>): Promise<T> {
+        this.postMessageToWebview({ type: 'beginProgress' });
+        //console.log('[definition] beginProgress', new Date().toLocaleTimeString());
+        
+        try {
+            // for test
+            //await new Promise(resolve => setTimeout(resolve, 5000));
+            return await operation();
+        } finally {
+            //console.log('[definition] endProgress', new Date().toLocaleTimeString());
+            this.postMessageToWebview({ type: 'endProgress' });
         }
     }
 
@@ -1022,6 +1050,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             }
         })();
 
+        this.withProgress<void>(()=>updatePromise);
+/*
         await Promise.race([
             updatePromise,
 
@@ -1032,7 +1062,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 }
                 return vscode.window.withProgress({ location: { viewId: ContextWindowProvider.viewType } }, () => updatePromise);
             }),
-        ]);
+        ]);*/
     }
 
     // 修改选择事件处理方法
