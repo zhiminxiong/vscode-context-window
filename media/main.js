@@ -662,7 +662,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     //console.log('[definition] Editor ready message sent');
                     
                     // 请求初始内容
-                    vscode.postMessage({ type: 'requestContent' });
+                    //vscode.postMessage({ type: 'requestContent' });
                     //console.log('[definition] Content requested');
 
                     // 更新文件名显示函数

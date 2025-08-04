@@ -196,6 +196,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: any): Promise<void> {
         this._currentPanel = webviewPanel;
+        //console.log('[definition] deserializeWebviewPanel');
         
         webviewPanel.webview.options = {
             enableScripts: true,
@@ -444,6 +445,27 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const editor = vscode.window.activeTextEditor;
         webview.onDidReceiveMessage(async message => {
             switch (message.type) {
+                case 'editorReady':
+                    if (this._currentPanel && webview == this._currentPanel.webview) {
+                        let curContext = this.getCurrentContent();
+                        //console.log('[definition] editorReady');
+                        // If we have cached content, restore it immediately
+                        if (curContext?.content) {
+                            //console.log('[definition] editorReady update');
+
+                            this._currentPanel.webview.postMessage({
+                                type: 'update',
+                                body: curContext.content.content,
+                                uri: curContext.content.jmpUri,
+                                languageId: curContext.content.languageId,
+                                updateMode: this._updateMode,
+                                scrollToLine: curContext.content.line + 1,
+                                curLine: curContext.curLine + 1,
+                                symbolName: curContext.content.symbolName
+                            });
+                        }
+                    }
+                    break;
                 case 'pin':
                     await vscode.commands.executeCommand('contextView.contextWindow.pin');
                     break;
@@ -603,30 +625,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         panel.onDidChangeViewState(() => {
             if (this._currentPanel?.visible) {
-                let curContext = this.getCurrentContent();
-                //console.log('[definition] onDidChangeVisibility');
-                // If we have cached content, restore it immediately
-                if (curContext?.content) {
-                    // Show loading
-                    //this._view?.webview.postMessage({ type: 'startLoading' });
-                    this._currentPanel.webview.postMessage({
-                        type: 'update',
-                        body: curContext.content.content,
-                        uri: curContext.content.jmpUri,
-                        languageId: curContext.content.languageId,
-                        updateMode: this._updateMode,
-                        scrollToLine: curContext.content.line + 1,
-                        curLine: curContext.curLine + 1,
-                        symbolName: curContext.content.symbolName
-                    });
-                    // Hide loading after content is updated
-                    //this._view?.webview.postMessage({ type: 'endLoading' });
-                }
-                else {
-                    // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态
-                    // 不主动查找定义，也不显示"No symbol found..."
-                }
-
                 if (this._currentPanel.active) {
                     // 先解锁所有之前锁定的group
                     this.unlockAllGroups();
