@@ -1136,7 +1136,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                                     // 显示编辑器，隐藏原始内容区域
                                     document.getElementById('container').style.display = 'block';
                                     document.getElementById('main').style.display = 'none';
-                                    document.querySelector('.progress-container').style.display = 'block';
 
                                     uri = message.uri;
                                     //console.log('[definition] Updating editor content with URI:', uri);
