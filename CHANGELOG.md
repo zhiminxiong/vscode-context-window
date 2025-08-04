@@ -4,6 +4,11 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.6.1] 2025.08.04
+
+- Feat: Use a VS Code-style progress bar at the bottom.
+- Fix: Atfer restarting VS Code, the webview content is empty when dragging the panel out.
+
 ## [0.6.0] 2025.08.03
 
 - Feat: Add custom token settings for custom theme. 
