@@ -464,6 +464,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 symbolName: curContext.content.symbolName
                             });
                         }
+                        // 先解锁所有之前锁定的group
+                        this.unlockAllGroups();
+                        
+                        // 只锁定当前panel所在的group
+                        this.lockSpecificGroup(this._currentPanel.viewColumn);
                     }
                     break;
                 case 'pin':
@@ -621,23 +626,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         panel.onDidDispose(() => {
             // this.saveState();
             this._currentPanel = undefined;
-        });
-
-        panel.onDidChangeViewState(() => {
-            if (this._currentPanel?.visible) {
-                if (this._currentPanel.active) {
-                    // 先解锁所有之前锁定的group
-                    this.unlockAllGroups();
-                    
-                    // 只锁定当前panel所在的group
-                    this.lockSpecificGroup(panel.viewColumn);
-                    //vscode.window.activeTextEditor?.viewColumn;
-                    //console.log('[definition] onDidChangeViewState', panel.viewColumn);
-                    //vscode.commands.executeCommand('workbench.action.toggleEditorGroupLock', { group: panel.viewColumn });
-                    //vscode.commands.executeCommand('workbench.action.lockEditorGroup', panel.viewColumn);
-                }
-            } else {
-            }
         });
     }
 
