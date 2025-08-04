@@ -1023,11 +1023,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             if (contentInfo.jmpUri) {
                 this.currentUri = vscode.Uri.parse(contentInfo.jmpUri);
                 this.currentLine = contentInfo.line;
-
-                this._currentCacheKey = newCacheKey;
             }
             
             if (this._updateMode === UpdateMode.Live || contentInfo.jmpUri) {
+                this._currentCacheKey = newCacheKey;
+                
                 this._history = [];
                 this._history.push({ content: contentInfo, curLine: this.currentLine });
                 this._historyIndex = 0;
