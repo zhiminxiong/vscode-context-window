@@ -48,6 +48,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     private _isFirstStart: boolean = true;
 
+    private _lockedGroups: Set<vscode.ViewColumn> = new Set(); // 跟踪已锁定的group
+
     constructor(
         private readonly _extensionUri: vscode.Uri,
     ) {
@@ -559,6 +561,32 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         });
     }
 
+    // 锁定特定group
+    private async lockSpecificGroup(viewColumn?: vscode.ViewColumn) {
+        if (!viewColumn) return;
+        
+        try {
+            await vscode.commands.executeCommand('workbench.action.lockEditorGroup', viewColumn);
+            this._lockedGroups.add(viewColumn);
+            console.log(`[definition] Locked group: ${viewColumn}`);
+        } catch (error) {
+            console.log(`[definition] Failed to lock group ${viewColumn}:`, error);
+        }
+    }
+
+    // 解锁所有之前锁定的group
+    private async unlockAllGroups() {
+        for (const viewColumn of this._lockedGroups) {
+            try {
+                await vscode.commands.executeCommand('workbench.action.unlockEditorGroup', viewColumn);
+                console.log(`[definition] Unlocked group: ${viewColumn}`);
+            } catch (error) {
+                console.log(`[definition] Failed to unlock group ${viewColumn}:`, error);
+            }
+        }
+        this._lockedGroups.clear();
+    }
+
     private resetWebviewPanel(panel: vscode.WebviewPanel) {
         panel.webview.html = this._getHtmlForWebview(panel.webview);
 
@@ -596,10 +624,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 }
 
                 if (this._currentPanel.active) {
+                    // 先解锁所有之前锁定的group
+                    this.unlockAllGroups();
+                    
+                    // 只锁定当前panel所在的group
+                    this.lockSpecificGroup(panel.viewColumn);
                     //vscode.window.activeTextEditor?.viewColumn;
                     //console.log('[definition] onDidChangeViewState', panel.viewColumn);
                     //vscode.commands.executeCommand('workbench.action.toggleEditorGroupLock', { group: panel.viewColumn });
-                    //vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+                    //vscode.commands.executeCommand('workbench.action.lockEditorGroup', panel.viewColumn);
                 }
             } else {
             }
