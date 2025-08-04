@@ -2,7 +2,7 @@
 	"name": "context-window",
 	"displayName": "Context Window",
 	"description": "Display full code context in the panel, similar to the context window in Source Insight.",
-	"version": "0.6.1",
+	"version": "0.6.2",
 	"publisher": "zhiminxiong",
 	"keywords": [
         "context",
