@@ -590,6 +590,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private resetWebviewPanel(panel: vscode.WebviewPanel) {
         panel.webview.html = this._getHtmlForWebview(panel.webview);
 
+        const iconPath = vscode.Uri.joinPath(this._extensionUri, 'media', 'icon.png');
+
+        panel.iconPath = { light: iconPath, dark: iconPath };
+
         this.handleWebviewMessage(panel.webview);
 
         panel.onDidDispose(() => {
