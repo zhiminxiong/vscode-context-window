@@ -48,8 +48,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     private _isFirstStart: boolean = true;
 
-    private _lockedGroups: Set<vscode.ViewColumn> = new Set(); // 跟踪已锁定的group
-
     constructor(
         private readonly _extensionUri: vscode.Uri,
     ) {
@@ -464,11 +462,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 symbolName: curContext.content.symbolName
                             });
                         }
-                        // 先解锁所有之前锁定的group
-                        this.unlockAllGroups();
-                        
-                        // 只锁定当前panel所在的group
-                        this.lockSpecificGroup(this._currentPanel.viewColumn);
                     }
                     break;
                 case 'pin':
@@ -586,32 +579,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
             }
         });
-    }
-
-    // 锁定特定group
-    private async lockSpecificGroup(viewColumn?: vscode.ViewColumn) {
-        if (!viewColumn) return;
-        
-        try {
-            await vscode.commands.executeCommand('workbench.action.lockEditorGroup', viewColumn);
-            this._lockedGroups.add(viewColumn);
-            console.log(`[definition] Locked group: ${viewColumn}`);
-        } catch (error) {
-            console.log(`[definition] Failed to lock group ${viewColumn}:`, error);
-        }
-    }
-
-    // 解锁所有之前锁定的group
-    private async unlockAllGroups() {
-        for (const viewColumn of this._lockedGroups) {
-            try {
-                await vscode.commands.executeCommand('workbench.action.unlockEditorGroup', viewColumn);
-                console.log(`[definition] Unlocked group: ${viewColumn}`);
-            } catch (error) {
-                console.log(`[definition] Failed to unlock group ${viewColumn}:`, error);
-            }
-        }
-        this._lockedGroups.clear();
     }
 
     private resetWebviewPanel(panel: vscode.WebviewPanel) {
