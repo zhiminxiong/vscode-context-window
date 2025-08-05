@@ -898,6 +898,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 symbolName: contentInfo.symbolName // 添加符号名称
             });
 
+            if (this._currentPanel) {
+                let filename = contentInfo.jmpUri.split('/').pop()?.split('\\').pop();
+                this._currentPanel.title = filename ?? "Context Window";
+            }
+
             // Hide loading after content is updated
             //this._view?.webview.postMessage({ type: 'endLoading' });
             // 等待面板确认渲染完成
