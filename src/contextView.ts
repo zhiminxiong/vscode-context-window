@@ -205,6 +205,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             ]
         };
 
+        webviewPanel.title = "Context Window";
+
         this.resetWebviewPanel(this._currentPanel);
     }
 
