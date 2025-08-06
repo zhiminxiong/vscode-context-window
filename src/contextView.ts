@@ -22,6 +22,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _mousePressed: boolean = false;
     private _mouseTimer?: NodeJS.Timeout;  // 添加timer引用
 
+    private _keyboardUpdateTimer: NodeJS.Timeout | null = null;
+    private _lastKeyboardUpdateTime = 0;
+    private readonly _keyboardUpdateDebounce = 500;
+
     //private static readonly outputChannel = vscode.window.createOutputChannel('Context View');
 
     private currentUri: vscode.Uri | undefined = undefined;
@@ -159,7 +163,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     }, 300); // 300ms 后检查鼠标状态
                 } else {
                     // 键盘事件：直接更新
-                    this.update();
+                    this._handleKeyboardUpdate();
                 }
             }
         }, null, this._disposables);
@@ -208,6 +212,36 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         webviewPanel.title = "Context Window";
 
         this.resetWebviewPanel(this._currentPanel);
+    }
+
+    // 键盘更新防抖方法
+    private _handleKeyboardUpdate() {
+        const now = Date.now();
+        
+        // 清除之前的timer
+        if (this._keyboardUpdateTimer) {
+            clearTimeout(this._keyboardUpdateTimer);
+        }
+        
+        // 如果距离上次更新时间太短，使用防抖
+        if (now - this._lastKeyboardUpdateTime < this._keyboardUpdateDebounce) {
+            this._keyboardUpdateTimer = setTimeout(() => {
+                this._performKeyboardUpdate();
+            }, this._keyboardUpdateDebounce);
+        } else {
+            // 直接更新
+            this._performKeyboardUpdate();
+        }
+    }
+
+    // 执行键盘更新
+    private _performKeyboardUpdate() {
+        this._lastKeyboardUpdateTime = Date.now();
+        
+        // 使用异步方式执行更新，避免阻塞键盘响应
+        setImmediate(() => {
+            this.update();
+        });
     }
 
     private getCurrentContent() : HistoryInfo {
