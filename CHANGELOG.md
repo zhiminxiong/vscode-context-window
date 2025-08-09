@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.6.3] 2025.08.09
+
+- The tab title displays as the filename in floating mode.
+- Optimize keyboard response.
+- Add support for Go in custom theme.
+
 ## [0.6.2] 2025.08.04
 
 - Bug fixes and removal of automatic group locking.
