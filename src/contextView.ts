@@ -51,6 +51,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _themeListener: vscode.Disposable | undefined;
 
     private _isFirstStart: boolean = true;
+    private _lastUpdateEditor: vscode.TextEditor | undefined;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -476,8 +477,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     private async handleWebviewMessage(webview: vscode.Webview) {
-        const editor = vscode.window.activeTextEditor;
         webview.onDidReceiveMessage(async message => {
+            const editor = vscode.window.activeTextEditor || this._lastUpdateEditor;
+            if (!vscode.window.activeTextEditor && this._lastUpdateEditor) {
+                console.error('[definition] No active text editor found, using last updated editor');
+            }
             switch (message.type) {
                 case 'editorReady':
                     if (this._currentPanel && webview == this._currentPanel.webview) {
@@ -997,6 +1001,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //console.log('[definition] update no editor');
             return;
         }
+
+        this._lastUpdateEditor = editor;
         
         //console.log('[definition] update');
         const loadingEntry = { cts: new vscode.CancellationTokenSource() };
