@@ -1,7 +1,7 @@
 //@ts-check
 
 // 导入语言配置
-import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './languageConfig.js';
+import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfig_go } from './languageConfig.js';
 
 // Monaco Editor 初始化和消息处理
 (function() {
@@ -15,14 +15,14 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
     
     // 显示加载状态
     document.getElementById('main').style.display = 'block';
-    document.getElementById('main').innerHTML = '正在加载编辑器...';
+    document.getElementById('main').innerHTML = 'Editor loading...';
     document.getElementById('container').style.display = 'none';
     
     // 添加错误处理
     window.onerror = function(message, source, lineno, colno, error) {
         console.error('[definition] Global error:', message, 'at', source, lineno, colno, error);
         document.getElementById('main').style.display = 'block';
-        document.getElementById('main').innerHTML = `<div style="color: red; padding: 20px;">加载错误: ${message}</div>`;
+        document.getElementById('main').innerHTML = `<div style="color: red; padding: 20px;">load error: ${message}</div>`;
         return true;
     };
     
@@ -301,7 +301,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                     if (!contextEditorCfg.useDefaultTheme) {
                         // 定义使用JavaScript提供器作为默认的语言列表
                         const defaultLanguages = [
-                            'python', 'java', 'go', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
+                            'python', 'java', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
                             'erlang', 
                         ];
 
@@ -319,6 +319,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs } from './lang
                         monaco.languages.setMonarchTokensProvider('c', languageConfig_cpp);
 
                         monaco.languages.setMonarchTokensProvider('csharp', languageConfig_cs);
+                        monaco.languages.setMonarchTokensProvider('go', languageConfig_go);
                     }
 
                     // 添加一个简单的 token 检测函数

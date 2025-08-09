@@ -979,3 +979,300 @@ export const languageConfig_cs = {
         ]
     }
 }
+
+export const languageConfig_go = {
+    // 设置默认标记
+    defaultToken: 'invalid',
+        
+    // 类型关键字
+    typeKeywords: [
+        'function', 'class', 'struct', 'interface', 'enum', 'type', 'namespace'
+    ],
+    
+    // 流程控制关键字
+    flowKeywords: [
+        'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 
+        'break', 'continue', 'return', 'throw', 'try', 'catch', 'finally', 'await', 'yield',
+        'delete', 'new'
+    ],
+    
+    // 其他关键字
+    keywords: [
+        'var', 'let', 'const', 'this', 'super', 'extends', 'implements',
+        'import', 'export', 'from', 'as', 'async', 'void', 'typeof', 'instanceof', 'in', 'of', 'with',
+        'get', 'set', 'constructor', 'static', 'private', 'protected', 'public', 'declare'
+    ],
+    
+    // 操作符
+    operators: [
+        '<=', '>=', '==', '!=', '===', '!==', '=>', '+', '-', '**',
+        '*', '/', '%', '++', '--', '<<', '</', '>>', '>>>', '&',
+        '|', '^', '!', '~', '&&', '||', '?', ':', '=', '+=', '-=',
+        '*=', '**=', '/=', '%=', '<<=', '>>=', '>>>=', '&=', '|=',
+        '^=', '@',
+    ],
+    
+    // 符号
+    symbols: /[=><!~?:&|+\-*\/\^%]+/,
+
+    innerTypes: /\bauto|signed|short|char|unsigned|long|int|bool|float|double|void|string|map\b/,
+    
+    // 转义字符
+    escapes: /\\(?:[abfnrtv\\"']|x[0-9A-Fa-f]{1,4}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/,
+    
+    // 整数部分的正则表达式
+    digits: /\d+(_+\d+)*/,
+    
+    // 标记化规则
+    tokenizer: {
+        root: [
+            // 注释 - 优先处理注释，确保注释中的关键字不被识别
+            [/\/\*/, 'comment', '@comment'],
+            [/\/\/.*$/, 'comment'],
+
+            // 正则表达式 - 优先处理
+            [/\/(?:[^\/\\]|\\.)*\/[gimuy]*/, 'regexp'],
+            
+            // 字符串
+            [/"([^"\\]|\\.)*$/, 'string.invalid'],
+            [/'([^'\\]|\\.)*$/, 'string.invalid'],
+            [/"/, 'string', '@string_double'],
+            [/'/, 'string', '@string_single'],
+            [/`/, 'string', '@string_backtick'],
+            
+            // 数字
+            [/(@digits)[eE]([\-+]?(@digits))?/, 'number'],
+            [/(@digits)\.(@digits)([eE][\-+]?(@digits))?/, 'number'],
+            [/0[xX][0-9a-fA-F]+/, 'number'],
+            [/0[oO]?[0-7]+/, 'number'],
+            [/0[bB][0-1]+/, 'number'],
+            [/(@digits)/, 'number'],
+
+            // 模板参数
+            [/<(?!<)/, { token: 'delimiter.angle', next: '@template' }],
+
+            // 布尔值
+            [/\b(true|false)\b/, 'boolean'],
+            
+            // null
+            [/\bnull\b/, 'null'],
+            [/\bnil\b/, 'null'],
+
+            // test
+            //[/(?<!int)\s*(dddata)/, { token: 'keyword.flow', log: console.log('[definition] 1')}],
+            //[/int2/, { token: 'keyword.flow', log: console.log('[definition] 2')}],
+
+            [/(\bget|set\b)(?=\s*\()/, 'method.name'],
+            
+            // 关键字
+            [/\b(this|readonly|undefined|unknown|any|global|string|int|map|super|abstract|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public|package)\b/, 'keyword'],
+
+            [/\bfunc\b/, { token: 'keyword.type', next: '@afterFunction' }],
+            // 类型关键字 - function, class, struct 等
+            [/\b(func|class|struct|interface|enum|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\b(type)\b(?!\s*:)/, { token: 'keyword.type', next: '@afterClass' }],
+
+            [/\bas\b/, { token: 'keyword', next: '@afterAs' }],
+
+            // 流程控制关键字 - if, else 等
+            [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|range|try|catch|finally|new|delete|await|yield)\b/, 'keyword.flow'],
+
+            // 函数定义 - 改进的函数名识别
+            [/([a-zA-Z_$][\w$]*)(?=\s*:\s*func\b)/, 'function.name'],
+            [/\b(func)\b\s*([a-zA-Z_$][\w$]*)/, ['keyword.type', 'function.name']],
+            
+            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
+
+            [/\b(var|let|const)\b/, { token: 'keyword', next: '@afterVariableDeclaration' }],
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
+            [/\b([a-zA-Z_$][\w$]*)\b(?=(\s*,\s*[a-zA-Z_$][\w$]*)*\s*:|\?\s*:)/, 'variable.name'],
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
+
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*(\.\.\.\s*)?(\[\s*\]\s*)?\**\s*(@innerTypes|[a-zA-Z_$][\w$]*))/, { token: 'variable.name', next: '@postVariableType' }],
+            [/\b@innerTypes\b/, 'type'],
+
+            [/\=>(?=\s*\b[a-zA-Z_$][\w$]*\b)/, { token: 'operator', next: '@afterArrow' }],
+            [/\=>/, 'operator'],
+
+            // ?<= may not supported
+            // get() : type
+            //[/(?<=\)\s*:)\s*\b([a-zA-Z_$][\w$]*)\b/, 'type'],
+            [/\)\s*:(?=\s*\b([a-zA-Z_$][\w$]*)\b)/, { token: 'delimiter', next: '@afterDelimiterType' }],
+            // : type = value;
+            //[/(?<=:)\s*\b([a-zA-Z_$][\w$]*)\b(?=\s*\=)/, 'type'],
+            [/:(?=\s*\b([a-zA-Z_$][\w$]*)\b\s*\=)/, { token: 'delimiter', next: '@afterDelimiterType' }],
+            
+            // 函数参数 - 改进的参数识别
+            // Match function parameters (exclude keywords)
+            [/\(\s*(?!true|false|nil|undefined|unknown\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
+            [/,\s*(?!true|false|nil|undefined|unknown\b)([a-zA-Z_$][\w$]*)\s*(?=[,)])/, 'variable.parameter'],
+            
+            // 标识符 - 捕获所有其他标识符
+            [/\b[a-zA-Z_$][\w$]*\b(?=\s*extends)/, { token: 'type', next: '@afterClass' }],
+            [/[a-zA-Z_$][\w$]*/, 'identifier'],
+            
+            // 分隔符和括号
+            [/[{}()\[\]]/, 'delimiter.bracket'],
+            [/[<>](?!@symbols)/, 'delimiter.bracket'],
+            [/@symbols/, {
+                cases: {
+                    '@operators': 'operator',
+                    '@default': 'delimiter'
+                }
+            }],
+            [/.(?=type)/, { token: 'delimiter', next: '@typeFix' }],
+            
+            // 分隔符：. , ; ...
+            [/[;,.]/, 'delimiter'],
+            
+            // 空格
+            [/\s+/, 'white'],
+        ],
+
+        typeFix: [
+            [/type/, { token: 'identifier', next: '@pop' }],
+        ],
+
+        template: [
+            [/>/, { token: 'delimiter.angle', next: '@pop' }],
+            { include: 'root' }
+        ],
+
+        postVariableType: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\.\.\./, 'delimiter'],
+            [/\[\s*\]/, 'delimiter'],
+            [/\b(@innerTypes|[a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/[\*&,]/, 'delimiter'],
+            [/,/, 'delimiter.bracket'],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterAs: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
+            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/\./, 'delimiter'],
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterArrow: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterDelimiterType: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
+            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/\./, 'delimiter'],
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+        
+        // 多行注释 - 确保注释中的关键字不被识别
+        comment: [
+            [/[^\/*]+/, 'comment'],
+            [/\*\//, 'comment', '@pop'],
+            [/[\/*]/, 'comment']
+        ],
+        
+        // 双引号字符串
+        string_double: [
+            [/[^\\"]+/, 'string'],
+            [/@escapes/, 'string.escape'],
+            [/\\./, 'string.escape.invalid'],
+            [/"/, 'string', '@pop']
+        ],
+        
+        // 单引号字符串
+        string_single: [
+            [/[^\\']+/, 'string'],
+            [/@escapes/, 'string.escape'],
+            [/\\./, 'string.escape.invalid'],
+            [/'/, 'string', '@pop']
+        ],
+        
+        // 反引号字符串（模板字符串）
+        string_backtick: [
+            [/\$\{/, { token: 'delimiter.bracket', next: '@bracketCounting' }],
+            [/[^\\`$]+/, 'string'],
+            [/@escapes/, 'string.escape'],
+            [/\\./, 'string.escape.invalid'],
+            [/`/, 'string', '@pop']
+        ],
+        
+        // 模板字符串中的表达式
+        bracketCounting: [
+            [/\{/, 'delimiter.bracket', '@bracketCounting'],
+            [/\}/, 'delimiter.bracket', '@pop'],
+            { include: 'root' }
+        ],
+        
+        // 类名识别状态
+        afterClass: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/extends\b/, { token: 'keyword', next: '@afterExtends' }], // extends
+            [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
+            [/struct/, 'keyword.type'],
+            [/[a-zA-Z_$][\w$]*/, 'class.name'],  // 识别类名
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterClassName: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\bextends\b/, { token: 'keyword', next: '@afterExtends' }], // extends
+            [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
+        ],
+
+        // 状态内规则如果没有显式指定next，匹配后会回到状态其实位置重新执行，因此要先识别implements
+        // export class AppMain extends LoggerImpl(BehaviourDelegate) implements IPlatform {
+        // fromNative: <T extends NativeTemplateType>(nativeArray: NativeArray<T>) => NativeNumberFilter<T>[];
+        afterExtends: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
+            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            [/[()<>]/, 'delimiter'],
+            //[/[a-zA-Z_$][\w$]*(?=\s*>)/, { token: 'type', next: '@pop' }],  // 识别基类
+            [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别基类
+            [/[\.|]/, 'delimiter'],
+            [/\s*,/, 'delimiter.bracket'],
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterImplements: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            [/[()<>]/, 'delimiter'],
+            [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别接口
+            [/[\.|]/, 'delimiter'],
+            [/\s*,/, 'delimiter.bracket'], // 不用显式next: '@afterImplements'
+            [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
+            [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterVariableDeclaration: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*(\.\.\.\s*)?(\[\s*\]\s*)?\**\s*(@innerTypes|[a-zA-Z_$][\w$]*))/, { token: 'variable.name', next: '@postVariableType' }],
+            [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/:\s*([a-zA-Z_$][\w$]*)/, { token: 'type', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterFunction: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, { token: 'function.name', next: '@pop' }],//, log: '[definition] Entering function return value processing' }],  // 识别函数名
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+    }
+}
