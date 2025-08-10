@@ -263,7 +263,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                     // 添加禁用选择的配置
                     editor.updateOptions({
                         readOnly: true,
-                        domReadOnly: true,
+                        domReadOnly: false,
                         mouseStyle: 'pointer',
                         cursorWidth: 0,
                         selectOnLineNumbers: true,
