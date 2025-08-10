@@ -7,6 +7,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [0.6.4] 2025.08.10
 
 - Fix the issue where floating window prevent jumping to definition.
+- Fix the issue where selected text cannot be copied.
+- Feat: When the definition cannot be found, the default behavior is to select the current token.
 
 ## [0.6.3] 2025.08.09
 
