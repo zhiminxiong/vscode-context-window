@@ -363,13 +363,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                     // 检查readOnly设置
                     //console.log('[definition]cursor type:', editor.getOption(monaco.editor.EditorOption.mouseStyle));
 
-                    // 在创建编辑器实例后添加以下代码
-                    editor._standaloneKeybindingService.addDynamicKeybinding(
-                        '-editor.action.openLink',
-                        null,
-                        () => {} // 空函数，阻止Ctrl+Click跳转
-                    );
-
                     // 完全禁用键盘事件
                     // editor.onKeyDown((e) => {
                     //     // 允许 Ctrl+C 复制操作
@@ -421,30 +414,30 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                         }, true); // 使用捕获阶段，确保在事件到达 Monaco 之前拦截
 
                         editorDomNode.addEventListener('contextmenu', (e) => {
-                                if (e.ctrlKey) {
-                                    // Ctrl+右键，手动弹出 Monaco 菜单
-                                    // 需要调用 Monaco 的菜单 API
-                                    // 下面是常见做法（不同版本API略有不同）
-                                    if (editor._contextMenuService) {
-                                        // 6.x/7.x 版本
-                                        editor._contextMenuService.showContextMenu({
-                                            getAnchor: () => ({ x: e.clientX, y: e.clientY }),
-                                            getActions: () => editor._getMenuActions(),
-                                            onHide: () => {},
-                                        });
-                                    } else if (editor.trigger) {
-                                        // 旧版
-                                        editor.trigger('keyboard', 'editor.action.showContextMenu', {});
-                                    }
-                                } else {
-                                    // 普通右键，执行你自己的逻辑
-                                    editor.focus();
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    // 这里写你自己的右键菜单逻辑
-                                    //console.log('自定义右键菜单');
+                            if (e.ctrlKey) {
+                                // Ctrl+右键，手动弹出 Monaco 菜单
+                                // 需要调用 Monaco 的菜单 API
+                                // 下面是常见做法（不同版本API略有不同）
+                                if (editor._contextMenuService) {
+                                    // 6.x/7.x 版本
+                                    editor._contextMenuService.showContextMenu({
+                                        getAnchor: () => ({ x: e.clientX, y: e.clientY }),
+                                        getActions: () => editor._getMenuActions(),
+                                        onHide: () => {},
+                                    });
+                                } else if (editor.trigger) {
+                                    // 旧版
+                                    editor.trigger('keyboard', 'editor.action.showContextMenu', {});
                                 }
-                            }, true);
+                            } else {
+                                // 普通右键，执行你自己的逻辑
+                                editor.focus();
+                                e.preventDefault();
+                                e.stopPropagation();
+                                // 这里写你自己的右键菜单逻辑
+                                //console.log('自定义右键菜单');
+                            }
+                        }, true);
                     }
 
                     editorDomNode.addEventListener('selectstart', (e) => {
@@ -538,13 +531,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                         //     return true;
                         // }
                     });
-
-                    // 完全禁用定义跳转功能
-                    editor._standaloneKeybindingService.addDynamicKeybinding(
-                        '-editor.action.goToDefinition',
-                        null,
-                        () => {} // 空函数，阻止跳转
-                    );
 
                     // 在创建编辑器实例后添加以下代码
                     const originalGetDefinitionsAtPosition = editor._codeEditorService.getDefinitionsAtPosition;
