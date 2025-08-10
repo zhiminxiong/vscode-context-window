@@ -479,9 +479,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private async handleWebviewMessage(webview: vscode.Webview) {
         webview.onDidReceiveMessage(async message => {
             const editor = vscode.window.activeTextEditor || this._lastUpdateEditor;
-            if (!vscode.window.activeTextEditor && this._lastUpdateEditor) {
-                console.error('[definition] No active text editor found, using last updated editor');
-            }
+            // if (!vscode.window.activeTextEditor && this._lastUpdateEditor) {
+            //     console.error('[definition] No active text editor found, using last updated editor');
+            // }
             switch (message.type) {
                 case 'editorReady':
                     if (this._currentPanel && webview == this._currentPanel.webview) {
@@ -582,6 +582,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 preserveFocus: false,
                                 preview: false
                             });
+
+                            if (editor != vscode.window.activeTextEditor) {
+                                console.error('[definition] Failed to open text editor');
+                            }
                             
                             // 移动光标并显示该行
                             //editor.selection = new vscode.Selection(range.start, range.start);
