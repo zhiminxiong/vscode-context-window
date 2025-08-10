@@ -299,7 +299,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // 将编辑器配置转换为对象
             editorOptions: {
                 ...Object.assign({}, editorConfig),
-                links: true
+                links: false
             },
             contextEditorCfg: {
                 selectionBackground: contextWindowConfig.get('selectionBackground', '#07c2db71'),
@@ -554,6 +554,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                         this.addToHistory(contentInfo, message.position.line);
                                         //console.log('[definition] jumpDefinition: ', contentInfo);
                                     }
+                                } else {
+                                    this.postMessageToWebview({
+                                            type: 'noSymbolFound',
+                                            pos: message.position,
+                                            token: message.token
+                                        });
                                 }
                             })();
 

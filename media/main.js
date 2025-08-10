@@ -1045,7 +1045,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                                         // 滚动到指定行
                                         if (message.scrollToLine) {
                                             //console.log('[definition] Scrolling to line:', message.scrollToLine);
-                                            
 
                                             // 添加行高亮装饰
                                             const lineDecorations = editor.deltaDecorations([], [{
@@ -1100,6 +1099,26 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                                         }
                                     } else {
                                         //console.error('[definition] Editor not initialized');
+                                    }
+                                    break;
+                                case 'noSymbolFound':
+                                    const models = monaco.editor.getModels();
+                                    let model = models.length > 0 ? models[0] : null;
+                                    if (editor && model) {
+                                        const monacoPos = {
+                                            lineNumber: message.pos.line + 1,  // VS Code是0-based，Monaco是1-based
+                                            column: message.pos.character + 1   // VS Code是0-based，Monaco是1-based
+                                        };
+                                        
+                                        const word = model.getWordAtPosition(monacoPos);
+                                        if (word) {
+                                            editor.setSelection({
+                                                startLineNumber: message.pos.line+1,
+                                                startColumn: word.startColumn,
+                                                endLineNumber: message.pos.line+1,
+                                                endColumn: word.endColumn
+                                            });
+                                        }
                                     }
                                     break;
                                 case 'updateDefinitionList':
