@@ -518,9 +518,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'jumpDefinition':
                     if (editor && message.uri?.length > 0) {
-                        if (this.isSameDefinition(message.uri, message.position.line, message.token)) {
+                        /* if (this.isSameDefinition(message.uri, message.position.line, message.token)) {
                             // 不需处理
-                        } else {
+                            //console.log('[definition] SameDefinition:', message.position);
+                        } else  */{
                             // 缓存点击的token文本
                             this._currentSelectedText = message.token || '';
 
@@ -555,6 +556,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                         //console.log('[definition] jumpDefinition: ', contentInfo);
                                     }
                                 } else {
+                                    //console.log('[definition] No symbol found at position:', message.position);
                                     this.postMessageToWebview({
                                             type: 'noSymbolFound',
                                             pos: message.position,

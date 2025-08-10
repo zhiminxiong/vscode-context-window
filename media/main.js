@@ -1109,9 +1109,12 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                                             lineNumber: message.pos.line + 1,  // VS Code是0-based，Monaco是1-based
                                             column: message.pos.character + 1   // VS Code是0-based，Monaco是1-based
                                         };
+
+                                        //console.info('[definition] noSymbolFound, setting selection to:', monacoPos);
                                         
                                         const word = model.getWordAtPosition(monacoPos);
                                         if (word) {
+                                            //console.info('[definition] noSymbolFound, setSelection:', word);
                                             editor.setSelection({
                                                 startLineNumber: message.pos.line+1,
                                                 startColumn: word.startColumn,
