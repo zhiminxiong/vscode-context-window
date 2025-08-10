@@ -414,8 +414,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                         }, true); // 使用捕获阶段，确保在事件到达 Monaco 之前拦截
 
                         editorDomNode.addEventListener('contextmenu', (e) => {
-                            if (e.ctrlKey) {
-                                // Ctrl+右键，手动弹出 Monaco 菜单
+                            if (e.shiftKey) {
+                                // shift+右键，手动弹出 Monaco 菜单
                                 // 需要调用 Monaco 的菜单 API
                                 // 下面是常见做法（不同版本API略有不同）
                                 if (editor._contextMenuService) {
