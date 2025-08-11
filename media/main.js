@@ -281,7 +281,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
 
                     // 1) DOM 捕获阶段拦截 Ctrl/Cmd + 鼠标，先于 Monaco 内部监听器
                     const dom = editor.getDomNode();
-                    ['pointerdown', 'mousedown', 'mouseup', 'click', 'auxclick', 'dblclick'].forEach(type => {
+                    // 'pointerdown', 'mousedown', 'mouseup', 'click', 
+                    ['auxclick', 'dblclick'].forEach(type => {
                     dom.addEventListener(type, (ev) => {
                         if (ev.ctrlKey || ev.metaKey) {
                             ev.preventDefault();
@@ -448,7 +449,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                         }, true); // 使用捕获阶段，确保在事件到达 Monaco 之前拦截
 
                         editorDomNode.addEventListener('contextmenu', (e) => {
-                            if (e.shiftKey) {
+                            if (e.ctrlKey || e.shiftKey || e.metaKey) {
                                 // shift+右键，手动弹出 Monaco 菜单
                                 // 需要调用 Monaco 的菜单 API
                                 // 下面是常见做法（不同版本API略有不同）
