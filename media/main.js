@@ -279,6 +279,40 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                         }
                     });
 
+                    // 1) DOM 捕获阶段拦截 Ctrl/Cmd + 鼠标，先于 Monaco 内部监听器
+                    const dom = editor.getDomNode();
+                    ['pointerdown', 'mousedown', 'mouseup', 'click', 'auxclick', 'dblclick'].forEach(type => {
+                    dom.addEventListener(type, (ev) => {
+                        if (ev.ctrlKey || ev.metaKey) {
+                            ev.preventDefault();
+                            ev.stopImmediatePropagation();
+                            return false;
+                        }
+                    }, { capture: true });
+                    });
+
+                    // 2) 兜底：屏蔽所有“打开编辑器/跳转”调用
+                    if (editor._codeEditorService && typeof editor._codeEditorService.openCodeEditor === 'function') {
+                        editor._codeEditorService.openCodeEditor = function() {
+                            return Promise.resolve(null); // 不进行任何跳转
+                        };
+                    }
+
+                    // 3) 可选：直接卸载相关内置贡献（能找到就 dispose）
+                    [
+                        'editor.contrib.gotodefinitionatposition',
+                        'editor.contrib.gotodefinition',
+                        'editor.contrib.linkDetector',
+                        'editor.contrib.link',
+                        'editor.contrib.peek',
+                        'editor.contrib.referencesController'
+                    ].forEach(id => {
+                        try {
+                            const contrib = editor.getContribution && editor.getContribution(id);
+                            contrib && contrib.dispose && contrib.dispose();
+                        } catch (_) {}
+                    });
+
                     // 强制设置鼠标样式
                     const forcePointerCursor = (isOverText = false) => {
                         const editorContainer = editor.getDomNode();
@@ -532,6 +566,58 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                         // }
                     });
 
+                    // 处理链接点击事件 - 在Monaco内部跳转
+                    editor.onMouseUp((e) => {
+                        //console.log('[definition] Mouse up event:', e.target, e.event);
+                        // 完全阻止事件传播
+                        //e.event.preventDefault();
+                        //e.event.stopPropagation();
+                        // 使用 e.event.buttons 判断鼠标按键
+                        //const isLeftClick = (e.event.buttons & 1) === 1; // 左键
+                        //const isRightClick = (e.event.buttons & 2) === 2; // 右键
+                        
+                        if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
+                            // 获取当前单词
+                            const model = editor.getModel();
+                            if (!model) {
+                                //console.log('[definition] **********************no model found************************');
+                                model = monaco.editor.createModel(content, language);
+                                editor.setModel(model);
+                            }
+                            const position = e.target.position;
+                            // 检查点击位置是否在当前选择范围内
+                            const selection = editor.getSelection();
+                            const isClickedTextSelected = selection && !selection.isEmpty() && selection.containsPosition(position);
+                            if (model && position && !isClickedTextSelected) {
+                                //console.log('[definition] start to mid + jump definition: ', e);
+                                const word = model.getWordAtPosition(position);
+                                if (word) {
+                                    if (e.event.rightButton) {
+                                        //console.log('[definition] start to mid + jump definition: ', word);
+                                        editor.setSelection({
+                                            startLineNumber: position.lineNumber,
+                                            startColumn: word.startColumn,
+                                            endLineNumber: position.lineNumber,
+                                            endColumn: word.endColumn
+                                        });
+                                    } else {
+                                        //console.log('[definition] start to jump definition: ', word);
+                                        vscode.postMessage({
+                                                        type: 'jumpDefinition',
+                                                        uri: uri,
+                                                        token: word.word,
+                                                        position: {
+                                                            line: position.lineNumber - 1,
+                                                            character: position.column - 1
+                                                        }
+                                                    });
+                                    }
+                                }
+                            }
+                        }
+                        return true;
+                    });
+
                     // 在创建编辑器实例后添加以下代码
                     const originalGetDefinitionsAtPosition = editor._codeEditorService.getDefinitionsAtPosition;
                     editor._codeEditorService.getDefinitionsAtPosition = function(model, position, token) {
@@ -588,58 +674,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                             null,
                             () => {}
                         );
-                    });
-
-                    // 处理链接点击事件 - 在Monaco内部跳转
-                    editor.onMouseUp((e) => {
-                        //console.log('[definition] Mouse up event:', e.target, e.event);
-                        // 完全阻止事件传播
-                        //e.event.preventDefault();
-                        //e.event.stopPropagation();
-                        // 使用 e.event.buttons 判断鼠标按键
-                        //const isLeftClick = (e.event.buttons & 1) === 1; // 左键
-                        //const isRightClick = (e.event.buttons & 2) === 2; // 右键
-                        
-                        if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
-                            // 获取当前单词
-                            const model = editor.getModel();
-                            if (!model) {
-                                //console.log('[definition] **********************no model found************************');
-                                model = monaco.editor.createModel(content, language);
-                                editor.setModel(model);
-                            }
-                            const position = e.target.position;
-                            // 检查点击位置是否在当前选择范围内
-                            const selection = editor.getSelection();
-                            const isClickedTextSelected = selection && !selection.isEmpty() && selection.containsPosition(position);
-                            if (model && position && !isClickedTextSelected) {
-                                //console.log('[definition] start to mid + jump definition: ', e);
-                                const word = model.getWordAtPosition(position);
-                                if (word) {
-                                    if (e.event.rightButton) {
-                                        //console.log('[definition] start to mid + jump definition: ', word);
-                                        editor.setSelection({
-                                            startLineNumber: position.lineNumber,
-                                            startColumn: word.startColumn,
-                                            endLineNumber: position.lineNumber,
-                                            endColumn: word.endColumn
-                                        });
-                                    } else {
-                                        //console.log('[definition] start to jump definition: ', word);
-                                        vscode.postMessage({
-                                                        type: 'jumpDefinition',
-                                                        uri: uri,
-                                                        token: word.word,
-                                                        position: {
-                                                            line: position.lineNumber - 1,
-                                                            character: position.column - 1
-                                                        }
-                                                    });
-                                    }
-                                }
-                            }
-                        }
-                        return true;
                     });
 
                     //console.log('[definition] Monaco editor created');
