@@ -1152,17 +1152,17 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     const symbolName = wordRange ? document.getText(wordRange) : `Definition ${index + 1}`;
 
                     return {
-                            title: symbolName,
-                            location: `${displayPath}:${range.start.line + 1}`,
-                            filePath: displayPath, // 使用文件系统路径而不是URI
-                            lineNumber: range.start.line,
-                            columnNumber: range.start.character + 1, // 添加列号信息（转换为1-based）
-                            isActive: index === 0, // 第一个定义默认激活
-                            definition: definition,
-                            uri: uri.toString(),
-                            startLine: range.start.line,
-                            startCharacter: range.start.character
-                        };
+                        title: symbolName,
+                        location: `${displayPath}:${range.start.line + 1}`,
+                        filePath: displayPath, // 使用文件系统路径而不是URI
+                        lineNumber: range.start.line,
+                        columnNumber: range.start.character + 1, // 添加列号信息（转换为1-based）
+                        isActive: index === 0, // 第一个定义默认激活
+                        definition: definition,
+                        uri: uri.toString(),
+                        startLine: range.start.line,
+                        startCharacter: range.start.character
+                    };
                 } catch (error) {
                     return null;
                 }

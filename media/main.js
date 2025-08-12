@@ -797,6 +797,9 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                                 </div>
                             `;
 
+                            const fullText = `${symbolName} - ${filePath} - Line: ${lineNumber}, Column: ${columnNumber}`;
+                            item.setAttribute('title', fullText);
+
                             // 添加点击事件
                             item.addEventListener('click', () => {
                                 selectDefinitionItem(index, def);
