@@ -34,6 +34,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
         let uri = '';
         let content = '';
         let language = '';
+        let detectIndent = false;
 
         // 添加高亮样式
         const styleElement = document.createElement('style');
@@ -159,6 +160,9 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                         }
                     };
 
+                    let defaultTabSize = 4;
+                    let defaultInsertSpaces = true;
+
                     // 处理 VS Code 编辑器配置
                     const createEditorOptions = () => {
                         const vsCodeConfig = window.vsCodeEditorConfiguration?.editorOptions || {};
@@ -195,8 +199,13 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                             mouseWheelZoom,
                             smoothScrolling,
                             tokenColorCustomizations,
+                            detectIndentation,
                             ...otherOptions
                         } = vsCodeConfig;
+
+                        detectIndent = detectIndentation ?? false;
+                        defaultTabSize = typeof tabSize === 'number' ? tabSize : 4;
+                        defaultInsertSpaces = typeof insertSpaces === 'boolean' ? insertSpaces : true;
 
                         return {
                             ...baseOptions,
@@ -207,6 +216,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                             letterSpacing,
                             // 编辑器行为
                             tabSize,
+                            detectIndentation: detectIndent,
                             insertSpaces,
                             wordWrap,
                             // 视图选项
@@ -236,7 +246,18 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                             },
                         };
                     };
-                    
+
+                    function applyIndentationForModel(model) {
+                        if (!model) return;
+                        if (detectIndent) {
+                            //让 Monaco 按 Vs Code 策略检测，并以 Vs Code 的默认值作为回退
+                            model.detectIndentation(defaultInsertSpaces, defaultTabSize);
+                        } else {
+                            //跟随 VS Code 明确配置
+                            model.updateOptions({ insertSpaces: defaultInsertSpaces, tabSize: defaultTabSize });
+                        }
+                    }
+
                     // 创建编辑器实例
                     const editor = monaco.editor.create(document.getElementById('container'), createEditorOptions(),
                     {
@@ -583,6 +604,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                             if (!model) {
                                 //console.log('[definition] **********************no model found************************');
                                 model = monaco.editor.createModel(content, language);
+                                applyIndentationForModel(model);
                                 editor.setModel(model);
                             }
                             const position = e.target.position;
@@ -1063,6 +1085,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                                             //console.log('[definition] no model', models);
                                             //console.log('[definition] ***********Creating new model with language*************:', message.languageId);
                                             model = monaco.editor.createModel(content, language || 'plaintext');
+                                            applyIndentationForModel(model);
                                             editor.setModel(model);
                                         }
 
@@ -1208,6 +1231,8 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                                             // 更新内容
                                             model.setValue(message.body);
                                         }
+
+                                        applyIndentationForModel(model);
 
                                         const lineCount = model.getLineCount();
                                         const requiredChars = Math.max(3, lineCount.toString().length+1);
