@@ -4,6 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.6.6] 2025.08.13
+
+#### Added
+
+- Add support for detectIndentation.
+- When hovering over the right side of the definition list, automatically display the full content of the item.
+
 ## [0.6.5] 2025.08.11
 
 - Resolve key conflicts in the Monaco system.
