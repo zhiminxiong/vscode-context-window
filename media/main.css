@@ -255,6 +255,27 @@ body {
     margin-left: 4px;
 }
 
+.definition-item-float-wrap {
+	position: fixed;
+	z-index: 10000;
+	pointer-events: none;
+	/* 不透明底色，统一打底，避免透明度叠加失真 */
+	background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background, #1f1f1f));
+	border-radius: 2px;
+	box-shadow: 0 2px 6px rgba(0,0,0,.25);
+	overflow: hidden;
+	max-width: calc(100vw - 12px);
+}
+
+.definition-item-float {
+	white-space: nowrap;
+	overflow: hidden;     /* 若仍超过视口则裁剪/省略 */
+	text-overflow: ellipsis;
+	padding: 4px 6px;
+	display: flex;
+	align-items: center;
+}
+
 #container {
     flex: 1;
     position: relative;

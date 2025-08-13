@@ -707,7 +707,62 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                     
                     // 请求初始内容
                     //vscode.postMessage({ type: 'requestContent' });
-                    //console.log('[definition] Content requested');
+                    console.log('[definition] Content requested');
+
+                    let __defHoverEl = null;
+                    function showDefinitionItemHover(item) {
+                        hideDefinitionItemHover();
+
+                        const rect = item.getBoundingClientRect();
+
+                        // 外层：不透明底色容器
+                        const wrap = document.createElement('div');
+                        wrap.className = 'definition-item-float-wrap';
+                        wrap.style.left = rect.left + 'px';
+                        wrap.style.top = rect.top + 'px';
+                        // 不固定最小宽度，完全由文本宽度决定
+                        // wrap.style.minWidth = rect.width + 'px';
+
+                        // 内层：克隆原项，保持结构/样式
+                        const el = item.cloneNode(true);
+                        el.classList.add('definition-item-float');
+                        el.style.position = 'static';
+                        el.style.visibility = 'hidden';
+                        el.style.whiteSpace = 'nowrap';
+                        el.style.width = 'auto';
+
+                        wrap.appendChild(el);
+                        document.body.appendChild(wrap);
+
+                        // 以“文本真实宽度”为准，并钳到视口
+                        const naturalWidth = el.scrollWidth;
+                        const maxW = Math.max(0, (window.innerWidth - 12) - rect.left);
+                        const finalWidth = Math.min(naturalWidth, maxW);
+                        wrap.style.width = finalWidth + 'px';
+
+                        // 区分 hover vs active 的前景/背景色
+                        const isActive = item.classList.contains('active');
+                        const bgVar = isActive ? 'var(--vscode-list-activeSelectionBackground)' : 'var(--vscode-list-hoverBackground)';
+                        const fgVar = isActive ? 'var(--vscode-list-activeSelectionForeground)' : 'var(--vscode-list-hoverForeground)';
+
+                        // 内层前景/背景（在不透明底色之上）
+                        el.style.backgroundColor = bgVar;
+                        el.style.color = fgVar;
+                        el.querySelectorAll('*').forEach(n => { n.style.color = 'inherit'; });
+
+                        // 确保不混合
+                        wrap.style.mixBlendMode = 'normal';
+                        el.style.mixBlendMode = 'normal';
+                        wrap.style.opacity = '1';
+                        el.style.opacity = '1';
+
+                        el.style.visibility = 'visible';
+                        __defHoverEl = wrap;
+                    }
+                    function hideDefinitionItemHover() {
+                        if (__defHoverEl && __defHoverEl.parentNode) __defHoverEl.parentNode.removeChild(__defHoverEl);
+                        __defHoverEl = null;
+                    }
 
                     // 更新文件名显示函数
                     function updateFilenameDisplay(uri) {
@@ -797,8 +852,17 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                                 </div>
                             `;
 
-                            const fullText = `${symbolName} - ${filePath} - Line: ${lineNumber}, Column: ${columnNumber}`;
-                            item.setAttribute('title', fullText);
+                            //const fullText = `${symbolName} - ${filePath} - Line: ${lineNumber}, Column: ${columnNumber}`;
+                            //item.setAttribute('title', fullText);
+
+                            item.addEventListener('mouseenter', () => showDefinitionItemHover(item));
+                            item.addEventListener('mouseleave', () => hideDefinitionItemHover());
+                            if (!window.__defHoverScrollBound) {
+                                window.addEventListener('scroll', hideDefinitionItemHover, true);
+                                window.addEventListener('wheel', hideDefinitionItemHover, { passive: true, capture: true });
+                                window.addEventListener('resize', hideDefinitionItemHover);
+                                window.__defHoverScrollBound = true;
+                            }
 
                             // 添加点击事件
                             item.addEventListener('click', () => {
