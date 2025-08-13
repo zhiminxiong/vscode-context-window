@@ -78,6 +78,8 @@ export const languageConfig_js = {
             //[/int2/, { token: 'keyword.flow', log: console.log('[definition] 2')}],
 
             [/(\bget|set\b)(?=\s*\()/, 'method.name'],
+
+            [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
@@ -133,7 +135,7 @@ export const languageConfig_js = {
                     '@default': 'delimiter'
                 }
             }],
-            [/.(?=type)/, { token: 'delimiter', next: '@typeFix' }],
+            [/\.(?=type)/, { token: 'delimiter', next: '@typeFix' }],
             
             // 分隔符：. , ; ...
             [/[;,.]/, 'delimiter'],
@@ -142,8 +144,12 @@ export const languageConfig_js = {
             [/\s+/, 'white'],
         ],
 
+        importType: [
+            [/\btype\b/, { token: 'keyword', next: '@pop' }],
+        ],
+
         typeFix: [
-            [/type/, { token: 'identifier', next: '@pop' }],
+            [/\btype\b/, { token: 'identifier', next: '@pop' }],
         ],
 
         template: [
