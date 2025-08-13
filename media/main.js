@@ -141,7 +141,7 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                     window.vsCodeTheme = 'custom-vs';
                 }
                 
-                                                    // 隐藏加载状态，显示编辑器容器
+                // 隐藏加载状态，显示编辑器容器
                 document.getElementById('main').style.display = 'none';
                 document.getElementById('main-container').style.display = 'flex';
                 
@@ -707,23 +707,24 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                     
                     // 请求初始内容
                     //vscode.postMessage({ type: 'requestContent' });
-                    console.log('[definition] Content requested');
+                    //console.log('[definition] Content requested');
 
                     let __defHoverEl = null;
+                    let __defHoverAnchor = null;
+
                     function showDefinitionItemHover(item) {
+                        // 同一项内不重复创建，避免闪烁
+                        if (__defHoverEl && __defHoverAnchor === item) return;
+
                         hideDefinitionItemHover();
 
                         const rect = item.getBoundingClientRect();
 
-                        // 外层：不透明底色容器
                         const wrap = document.createElement('div');
                         wrap.className = 'definition-item-float-wrap';
                         wrap.style.left = rect.left + 'px';
                         wrap.style.top = rect.top + 'px';
-                        // 不固定最小宽度，完全由文本宽度决定
-                        // wrap.style.minWidth = rect.width + 'px';
 
-                        // 内层：克隆原项，保持结构/样式
                         const el = item.cloneNode(true);
                         el.classList.add('definition-item-float');
                         el.style.position = 'static';
@@ -734,23 +735,17 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                         wrap.appendChild(el);
                         document.body.appendChild(wrap);
 
-                        // 以“文本真实宽度”为准，并钳到视口
                         const naturalWidth = el.scrollWidth;
                         const maxW = Math.max(0, (window.innerWidth - 12) - rect.left);
-                        const finalWidth = Math.min(naturalWidth, maxW);
-                        wrap.style.width = finalWidth + 'px';
+                        wrap.style.width = Math.min(naturalWidth, maxW) + 'px';
 
-                        // 区分 hover vs active 的前景/背景色
                         const isActive = item.classList.contains('active');
                         const bgVar = isActive ? 'var(--vscode-list-activeSelectionBackground)' : 'var(--vscode-list-hoverBackground)';
                         const fgVar = isActive ? 'var(--vscode-list-activeSelectionForeground)' : 'var(--vscode-list-hoverForeground)';
-
-                        // 内层前景/背景（在不透明底色之上）
                         el.style.backgroundColor = bgVar;
                         el.style.color = fgVar;
-                        el.querySelectorAll('*').forEach(n => { n.style.color = 'inherit'; });
+                        el.querySelectorAll('*').forEach(n => (n.style.color = 'inherit'));
 
-                        // 确保不混合
                         wrap.style.mixBlendMode = 'normal';
                         el.style.mixBlendMode = 'normal';
                         wrap.style.opacity = '1';
@@ -758,10 +753,13 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
 
                         el.style.visibility = 'visible';
                         __defHoverEl = wrap;
+                        __defHoverAnchor = item;
                     }
+
                     function hideDefinitionItemHover() {
                         if (__defHoverEl && __defHoverEl.parentNode) __defHoverEl.parentNode.removeChild(__defHoverEl);
                         __defHoverEl = null;
+                        __defHoverAnchor = null;
                     }
 
                     // 更新文件名显示函数
@@ -852,11 +850,59 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                                 </div>
                             `;
 
+                            // tips
                             //const fullText = `${symbolName} - ${filePath} - Line: ${lineNumber}, Column: ${columnNumber}`;
                             //item.setAttribute('title', fullText);
 
-                            item.addEventListener('mouseenter', () => showDefinitionItemHover(item));
-                            item.addEventListener('mouseleave', () => hideDefinitionItemHover());
+                            const RIGHT_TRIGGER_RATIO = 0.4;   // 右侧占比
+                            const RIGHT_TRIGGER_MIN_PX = 120;  // 右侧最小像素
+                            const RIGHT_HYSTERESIS_PX = 8; // 滞回宽度，防抖
+
+                            // 获取触发区域（定义列表可视区域的右边界）
+                            function getDefinitionRegionRect(item) {
+                                const region =
+                                    document.querySelector('#definition-list') ||
+                                    document.querySelector('#definition-list .list-items') ||
+                                    item.parentElement;
+                                return region.getBoundingClientRect();
+                            }
+
+                            item.addEventListener('mouseenter', () => {
+                                item.__defInRight = false;
+                                const onMove = (e) => {
+                                    const regionRect = getDefinitionRegionRect(item);
+                                    const triggerWidth = Math.max(regionRect.width * RIGHT_TRIGGER_RATIO, RIGHT_TRIGGER_MIN_PX);
+                                    const thresholdX = regionRect.right - triggerWidth;
+
+                                    let wantShow;
+                                    if (item.__defInRight) {
+                                        // 已显示时，只有明显离开才隐藏（阈值-滞回）
+                                        wantShow = e.clientX >= (thresholdX - RIGHT_HYSTERESIS_PX);
+                                    } else {
+                                        // 未显示时，只有明显进入才显示（阈值+滞回）
+                                        wantShow = e.clientX >= (thresholdX + RIGHT_HYSTERESIS_PX);
+                                    }
+
+                                    if (wantShow && !item.__defInRight) {
+                                        item.__defInRight = true;
+                                        showDefinitionItemHover(item); // 不会重复重建
+                                    } else if (!wantShow && item.__defInRight) {
+                                        item.__defInRight = false;
+                                        hideDefinitionItemHover();
+                                    }
+                                };
+                                item.__defHoverMove = onMove;
+                                item.addEventListener('mousemove', onMove);
+                            });
+
+                            item.addEventListener('mouseleave', () => {
+                                if (item.__defHoverMove) {
+                                    item.removeEventListener('mousemove', item.__defHoverMove);
+                                    item.__defHoverMove = null;
+                                }
+                                item.__defInRight = false;
+                                hideDefinitionItemHover();
+                            });
                             if (!window.__defHoverScrollBound) {
                                 window.addEventListener('scroll', hideDefinitionItemHover, true);
                                 window.addEventListener('wheel', hideDefinitionItemHover, { passive: true, capture: true });
