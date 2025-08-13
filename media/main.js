@@ -854,9 +854,9 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                             //const fullText = `${symbolName} - ${filePath} - Line: ${lineNumber}, Column: ${columnNumber}`;
                             //item.setAttribute('title', fullText);
 
-                            const RIGHT_TRIGGER_RATIO = 0.4;   // 右侧占比
-                            const RIGHT_TRIGGER_MIN_PX = 120;  // 右侧最小像素
-                            const RIGHT_HYSTERESIS_PX = 8; // 滞回宽度，防抖
+                            const RIGHT_TRIGGER_RATIO = 0.1;   // 右侧占比
+                            const RIGHT_TRIGGER_MIN_PX = 60;  // 右侧最小像素
+                            const RIGHT_HYSTERESIS_PX = 4; // 滞回宽度，防抖
 
                             // 获取触发区域（定义列表可视区域的右边界）
                             function getDefinitionRegionRect(item) {
