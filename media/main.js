@@ -3,6 +3,24 @@
 // 导入语言配置
 import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfig_go } from './languageConfig.js';
 
+function cssColorToMonaco(color) {
+    if (!color) return undefined;
+    const v = color.trim();
+    if (v.startsWith('#')) return v;
+    const m = v.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([0-9.]+))?\)/i);
+    if (!m) return v;
+    const r = Number(m[1]), g = Number(m[2]), b = Number(m[3]);
+    const a = m[4] === undefined ? 1 : Math.max(0, Math.min(1, Number(m[4])));
+    const toHex = n => n.toString(16).padStart(2, '0');
+    const alphaHex = a < 1 ? Math.round(a * 255).toString(16).padStart(2, '0') : '';
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}${alphaHex}`;
+}
+
+function getCssVar(name) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return cssColorToMonaco(v);
+}
+
 // Monaco Editor 初始化和消息处理
 (function() {
     const vscode = acquireVsCodeApi();
@@ -111,13 +129,33 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
                         inherit: true,
                         rules: vsCodeEditorConfiguration.customThemeRules,
                         colors: {
-                            "editor.selectionBackground": contextEditorCfg.selectionBackground || "#07c2db71",
+                            'editor.background': getCssVar('--vscode-editor-background'),
+                            'editor.foreground': getCssVar('--vscode-editor-foreground'),
+                            "editor.selectionBackground": contextEditorCfg.selectionBackground || getCssVar('--vscode-editor-selectionBackground') || "#07c2db71",
                             //"editor.selectionForeground": "#ffffffff",
-                            "editor.inactiveSelectionBackground": contextEditorCfg.inactiveSelectionBackground || "#07c2db71",
-                            "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || "#5bdb0771",
+                            "editor.inactiveSelectionBackground": contextEditorCfg.inactiveSelectionBackground || getCssVar('--vscode-editor-inactiveSelectionBackground') || "#07c2db71",
+                            "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || getCssVar('--vscode-editor-selectionHighlightBackground') || "#5bdb0771",
                             "editor.selectionHighlightBorder": contextEditorCfg.selectionHighlightBorder || "#5bdb0791",
-                            "editor.findMatchBackground": "#F4D03F",
-                            //"editor.background": "#e6e6e6",
+                            "editor.findMatchBackground": getCssVar('--vscode-editor-findMatchHighlightBackground') || "#F4D03F",
+                            // 左侧 Gutter 背景
+                            'editorGutter.background': getCssVar('--vscode-editorGutter-background') || getCssVar('--vscode-editor-background'),
+                            // 若需要同步版本控制标记的背景，也可打开下面三项
+                            'editorGutter.addedBackground': getCssVar('--vscode-editorGutter-addedBackground'),
+                            'editorGutter.modifiedBackground': getCssVar('--vscode-editorGutter-modifiedBackground'),
+                            'editorGutter.deletedBackground': getCssVar('--vscode-editorGutter-deletedBackground'),
+
+                            // 行号前景色
+                            'editorLineNumber.foreground': getCssVar('--vscode-editorLineNumber-foreground') || getCssVar('--vscode-foreground'),
+                            'editorLineNumber.activeForeground': getCssVar('--vscode-editorLineNumber-activeForeground') || getCssVar('--vscode-foreground'),
+                            'editorLineNumber.dimmedForeground': getCssVar('--vscode-editorLineNumber-dimmedForeground') || getCssVar('--vscode-editorLineNumber-foreground'),
+
+                            // 缩进参考线（可选，能让 gutter 更贴近 VS Code）
+                            'editorIndentGuide.background': getCssVar('--vscode-editorIndentGuide-background'),
+                            'editorIndentGuide.activeBackground': getCssVar('--vscode-editorIndentGuide-activeBackground'),
+
+                            // 当前行高亮（背景/边框）
+                            'editor.lineHighlightBackground': getCssVar('--vscode-editor-lineHighlightBackground'),
+                            'editor.lineHighlightBorder': getCssVar('--vscode-editor-lineHighlightBorder'),
                         }
                     });
                 }
