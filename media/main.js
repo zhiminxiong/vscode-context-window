@@ -21,6 +21,50 @@ function getCssVar(name) {
     return cssColorToMonaco(v);
 }
 
+function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, light) {
+    monaco.editor.defineTheme('custom-vs', {
+        base: light ? 'vs' : 'vs-dark',
+        inherit: true,
+        rules: vsCodeEditorConfiguration.customThemeRules,
+        colors: {
+            'editor.background': getCssVar('--vscode-editor-background'),
+            'editor.foreground': getCssVar('--vscode-editor-foreground'),
+            "editor.selectionBackground": contextEditorCfg.selectionBackground || getCssVar('--vscode-editor-selectionBackground') || "#07c2db71",
+            //"editor.selectionForeground": "#ffffffff",
+            "editor.inactiveSelectionBackground": contextEditorCfg.inactiveSelectionBackground || getCssVar('--vscode-editor-inactiveSelectionBackground') || "#07c2db71",
+            "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || getCssVar('--vscode-editor-selectionHighlightBackground') || "#5bdb0771",
+            "editor.selectionHighlightBorder": contextEditorCfg.selectionHighlightBorder || "#5bdb0791",
+            "editor.findMatchBackground": getCssVar('--vscode-editor-findMatchHighlightBackground') || "#F4D03F",
+            // 左侧 Gutter 背景
+            'editorGutter.background': getCssVar('--vscode-editorGutter-background') || getCssVar('--vscode-editor-background'),
+            // 若需要同步版本控制标记的背景，也可打开下面三项
+            'editorGutter.addedBackground': getCssVar('--vscode-editorGutter-addedBackground'),
+            'editorGutter.modifiedBackground': getCssVar('--vscode-editorGutter-modifiedBackground'),
+            'editorGutter.deletedBackground': getCssVar('--vscode-editorGutter-deletedBackground'),
+
+            // 行号前景色
+            'editorLineNumber.foreground': getCssVar('--vscode-editorLineNumber-foreground') || getCssVar('--vscode-foreground'),
+            'editorLineNumber.activeForeground': getCssVar('--vscode-editorLineNumber-activeForeground') || getCssVar('--vscode-foreground'),
+            'editorLineNumber.dimmedForeground': getCssVar('--vscode-editorLineNumber-dimmedForeground') || getCssVar('--vscode-editorLineNumber-foreground'),
+
+            // 缩进参考线（可选，能让 gutter 更贴近 VS Code）
+            'editorIndentGuide.background': getCssVar('--vscode-editorIndentGuide-background'),
+            'editorIndentGuide.activeBackground': getCssVar('--vscode-editorIndentGuide-activeBackground'),
+
+            // 当前行高亮（背景/边框）
+            'editor.lineHighlightBackground': getCssVar('--vscode-editor-lineHighlightBackground'),
+            'editor.lineHighlightBorder': getCssVar('--vscode-editor-lineHighlightBorder'),
+        }
+    });
+}
+function isLightTheme() {
+    return window.vsCodeEditorConfiguration?.theme === 'vs';
+    // const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
+    // if (!contextEditorCfg.useDefaultTheme)
+    //     light = true; // 如果不使用默认主题，则强制使用自定义浅色主题
+    // return light;
+}
+
 // Monaco Editor 初始化和消息处理
 (function() {
     const vscode = acquireVsCodeApi();
@@ -123,49 +167,6 @@ function getCssVar(name) {
             // 初始化编辑器
             require(['vs/editor/editor.main'], function() {
                 //console.log('[definition] Monaco editor loaded');
-                function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, light) {
-                    monaco.editor.defineTheme('custom-vs', {
-                        base: light ? 'vs' : 'vs-dark',
-                        inherit: true,
-                        rules: vsCodeEditorConfiguration.customThemeRules,
-                        colors: {
-                            'editor.background': getCssVar('--vscode-editor-background'),
-                            'editor.foreground': getCssVar('--vscode-editor-foreground'),
-                            "editor.selectionBackground": contextEditorCfg.selectionBackground || getCssVar('--vscode-editor-selectionBackground') || "#07c2db71",
-                            //"editor.selectionForeground": "#ffffffff",
-                            "editor.inactiveSelectionBackground": contextEditorCfg.inactiveSelectionBackground || getCssVar('--vscode-editor-inactiveSelectionBackground') || "#07c2db71",
-                            "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || getCssVar('--vscode-editor-selectionHighlightBackground') || "#5bdb0771",
-                            "editor.selectionHighlightBorder": contextEditorCfg.selectionHighlightBorder || "#5bdb0791",
-                            "editor.findMatchBackground": getCssVar('--vscode-editor-findMatchHighlightBackground') || "#F4D03F",
-                            // 左侧 Gutter 背景
-                            'editorGutter.background': getCssVar('--vscode-editorGutter-background') || getCssVar('--vscode-editor-background'),
-                            // 若需要同步版本控制标记的背景，也可打开下面三项
-                            'editorGutter.addedBackground': getCssVar('--vscode-editorGutter-addedBackground'),
-                            'editorGutter.modifiedBackground': getCssVar('--vscode-editorGutter-modifiedBackground'),
-                            'editorGutter.deletedBackground': getCssVar('--vscode-editorGutter-deletedBackground'),
-
-                            // 行号前景色
-                            'editorLineNumber.foreground': getCssVar('--vscode-editorLineNumber-foreground') || getCssVar('--vscode-foreground'),
-                            'editorLineNumber.activeForeground': getCssVar('--vscode-editorLineNumber-activeForeground') || getCssVar('--vscode-foreground'),
-                            'editorLineNumber.dimmedForeground': getCssVar('--vscode-editorLineNumber-dimmedForeground') || getCssVar('--vscode-editorLineNumber-foreground'),
-
-                            // 缩进参考线（可选，能让 gutter 更贴近 VS Code）
-                            'editorIndentGuide.background': getCssVar('--vscode-editorIndentGuide-background'),
-                            'editorIndentGuide.activeBackground': getCssVar('--vscode-editorIndentGuide-activeBackground'),
-
-                            // 当前行高亮（背景/边框）
-                            'editor.lineHighlightBackground': getCssVar('--vscode-editor-lineHighlightBackground'),
-                            'editor.lineHighlightBorder': getCssVar('--vscode-editor-lineHighlightBorder'),
-                        }
-                    });
-                }
-                function isLightTheme() {
-                    return window.vsCodeEditorConfiguration?.theme === 'vs';
-                    // const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
-                    // if (!contextEditorCfg.useDefaultTheme)
-                    //     light = true; // 如果不使用默认主题，则强制使用自定义浅色主题
-                    // return light;
-                }
 
                 const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
                 let light = isLightTheme();
@@ -338,6 +339,33 @@ function getCssVar(name) {
                         }
                     });
 
+                    const model = editor.getModel();
+function tokenAtPosition(editor, pos) {
+	const lang = model.getLanguageId();
+	const line = model.getLineContent(pos.lineNumber);
+	const row = monaco.editor.tokenize(line, lang)[0] || [];
+	// row: [{ offset: number, scopes?: string, type?: string }]
+	const col0 = pos.column - 1;
+	let i = 0;
+	for (; i < row.length; i++) {
+		const start = row[i].offset;
+		const end = (i + 1 < row.length ? row[i + 1].offset : line.length);
+		if (col0 >= start && col0 < end) {
+			return {
+				startColumn: start + 1,
+				endColumn: end + 1,
+				text: line.slice(start, end),
+				token: row[i].scopes || row[i].type || ''
+			};
+		}
+	}
+	return null;
+}
+/* const disposeCursor = editor.onDidChangeCursorPosition(e => {
+	const info = tokenAtPosition(editor, e.position);
+	if (info) console.log('[definition] token: ', info);
+}); */
+
                     // 1) DOM 捕获阶段拦截 Ctrl/Cmd + 鼠标，先于 Monaco 内部监听器
                     const dom = editor.getDomNode();
                     // 'pointerdown', 'mousedown', 'mouseup', 'click', 
@@ -392,7 +420,7 @@ function getCssVar(name) {
                     // 初始化时设置为默认光标
                     forcePointerCursor(false);
 
-                    if (!contextEditorCfg.useDefaultTheme) {
+                    if (true)/* (!contextEditorCfg.useDefaultTheme) */ {
                         // 定义使用JavaScript提供器作为默认的语言列表
                         const defaultLanguages = [
                             'python', 'java', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
@@ -654,6 +682,8 @@ function getCssVar(name) {
                                 const word = model.getWordAtPosition(position);
                                 if (word) {
                                     if (e.event.rightButton) {
+                                        const info = tokenAtPosition(editor, position);
+                                        if (info) console.log('[definition] token: ', info);
                                         //console.log('[definition] start to mid + jump definition: ', word);
                                         editor.setSelection({
                                             startLineNumber: position.lineNumber,

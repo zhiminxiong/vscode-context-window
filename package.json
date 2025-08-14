@@ -220,7 +220,8 @@
 		"lint": "eslint . --ext .ts,.tsx"
 	},
 	"dependencies": {
-		"monaco-editor": "^0.34.0"
+		"monaco-editor": "^0.34.0",
+		"jsonc-parser": "^3.2.0"
 	},
 	"devDependencies": {
 		"@types/node": "^14.11.2",

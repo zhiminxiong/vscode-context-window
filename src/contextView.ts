@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { Renderer, FileContentInfo } from './renderer';
 import * as path from 'path';
 import { time } from 'console';
+import * as fs from 'fs';
+import { parse as parseJsonc } from 'jsonc-parser';
 
 enum UpdateMode {
     Live = 'live',
@@ -12,6 +14,17 @@ const maxHistorySize = 50;
 interface HistoryInfo {
     content: FileContentInfo | undefined;
     curLine: number;
+}
+
+type TextMateRule = {
+    scope?: string | string[];
+    settings?: { foreground?: string; fontStyle?: string };
+};
+
+function normalizeScopes(scope?: string | string[]): string[] {
+    if (Array.isArray(scope)) return scope.map((x: string) => x);
+    if (typeof scope === 'string') return scope.split(',').map((s: string) => s.trim()).filter(Boolean);
+    return [];
 }
 
 export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode.WebviewPanelSerializer {
@@ -265,6 +278,227 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    private static readonly ALLOWED_TOKENS = new Set<string>([
+        'comment','string','string.escape','number','regexp',
+        'keyword','operator','keyword.type','keyword.flow',
+        'type','namespace',
+        'variable','variable.name','variable.parameter',
+        'identifier',
+        'function','function.name','method','method.name',
+        'class','class.name',
+        'property','enum','enumMember','constant','boolean','null',
+        'delimiter','delimiter.bracket','delimiter.parenthesis','delimiter.angle',
+    ]);
+
+    private _scopeToMonacoToken(scope: string): string | undefined {
+        if (!scope) return;
+        const s = scope.toLowerCase();
+
+        // 具体优先
+        if (s.startsWith('entity.name.function')) return 'method.name';
+        if (s.startsWith('entity.name.method')) return 'method.name';
+        if (s.startsWith('entity.name.class')) return 'class.name';
+        if (s.startsWith('entity.name.type') || s.includes('interface') || s.includes('struct')) return 'type';
+        if (s.includes('namespace')) return 'namespace';
+
+        if (s.startsWith('variable.parameter')) return 'variable.parameter';
+        if (s.startsWith('variable')) return 'variable.name';
+
+        if (s.startsWith('constant.numeric') || s.startsWith('number')) return 'number';
+        if (s.includes('constant.character.escape') || (s.startsWith('string') && s.includes('escape'))) return 'string.escape';
+        if (s.startsWith('string')) return 'string';
+
+        if (s.includes('boolean')) return 'boolean';
+        if (s.startsWith('keyword.operator')) return 'operator';
+        if (s.startsWith('keyword.type')) return 'keyword.type';
+        if (s.startsWith('keyword.flow') || s.startsWith('keyword.control')) return 'keyword.flow';
+        if (s === 'keyword') return 'keyword';
+        //if (s.startsWith('keyword') || s.startsWith('storage')) return 'keyword';
+
+        //if (s.startsWith('punctuation') || s.startsWith('meta.brace') || s.startsWith('meta.delimiter')) return 'delimiter';
+        if (s.startsWith('delimiter') || s.startsWith('meta.delimiter')) return 'delimiter';
+
+        // 兜底尝试：取第一段，但仅当在白名单内才接受
+        const guess = s.split('.')[0];
+        return ContextWindowProvider.ALLOWED_TOKENS.has(guess) ? guess : undefined;
+    }
+
+    private _mapTextMateRulesToMonaco(textMateRules: any[]): Array<{ token: string; foreground?: string; fontStyle?: string }> {
+        console.log('[definition] _mapTextMateRulesToMonaco', textMateRules);
+        /* const best = new Map<string, { token: string; foreground?: string; fontStyle?: string; _score: number; _order: number }>();
+        let order = 0;
+
+        for (const r of textMateRules || []) {
+            const settings = r?.settings || {};
+            const fg = settings.foreground as string | undefined;
+            const fsty = settings.fontStyle as string | undefined;
+
+            const scopes: string[] = normalizeScopes(r.scope);
+            for (const sc of scopes) {
+                const token = this._scopeToMonacoToken(sc);
+                if (!token || !ContextWindowProvider.ALLOWED_TOKENS.has(token)) continue;
+
+                // 粗略“具体度”打分：层级越多越具体；同分时后出现优先
+                const score = sc.split('.').length;
+                const prev = best.get(token);
+                if (!prev || score > prev._score || (score === prev._score && order > prev._order)) {
+                    best.set(token, { token, foreground: fg, fontStyle: fsty, _score: score, _order: order });
+                }
+            }
+            order++;
+        }
+
+        // 输出前去掉内部字段
+        return Array.from(best.values()).map(({ _score, _order, ...rule }) => rule); */
+        const out: Array<{ token: string; foreground?: string; fontStyle?: string }> = [];
+        for (const r of textMateRules || []) {
+            const settings = r?.settings || {};
+            const fg = settings.foreground as string | undefined;
+            const fsty = settings.fontStyle as string | undefined;
+
+            const scopes: string[] = normalizeScopes(r.scope);
+            if (scopes.length === 0) continue;
+
+            for (const sc of scopes) {
+                const token = this._scopeToMonacoToken(sc);
+                if (!token || !ContextWindowProvider.ALLOWED_TOKENS.has(token)) continue;
+                out.push({ token, foreground: fg, fontStyle: fsty });
+            }
+        }
+        return out;
+    }
+
+    private _readJsonTheme(filePath: string, baseDir: string): any {
+        try {
+            const abs = path.isAbsolute(filePath) ? filePath : path.join(baseDir, filePath);
+            let raw = fs.readFileSync(abs, 'utf8');
+            // 去除 BOM，避免部分主题文件首字节导致解析失败
+            if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+
+            // 使用 jsonc 解析，支持注释与尾逗号
+            const json = parseJsonc(raw);
+
+            // 处理 include（相对当前主题文件）
+            if (json && (json as any).include) {
+                const inc = this._readJsonTheme((json as any).include, path.dirname(abs));
+                if (inc?.tokenColors) {
+                    (json as any).tokenColors = [ ...(inc.tokenColors || []), ...((json as any).tokenColors || []) ];
+                }
+            }
+            return json;
+        } catch (err) {
+            console.error('[definition] _readJsonTheme error:', err);
+            return {};
+        }
+    }
+
+    private _normalizeName(s?: string): string {
+        if (!s) return '';
+        return s.toLowerCase()
+            .replace(/[\uFF08\uFF09]/g, '') // 全角括号
+            .replace(/[()\[\]\s+]+/g, '')   // 括号/空白/加号
+            .replace(/default|（默认）|默认/g, ''); // “默认”字样
+    }
+
+    private _readTokenColors(themePath: string): any[] {
+        console.log(`[definition] _readTokenColors theme from path: ${themePath}`);
+        if (!fs.existsSync(themePath)) {
+            console.log(`[definition] Theme file not found: ${themePath}`);
+            return [];
+        }
+        const themeJson = this._readJsonTheme(themePath, path.dirname(themePath));
+        console.log('[definition] Reading theme from: ', themeJson);
+        const tm = Array.isArray(themeJson?.tokenColors) ? themeJson.tokenColors
+            : Array.isArray((themeJson as any)?.settings) ? (themeJson as any).settings
+            : [];
+        return tm;
+    }
+
+    private _getActiveThemeTextMateRules(): any[] {
+        try {
+            const themeLabel = vscode.workspace.getConfiguration('workbench').get<string>('colorTheme') || '';
+            const want = this._normalizeName(themeLabel);
+
+            const kind = vscode.window.activeColorTheme.kind;
+            const uiThemeNeeded =
+                kind === vscode.ColorThemeKind.Dark ? 'vs-dark' :
+                kind === vscode.ColorThemeKind.HighContrast ? 'hc-black' : 'vs';
+
+            // 1) 先精确匹配（规避本地化差异、空 id）
+            for (const ext of vscode.extensions.all) {
+                const themes = (ext.packageJSON?.contributes?.themes || []) as any[];
+                for (const t of themes) {
+                    if (t.uiTheme && t.uiTheme !== uiThemeNeeded) continue;
+                    const names = [t.id, t.label].filter(Boolean).map((x: string) => this._normalizeName(x));
+                    if (names.includes(want)) {
+                        const themePath = path.join(ext.extensionPath, t.path);
+                        console.log(`[definition] Active theme "${themeLabel}" found by exact match: ${themePath}`);
+                        return this._readTokenColors(themePath);
+                    }
+                }
+            }
+
+            console.log(`[definition] Active theme "${themeLabel}" not found by exact match, falling back...`);
+
+            // 2) 回退：优先选择 VS Code 内置默认主题
+            const fallbacks = uiThemeNeeded === 'vs-dark'
+                ? ['darkmodern', 'darkdefault', 'dark+']
+                : uiThemeNeeded === 'vs'
+                    ? ['lightmodern', 'lightdefault', 'light+']
+                    : ['highcontrast', 'hcblack', 'hc-black'];
+
+            for (const ext of vscode.extensions.all) {
+                const themes = (ext.packageJSON?.contributes?.themes || []) as any[];
+                for (const t of themes) {
+                    if (t.uiTheme && t.uiTheme !== uiThemeNeeded) continue;
+                    const names = [t.id, t.label].filter(Boolean).map((x: string) => this._normalizeName(x));
+                    if (names.some(n => fallbacks.includes(n))) {
+                        const themePath = path.join(ext.extensionPath, t.path);
+                        return this._readTokenColors(themePath);
+                    }
+                }
+            }
+        } catch {
+            // ignore
+        }
+        return [];
+    }
+
+    private _buildCustomThemeRules(): Array<{ token: string; foreground?: string; fontStyle?: string }> {
+        const themeTM = this._getActiveThemeTextMateRules();
+        console.log('[definition] Active theme TextMate rules:', themeTM);
+        const themeRules = this._mapTextMateRulesToMonaco(themeTM);
+        console.log('[definition] themeRules:', themeRules);
+
+        // 用户的 editor.tokenColorCustomizations 覆盖
+        const tmc = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
+        const tmr = (tmc?.get('textMateRules') as any[]) || [];
+        const overrideRules = this._mapTextMateRulesToMonaco(tmr);
+        console.log('[definition] overrideRules:', overrideRules);
+
+        const contextCfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+        const currentTheme = this._getVSCodeTheme();
+        const extraRaw = currentTheme === 'vs'
+            ? (contextCfg.get('lightThemeRules', []) as any[])
+            : (contextCfg.get('darkThemeRules', []) as any[]);
+        // 你的自定义规则应当已经是 Monaco 的 token 名，直接用
+        const extra = extraRaw as Array<{ token: string; foreground?: string; fontStyle?: string }>;
+
+        // 优先级：extra > override > theme
+        const combined = [/* ...extra,  */...overrideRules, ...themeRules];
+
+        // 全局去重：保留第一次出现的（高优先级已在前）
+        const seen = new Set<string>();
+        const finalRules: Array<{ token: string; foreground?: string; fontStyle?: string }> = [];
+        for (const r of combined) {
+            if (!r?.token) continue;
+            if (seen.has(r.token)) continue;
+            seen.add(r.token);
+            finalRules.push(r);
+        }
+        return finalRules;
+    }
+
     // 获取 VS Code 主题对应的 Monaco 主题
     private _getVSCodeTheme(theme?: vscode.ColorTheme): string {
         if (!theme) {
@@ -390,7 +624,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     ]
             */
         } else {
-            config.customThemeRules = [];
+            config.customThemeRules = this._buildCustomThemeRules();//[];
+            console.log('[definition] customThemeRules:', config.customThemeRules);
         }
 
         //console.log('[definition] editor', editorConfig);
