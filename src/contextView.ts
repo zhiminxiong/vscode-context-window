@@ -278,95 +278,146 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
-    private static readonly ALLOWED_TOKENS = new Set<string>([
-        'comment','string','string.escape','number','regexp',
-        'keyword','operator','keyword.type','keyword.flow',
-        'type','namespace',
-        'variable','variable.name','variable.parameter',
-        'identifier',
-        'function','function.name','method','method.name',
-        'class','class.name',
-        'property','enum','enumMember','constant','boolean','null',
-        'delimiter','delimiter.bracket','delimiter.parenthesis','delimiter.angle',
+    private static readonly TARGET_TOKENS = [
+        'keyword', 'keyword.type', 'keyword.flow', 'keyword.directive', 'keyword.directive.control',
+        'variable.name', 'variable.parameter', 'identifier',
+        'type', 'class.name', 'function.name', 'method.name',
+        'string', 'string.escape', 'number', 'boolean', 'regexp', 'null',
+        'comment', 'property', 'operator',
+        'delimiter', 'delimiter.bracket', 'delimiter.parenthesis', 'delimiter.angle',
+        'macro'
+    ];
+
+    // Token → TextMate scopes 的反向映射表（用于查找匹配）
+    private static readonly TOKEN_TO_SCOPES_MAP = new Map<string, string[]>([
+        ['comment', ['comment', 'comment.line', 'comment.block', 'comment.documentation']],
+        ['string', ['string', 'string.quoted', 'string.template', 'string.literal']],
+        ['string.escape', ['constant.character.escape', 'string.escape']],
+        ['number', ['constant.numeric', 'constant.numeric.integer', 'constant.numeric.float']],
+        ['boolean', ['constant.language.boolean', 'constant.language.true', 'constant.language.false']],
+        ['null', ['constant.language.null', 'constant.language.undefined']],
+        ['regexp', ['string.regexp', 'constant.other.regex']],
+        
+        ['keyword', ['keyword', 'storage.modifier', 'keyword.other']],
+        ['keyword.type', ['keyword.type', 'keyword.function', 'keyword.class', 'keyword.interface', 'storage.type']],
+        ['keyword.flow', ['keyword.control', 'keyword.control.flow', 'keyword.control.conditional', 'keyword.control.loop']],
+        ['keyword.directive', ['keyword.control.directive', 'meta.preprocessor.include']],
+        ['keyword.directive.control', ['keyword.control.preprocessor', 'meta.preprocessor', 'keyword.preprocessor']],
+        
+        ['function.name', ['entity.name.function', 'support.function']],
+        ['method.name', ['entity.name.method', 'entity.name.function.method']],
+        ['class.name', ['entity.name.class', 'entity.name.type.class']],
+        ['type', ['entity.name.type', 'entity.name.interface', 'support.type', 'support.class']],
+        
+        ['variable.name', ['variable', 'variable.other', 'variable.object']],
+        ['variable.parameter', ['variable.parameter', 'variable.parameter.function']],
+        ['identifier', ['variable.language', 'support.variable']],
+        
+        ['property', ['variable.object.property', 'entity.other.attribute-name', 'support.type.property-name']],
+        ['operator', ['keyword.operator', 'keyword.operator.arithmetic', 'keyword.operator.logical']],
+        
+        ['delimiter', ['punctuation', 'punctuation.separator']],
+        ['delimiter.bracket', ['punctuation.definition.block', 'meta.brace']],
+        ['delimiter.parenthesis', ['punctuation.definition.parameters', 'meta.parens']],
+        ['delimiter.angle', ['punctuation.definition.template', 'meta.template']],
+        
+        ['macro', ['entity.name.function.preprocessor', 'keyword.other.macro']]
     ]);
 
-    private _scopeToMonacoToken(scope: string): string | undefined {
-        if (!scope) return;
-        const s = scope.toLowerCase();
-
-        // 具体优先
-        if (s.startsWith('entity.name.function')) return 'method.name';
-        if (s.startsWith('entity.name.method')) return 'method.name';
-        if (s.startsWith('entity.name.class')) return 'class.name';
-        if (s.startsWith('entity.name.type') || s.includes('interface') || s.includes('struct')) return 'type';
-        if (s.includes('namespace')) return 'namespace';
-
-        if (s.startsWith('variable.parameter')) return 'variable.parameter';
-        if (s.startsWith('variable')) return 'variable.name';
-
-        if (s.startsWith('constant.numeric') || s.startsWith('number')) return 'number';
-        if (s.includes('constant.character.escape') || (s.startsWith('string') && s.includes('escape'))) return 'string.escape';
-        if (s.startsWith('string')) return 'string';
-
-        if (s.includes('boolean')) return 'boolean';
-        if (s.startsWith('keyword.operator')) return 'operator';
-        if (s.startsWith('keyword.type')) return 'keyword.type';
-        if (s.startsWith('keyword.flow') || s.startsWith('keyword.control')) return 'keyword.flow';
-        if (s === 'keyword') return 'keyword';
-        //if (s.startsWith('keyword') || s.startsWith('storage')) return 'keyword';
-
-        //if (s.startsWith('punctuation') || s.startsWith('meta.brace') || s.startsWith('meta.delimiter')) return 'delimiter';
-        if (s.startsWith('delimiter') || s.startsWith('meta.delimiter')) return 'delimiter';
-
-        // 兜底尝试：取第一段，但仅当在白名单内才接受
-        const guess = s.split('.')[0];
-        return ContextWindowProvider.ALLOWED_TOKENS.has(guess) ? guess : undefined;
-    }
-
-    private _mapTextMateRulesToMonaco(textMateRules: any[]): Array<{ token: string; foreground?: string; fontStyle?: string }> {
-        console.log('[definition] _mapTextMateRulesToMonaco', textMateRules);
-        /* const best = new Map<string, { token: string; foreground?: string; fontStyle?: string; _score: number; _order: number }>();
-        let order = 0;
-
-        for (const r of textMateRules || []) {
-            const settings = r?.settings || {};
-            const fg = settings.foreground as string | undefined;
-            const fsty = settings.fontStyle as string | undefined;
-
-            const scopes: string[] = normalizeScopes(r.scope);
-            for (const sc of scopes) {
-                const token = this._scopeToMonacoToken(sc);
-                if (!token || !ContextWindowProvider.ALLOWED_TOKENS.has(token)) continue;
-
-                // 粗略“具体度”打分：层级越多越具体；同分时后出现优先
-                const score = sc.split('.').length;
-                const prev = best.get(token);
-                if (!prev || score > prev._score || (score === prev._score && order > prev._order)) {
-                    best.set(token, { token, foreground: fg, fontStyle: fsty, _score: score, _order: order });
-                }
-            }
-            order++;
-        }
-
-        // 输出前去掉内部字段
-        return Array.from(best.values()).map(({ _score, _order, ...rule }) => rule); */
-        const out: Array<{ token: string; foreground?: string; fontStyle?: string }> = [];
-        for (const r of textMateRules || []) {
-            const settings = r?.settings || {};
-            const fg = settings.foreground as string | undefined;
-            const fsty = settings.fontStyle as string | undefined;
-
-            const scopes: string[] = normalizeScopes(r.scope);
-            if (scopes.length === 0) continue;
-
-            for (const sc of scopes) {
-                const token = this._scopeToMonacoToken(sc);
-                if (!token || !ContextWindowProvider.ALLOWED_TOKENS.has(token)) continue;
-                out.push({ token, foreground: fg, fontStyle: fsty });
+// 构建完整的 scope → color 映射
+private _buildScopeToColorMap(): Map<string, { foreground?: string; fontStyle?: string }> {
+    const scopeMap = new Map<string, { foreground?: string; fontStyle?: string }>();
+    
+    // 1. 读取主题 tokenColors
+    const themeTM = this._getActiveThemeTextMateRules();
+    for (const rule of themeTM) {
+        const settings = rule?.settings || {};
+        const scopes = normalizeScopes(rule.scope);
+        for (const scope of scopes) {
+            if (!scopeMap.has(scope.toLowerCase())) {
+                scopeMap.set(scope.toLowerCase(), {
+                    foreground: settings.foreground,
+                    fontStyle: settings.fontStyle
+                });
             }
         }
-        return out;
     }
+
+    console.log('[definition] _buildScopeToColorMap 1st: ', Object.fromEntries(scopeMap));
+    
+    // 2. 用户 textMateRules 覆盖
+    const tmc = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
+    const tmr = (tmc?.get('textMateRules') as any[]) || [];
+    for (const rule of tmr) {
+        const settings = rule?.settings || {};
+        const scopes = normalizeScopes(rule.scope);
+        for (const scope of scopes) {
+            scopeMap.set(scope.toLowerCase(), {
+                foreground: settings.foreground,
+                fontStyle: settings.fontStyle
+            });
+        }
+    }
+
+    console.log('[definition] _buildScopeToColorMap 2nd: ', Object.fromEntries(scopeMap));
+    
+    return scopeMap;
+}
+
+// 为单个 token 查找最佳配色
+private _findBestColorForToken(token: string, scopeMap: Map<string, { foreground?: string; fontStyle?: string }>): { foreground?: string; fontStyle?: string } | null {
+    const candidateScopes = ContextWindowProvider.TOKEN_TO_SCOPES_MAP.get(token) || [];
+    
+    // 1. 精确匹配
+    for (const scope of candidateScopes) {
+        const color = scopeMap.get(scope.toLowerCase());
+        if (color && color.foreground) {
+            return color;
+        }
+    }
+    
+    // 2. 前缀匹配（如 entity.name.function.constructor → entity.name.function）
+    for (const scope of candidateScopes) {
+        for (const [mapScope, color] of scopeMap) {
+            if (mapScope.startsWith(scope.toLowerCase() + '.') && color.foreground) {
+                return color;
+            }
+        }
+    }
+    
+    // 3. 近似匹配（关键词包含）
+    // const keywords = this._getTokenKeywords(token);
+    // for (const keyword of keywords) {
+    //     for (const [scope, color] of scopeMap) {
+    //         if (scope.includes(keyword) && color.foreground) {
+    //             return color;
+    //         }
+    //     }
+    // }
+    
+    return null;
+}
+
+// 提取 token 的关键词用于近似匹配
+private _getTokenKeywords(token: string): string[] {
+    const keywords: string[] = [];
+    
+    if (token.includes('comment')) keywords.push('comment');
+    if (token.includes('string')) keywords.push('string');
+    if (token.includes('number')) keywords.push('number', 'numeric');
+    if (token.includes('function')) keywords.push('function');
+    if (token.includes('method')) keywords.push('method', 'function');
+    if (token.includes('class')) keywords.push('class');
+    if (token.includes('variable')) keywords.push('variable');
+    if (token.includes('keyword')) keywords.push('keyword');
+    if (token.includes('operator')) keywords.push('operator');
+    if (token.includes('type')) keywords.push('type');
+    if (token.includes('delimiter')) keywords.push('punctuation', 'delimiter');
+    if (token.includes('property')) keywords.push('property', 'attribute');
+    if (token.includes('macro')) keywords.push('macro', 'preprocessor');
+    
+    return keywords;
+}
 
     private _readJsonTheme(filePath: string, baseDir: string): any {
         try {
@@ -465,38 +516,24 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     private _buildCustomThemeRules(): Array<{ token: string; foreground?: string; fontStyle?: string }> {
-        const themeTM = this._getActiveThemeTextMateRules();
-        console.log('[definition] Active theme TextMate rules:', themeTM);
-        const themeRules = this._mapTextMateRulesToMonaco(themeTM);
-        console.log('[definition] themeRules:', themeRules);
-
-        // 用户的 editor.tokenColorCustomizations 覆盖
-        const tmc = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
-        const tmr = (tmc?.get('textMateRules') as any[]) || [];
-        const overrideRules = this._mapTextMateRulesToMonaco(tmr);
-        console.log('[definition] overrideRules:', overrideRules);
-
-        const contextCfg = vscode.workspace.getConfiguration('contextView.contextWindow');
-        const currentTheme = this._getVSCodeTheme();
-        const extraRaw = currentTheme === 'vs'
-            ? (contextCfg.get('lightThemeRules', []) as any[])
-            : (contextCfg.get('darkThemeRules', []) as any[]);
-        // 你的自定义规则应当已经是 Monaco 的 token 名，直接用
-        const extra = extraRaw as Array<{ token: string; foreground?: string; fontStyle?: string }>;
-
-        // 优先级：extra > override > theme
-        const combined = [/* ...extra,  */...overrideRules, ...themeRules];
-
-        // 全局去重：保留第一次出现的（高优先级已在前）
-        const seen = new Set<string>();
-        const finalRules: Array<{ token: string; foreground?: string; fontStyle?: string }> = [];
-        for (const r of combined) {
-            if (!r?.token) continue;
-            if (seen.has(r.token)) continue;
-            seen.add(r.token);
-            finalRules.push(r);
+        const scopeMap = this._buildScopeToColorMap();
+        const result: Array<{ token: string; foreground?: string; fontStyle?: string }> = [];
+        
+        for (const token of ContextWindowProvider.TARGET_TOKENS) {
+            const color = this._findBestColorForToken(token, scopeMap);
+            if (color) {
+                if (token === 'identifier')
+                    console.log('[definition] find');
+                result.push({
+                    token,
+                    foreground: color.foreground,
+                    fontStyle: color.fontStyle
+                });
+            }
+            // 注意：没找到配色的 token 不添加到结果中，让 Monaco 使用默认配色
         }
-        return finalRules;
+        
+        return result;
     }
 
     // 获取 VS Code 主题对应的 Monaco 主题
