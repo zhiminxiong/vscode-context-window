@@ -737,6 +737,8 @@ function getCssVar(name) {
                         );
                     });
 
+                    editor.deltaDecorations([], [{ range: new monaco.Range(1, 1, 1, 1 + 5), options: { inlineClassName: 'highlighted-symbol' } }]);
+
                     //console.log('[definition] Monaco editor created');
 
                     // 通知扩展编辑器已准备好
