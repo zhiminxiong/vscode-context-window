@@ -117,6 +117,20 @@
                     }
                 }
             },
+            { 
+                label: 'Reveal In File Explorer', 
+                action: () => {
+                    const filenameDisplay = document.querySelector('.filename-display');
+                    const pathContainer = filenameDisplay?.querySelector('.filename-path');
+                    const pathText = pathContainer?.querySelector('.filename-path-text')?.textContent;
+                    if (pathText) {
+                        window.vscode.postMessage({
+                            type: 'revealInFileExplorer',
+                            filePath: pathText
+                        });
+                    }
+                }
+            },
             { type: 'separator' }, // 分割条
             {
                 label: 'Float',

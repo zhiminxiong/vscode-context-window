@@ -513,6 +513,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 case 'float':
                     this.showFloatingWebview();
                     break;
+                case 'revealInFileExplorer':
+                    if (message.filePath) {
+                        try {
+                            const uri = vscode.Uri.parse(message.filePath);
+                            await vscode.commands.executeCommand('revealFileInOS', uri);
+                        } catch (error) {
+                            console.error('[definition] revealInExplorer error:', error);
+                        }
+                    }
+                    break;
                 case 'navigate':
                     this.navigate(message.direction);
                     break;
