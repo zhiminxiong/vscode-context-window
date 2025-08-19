@@ -5,9 +5,9 @@
 	"version": "0.6.6",
 	"publisher": "zhiminxiong",
 	"keywords": [
-        "context",
+		"context",
 		"definition",
-        "source insight",
+		"source insight",
 		"docs",
 		"hover",
 		"sidebar",
@@ -23,13 +23,13 @@
 	},
 	"categories": [
 		"Other",
-        "Programming Languages"
+		"Programming Languages"
 	],
 	"activationEvents": [
 		"onView:contextView.context",
 		"onCommand:contextView.contextWindow.pin",
 		"onCommand:contextView.contextWindow.unpin",
-        "onStartupFinished"
+		"onStartupFinished"
 	],
 	"repository": {
 		"type": "git",
@@ -74,22 +74,22 @@
 				"icon": "$(pinned)",
 				"category": "Context View"
 			},
-            {
-                "command": "vscode-context-window.showContextWindow",
-                "title": "Show Context Window"
-            },
-            {
-                "command": "vscode-context-window.float",
-                "title": "Display the floating Context Window"
-            }
+			{
+				"command": "vscode-context-window.showContextWindow",
+				"title": "Show Context Window"
+			},
+			{
+				"command": "vscode-context-window.float",
+				"title": "Display the floating Context Window"
+			}
 		],
-        "keybindings": [
-            {
-                "command": "vscode-context-window.float",
-                "key": "ctrl+shift+9",
-                "mac": "cmd+shift+9"
-            }
-        ],
+		"keybindings": [
+			{
+				"command": "vscode-context-window.float",
+				"key": "ctrl+shift+9",
+				"mac": "cmd+shift+9"
+			}
+		],
 		"menus": {
 			"commandPalette": [
 				{
@@ -130,86 +130,177 @@
 						"The context view tries to show the context for the symbol at the current cursor position. If there is none, it continues showing the last available context."
 					]
 				},
-                "contextView.contextWindow.selectionBackground": {
-                    "type": "string",
-                    "default": "#07c2db71",
-                    "description": "Context Window 选中区域背景色"
-                },
-                "contextView.contextWindow.inactiveSelectionBackground": {
-                    "type": "string",
-                    "default": "#07c2db71",
-                    "description": "Context Window 非活动选中区域背景色"
-                },
-                "contextView.contextWindow.selectionHighlightBackground": {
-                    "type": "string",
-                    "default": "#5bdb0771",
-                    "description": "Context Window 选中高亮背景色"
-                },
-                "contextView.contextWindow.selectionHighlightBorder": {
-                    "type": "string",
-                    "default": "#5bdb0791",
-                    "description": "Context Window 选中高亮边框色"
-                },
-                "contextView.contextWindow.minimap": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Controls whether the Context Window minimap is shown."
-                },
-                "contextView.contextWindow.fontSize": {
-                    "type": "number",
-                    "default": 14,
-                    "description": "Context Window fontSize"
-                },
-                "contextView.contextWindow.fontFamily": {
-                    "type": "string",
-                    "default": "Consolas, monospace",
-                    "description": "Context Window fontFamily"
-                },
-                "contextView.contextWindow.useDefaultTheme": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Using the default theme of Monaco Editor.\nTake effect when VSCode starts."
-                },
-                "contextView.contextWindow.fixToken": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "In VSCode, treat #include, #pragma, #region, and #endregion as distinct tokens, separate from #directive.\nTake effect when VSCode starts."
-                },
-                "contextView.contextWindow.lightThemeRules": {
-                    "type": "array",
-                    "default": [
-                        { "token": "keyword", "foreground": "#0000ff", "description": "static|private|protected|public etc." },
-                        { "token": "keyword.type", "foreground": "#ff0000", "fontStyle": "bold", "description": "function|class etc." },
-                        { "token": "keyword.flow", "foreground": "#ff0000", "fontStyle": "bold", "description": "if|else|for|while etc." },
-                        { "token": "keyword.directive", "foreground": "#0000ff", "description": "#include|#pragma|#region|#endregion etc." },
-                        { "token": "keyword.directive.control", "foreground": "#ff0000", "fontStyle": "bold", "description": "#define|#undef|#if|#elif|#else|#endif etc." },
-                        { "token": "variable.name", "foreground": "#000080", "fontStyle": "bold"},
-                        { "token": "variable.parameter", "foreground": "#000080"},
-                        { "token": "identifier", "foreground": "#000080"},
-                        { "token": "type", "foreground": "#0000ff"},
-                        { "token": "class.name", "foreground": "#0000ff", "fontStyle": "bold"},
-                        { "token": "function.name", "foreground": "#a00000", "fontStyle": "bold"},
-                        { "token": "method.name", "foreground": "#a00000", "fontStyle": "bold"},
-                        { "token": "string", "foreground": "#005700"},
-                        { "token": "string.escape", "foreground": "#005700"},
-                        { "token": "number", "foreground": "#ff0000"},
-                        { "token": "boolean", "foreground": "#800080"},
-                        { "token": "regexp", "foreground": "#811f3f"},
-                        { "token": "null", "foreground": "#0000ff"},
-                        { "token": "comment", "foreground": "#005700"},
-                        { "token": "property", "foreground": "#000080"},
-                        { "token": "operator", "foreground": "#800080"},
-                        { "token": "delimiter", "foreground": "#000000"},
-                        { "token": "delimiter.bracket", "foreground": "#000000"},
-                        { "token": "delimiter.parenthesis", "foreground": "#000000"},
-                        { "token": "delimiter.angle", "foreground": "#000000"},
-                        { "token": "macro", "foreground": "#A00000", "fontStyle": "italic"}
-                    ]
-                },
-                "contextView.contextWindow.darkThemeRules": {
-                    "type": "array",
-                    "default": []
-                }
+				"contextView.contextWindow.selectionBackground": {
+					"type": "string",
+					"default": "#07c2db71",
+					"description": "Context Window 选中区域背景色"
+				},
+				"contextView.contextWindow.inactiveSelectionBackground": {
+					"type": "string",
+					"default": "#07c2db71",
+					"description": "Context Window 非活动选中区域背景色"
+				},
+				"contextView.contextWindow.selectionHighlightBackground": {
+					"type": "string",
+					"default": "#5bdb0771",
+					"description": "Context Window 选中高亮背景色"
+				},
+				"contextView.contextWindow.selectionHighlightBorder": {
+					"type": "string",
+					"default": "#5bdb0791",
+					"description": "Context Window 选中高亮边框色"
+				},
+				"contextView.contextWindow.minimap": {
+					"type": "boolean",
+					"default": true,
+					"description": "Controls whether the Context Window minimap is shown."
+				},
+				"contextView.contextWindow.fontSize": {
+					"type": "number",
+					"default": 14,
+					"description": "Context Window fontSize"
+				},
+				"contextView.contextWindow.fontFamily": {
+					"type": "string",
+					"default": "Consolas, monospace",
+					"description": "Context Window fontFamily"
+				},
+				"contextView.contextWindow.useDefaultTheme": {
+					"type": "boolean",
+					"default": true,
+					"description": "Using the default theme of Monaco Editor.\nTake effect when VSCode starts."
+				},
+				"contextView.contextWindow.fixToken": {
+					"type": "boolean",
+					"default": false,
+					"description": "In VSCode, treat #include, #pragma, #region, and #endregion as distinct tokens, separate from #directive.\nTake effect when VSCode starts."
+				},
+				"contextView.contextWindow.lightThemeRules": {
+					"type": "array",
+					"default": [
+						{
+							"token": "keyword",
+							"foreground": "#0000ff",
+							"description": "static|private|protected|public etc."
+						},
+						{
+							"token": "keyword.type",
+							"foreground": "#ff0000",
+							"fontStyle": "bold",
+							"description": "function|class etc."
+						},
+						{
+							"token": "keyword.flow",
+							"foreground": "#ff0000",
+							"fontStyle": "bold",
+							"description": "if|else|for|while etc."
+						},
+						{
+							"token": "keyword.directive",
+							"foreground": "#0000ff",
+							"description": "#include|#pragma|#region|#endregion etc."
+						},
+						{
+							"token": "keyword.directive.control",
+							"foreground": "#ff0000",
+							"fontStyle": "bold",
+							"description": "#define|#undef|#if|#elif|#else|#endif etc."
+						},
+						{
+							"token": "variable.name",
+							"foreground": "#000080",
+							"fontStyle": "bold"
+						},
+						{
+							"token": "variable.parameter",
+							"foreground": "#000080"
+						},
+						{
+							"token": "identifier",
+							"foreground": "#000080"
+						},
+						{
+							"token": "type",
+							"foreground": "#0000ff"
+						},
+						{
+							"token": "class.name",
+							"foreground": "#0000ff",
+							"fontStyle": "bold"
+						},
+						{
+							"token": "function.name",
+							"foreground": "#a00000",
+							"fontStyle": "bold"
+						},
+						{
+							"token": "method.name",
+							"foreground": "#a00000",
+							"fontStyle": "bold"
+						},
+						{
+							"token": "string",
+							"foreground": "#005700"
+						},
+						{
+							"token": "string.escape",
+							"foreground": "#005700"
+						},
+						{
+							"token": "number",
+							"foreground": "#ff0000"
+						},
+						{
+							"token": "boolean",
+							"foreground": "#800080"
+						},
+						{
+							"token": "regexp",
+							"foreground": "#811f3f"
+						},
+						{
+							"token": "null",
+							"foreground": "#0000ff"
+						},
+						{
+							"token": "comment",
+							"foreground": "#005700"
+						},
+						{
+							"token": "property",
+							"foreground": "#000080"
+						},
+						{
+							"token": "operator",
+							"foreground": "#800080"
+						},
+						{
+							"token": "delimiter",
+							"foreground": "#000000"
+						},
+						{
+							"token": "delimiter.bracket",
+							"foreground": "#000000"
+						},
+						{
+							"token": "delimiter.parenthesis",
+							"foreground": "#000000"
+						},
+						{
+							"token": "delimiter.angle",
+							"foreground": "#000000"
+						},
+						{
+							"token": "macro",
+							"foreground": "#A00000",
+							"fontStyle": "italic"
+						}
+					]
+				},
+				"contextView.contextWindow.darkThemeRules": {
+					"type": "array",
+					"default": []
+				}
 			}
 		}
 	},
@@ -220,8 +311,11 @@
 		"lint": "eslint . --ext .ts,.tsx"
 	},
 	"dependencies": {
+		"jsonc-parser": "^3.2.0",
 		"monaco-editor": "^0.34.0",
-		"jsonc-parser": "^3.2.0"
+		"monaco-textmate": "^3.0.1",
+		"onigasm": "^2.2.5",
+		"vscode-textmate": "^9.2.0"
 	},
 	"devDependencies": {
 		"@types/node": "^14.11.2",

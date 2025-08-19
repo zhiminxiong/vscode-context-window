@@ -219,13 +219,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             enableForms: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this._extensionUri, 'media'),
-                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor')
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor'),
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'onigasm', 'lib')
             ]
         };
 
         webviewPanel.title = "Context Window";
 
-        this.resetWebviewPanel(this._currentPanel);
+        await this.resetWebviewPanel(this._currentPanel);
     }
 
     // 键盘更新防抖方法
@@ -276,6 +277,33 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this._history.shift();
             this._historyIndex--;
         }
+    }
+
+    private async _resolveTextMateGrammar(languageId: string): Promise<{
+        scopeName: string;
+        grammarUri: vscode.Uri;
+        embeddedLanguages?: Record<string, string>;
+        injections?: string[];
+    } | undefined> {
+        for (const ext of vscode.extensions.all) {
+            const pkg = ext.packageJSON;
+            const grammars = pkg?.contributes?.grammars as Array<any> | undefined;
+            if (!grammars) continue;
+
+            for (const g of grammars) {
+                // VS Code 里的 grammars 项一般用 language 或者 injectTo/scopeName 关联
+                if (g.language === languageId) {
+                    const grammarPath = vscode.Uri.joinPath(ext.extensionUri, g.path);
+                    return {
+                        scopeName: g.scopeName,
+                        grammarUri: grammarPath,
+                        embeddedLanguages: g.embeddedLanguages,
+                        injections: g.injectTo
+                    };
+                }
+            }
+        }
+        return undefined;
     }
 
     private static readonly TARGET_TOKENS = [
@@ -515,25 +543,10 @@ private _getTokenKeywords(token: string): string[] {
         return [];
     }
 
-    private _buildCustomThemeRules(): Array<{ token: string; foreground?: string; fontStyle?: string }> {
-        const scopeMap = this._buildScopeToColorMap();
-        const result: Array<{ token: string; foreground?: string; fontStyle?: string }> = [];
-        
-        for (const token of ContextWindowProvider.TARGET_TOKENS) {
-            const color = this._findBestColorForToken(token, scopeMap);
-            if (color) {
-                if (token === 'identifier')
-                    console.log('[definition] find');
-                result.push({
-                    token,
-                    foreground: color.foreground,
-                    fontStyle: color.fontStyle
-                });
-            }
-            // 注意：没找到配色的 token 不添加到结果中，让 Monaco 使用默认配色
-        }
-        
-        return result;
+    private _buildCustomThemeRules(): any[] {
+        // 既然已经使用 TextMate 来解析语法高亮，这里直接返回当前主题的 TextMate 规则
+        // 而不是为 Monaco 内置 tokenizer 构建规则
+        return this._getActiveThemeTextMateRules();
     }
 
     // 获取 VS Code 主题对应的 Monaco 主题
@@ -585,7 +598,7 @@ private _getTokenKeywords(token: string): string[] {
         };
 
         // 根据当前主题类型获取对应的自定义主题规则
-        if (!config.contextEditorCfg.useDefaultTheme) {
+        if (false) {//(!config.contextEditorCfg.useDefaultTheme) {
             if (currentTheme === 'vs') {
                 // light主题
                 config.customThemeRules = contextWindowConfig.get('lightThemeRules', []);
@@ -905,8 +918,8 @@ private _getTokenKeywords(token: string): string[] {
         });
     }
 
-    private resetWebviewPanel(panel: vscode.WebviewPanel) {
-        panel.webview.html = this._getHtmlForWebview(panel.webview);
+    private async resetWebviewPanel(panel: vscode.WebviewPanel) {
+        panel.webview.html = await this._getHtmlForWebview(panel.webview);
 
         const iconPath = vscode.Uri.joinPath(this._extensionUri, 'media', 'icon.png');
 
@@ -932,7 +945,7 @@ private _getTokenKeywords(token: string): string[] {
             }
         );
 
-        this.resetWebviewPanel(this._currentPanel);
+        await this.resetWebviewPanel(this._currentPanel);
 
         this._currentPanel?.webview.postMessage({
             type: 'pinState',
@@ -951,12 +964,13 @@ private _getTokenKeywords(token: string): string[] {
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this._extensionUri, 'media'),
-                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor') // 添加 Monaco Editor 资源路径
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor'), // 添加 Monaco Editor 资源路径
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'onigasm', 'lib') // 允许加载 onigasm.wasm
             ]
         };
     
         // 使用 _getHtmlForWebview 方法生成 HTML 内容
-        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+        (async () => { webviewView.webview.html = await this._getHtmlForWebview(webviewView.webview); })();
 
         // 添加webview消息处理
         this.handleWebviewMessage(webviewView.webview);
@@ -1069,7 +1083,7 @@ private _getTokenKeywords(token: string): string[] {
         }
         this._view.description = this._pinned ? "(pinned)" : undefined;
     }
-    private _getHtmlForWebview(webview: vscode.Webview) {
+    private async _getHtmlForWebview(webview: vscode.Webview) {
         // 获取Monaco Editor资源的URI
         const monacoScriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor', 'min', 'vs')
@@ -1079,11 +1093,35 @@ private _getTokenKeywords(token: string): string[] {
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
         const navigationScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'navigation.js'));
 
+        // 获取 onigasm.wasm 的 URI
+        const onigasmWasmUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'onigasm', 'lib', 'onigasm.wasm')
+        ).toString();
+
         const nonce = getNonce();
 
         // 获取当前主题
         const currentTheme = this._getVSCodeTheme();
         const editorConfiguration = this._getVSCodeEditorConfiguration();
+
+        // 获取当前编辑器语言的 TextMate 语法信息
+        let grammarInfo = null;
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            const languageId = activeEditor.document.languageId;
+            const grammar = await this._resolveTextMateGrammar(languageId);
+            if (grammar) {
+                grammarInfo = {
+                    scopeName: grammar.scopeName,
+                    grammarUrl: webview.asWebviewUri(grammar.grammarUri).toString(),
+                    embeddedLanguages: grammar.embeddedLanguages,
+                    injections: grammar.injections
+                };
+            }
+        }
+
+        // 获取 TextMate 主题规则
+        const themeRules = this._getActiveThemeTextMateRules();
 
         //console.log('[definition] ', currentTheme);
         //console.log('[definition] ', editorConfiguration);
@@ -1144,6 +1182,11 @@ private _getTokenKeywords(token: string): string[] {
                 //console.log('[definition] HTML loaded');
                 window.monacoScriptUri = '${monacoScriptUri}';
                 //console.log('[definition] Monaco path set to:', window.monacoScriptUri);
+
+                // TextMate 所需全局变量
+                window.__grammarInfoFromExtension = ${JSON.stringify(grammarInfo)};
+                window.__tmTokenColors = ${JSON.stringify(themeRules)};
+                window.__onigasmWasmUrl = '${onigasmWasmUri}';
 
                 // 设置当前主题 - 确保使用有效的Monaco主题名称
                 window.vsCodeTheme = '${currentTheme}';

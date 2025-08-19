@@ -65,6 +65,64 @@ function isLightTheme() {
     // return light;
 }
 
+// 在 require(['vs/editor/editor.main'], function() { ... }) 回调里
+function initTextMate(monaco, editor, grammarInfo, themeRules, onigasmWasmUrl) {
+    // ... existing code ...
+    (async () => {
+        // 1) 加载 onigasm wasm
+        // 注意：onigasm.wasm 需要通过 webview.asWebviewUri 传过来一个可访问的 URL
+        const { loadWASM } = await import(/* webpackIgnore: true */ 'onigasm');
+        await loadWASM(fetch(onigasmWasmUrl));
+
+        // 2) 初始化 Registry（monaco-textmate）
+        const { Registry, parseRawGrammar } = await import(/* webpackIgnore: true */ 'monaco-textmate');
+        const registry = new Registry({
+            loadGrammar: async (scopeName) => {
+                // 只加载当前语言的 grammar
+                if (scopeName !== grammarInfo.scopeName) return null;
+                const resp = await fetch(grammarInfo.grammarUrl); // 由扩展通过 webviewUri 传入
+                const content = await resp.text();
+                // grammar 可能是 JSON (.tmLanguage.json) 或 PLIST (.plist)
+                return parseRawGrammar(content, grammarInfo.grammarUrl);
+            }
+        });
+
+        // 3) 将 TextMate grammar 绑定到 Monaco
+        const { wireTmGrammars } = await import(/* webpackIgnore: true */ 'monaco-textmate');
+        const grammars = new Map();
+        // 将 Monaco 的 languageId 映射到 TextMate 的 scopeName
+        const currentLangId = editor.getModel().getLanguageId();
+        grammars.set(currentLangId, grammarInfo.scopeName);
+
+        await wireTmGrammars(monaco, registry, editor, grammars);
+
+        // 4) 应用主题：把 VS Code 的 tokenColors 转为 Monaco 主题规则
+        // 你已有 _getActiveThemeTextMateRules()，这里做一个简单映射
+        const rules = [];
+        for (const r of (themeRules || [])) {
+            const scopes = Array.isArray(r.scope) ? r.scope : (r.scope ? [r.scope] : []);
+            for (const s of scopes) {
+                if (r.settings?.foreground) {
+                    rules.push({
+                        token: s, // 直接用 scope 名作为 token，monaco-textmate 会把 scope 挂到 token 上
+                        foreground: r.settings.foreground.replace('#', '')
+                    });
+                }
+                // 也可处理 fontStyle: italic/bold/underline
+            }
+        }
+
+        monaco.editor.defineTheme('vscode-tm', {
+            base: window.vsCodeTheme || 'vs-dark',
+            inherit: true,
+            rules,
+            colors: {} // 也可追加 editor 背景/前景等
+        });
+        monaco.editor.setTheme('vscode-tm');
+    })();
+    // ... existing code ...
+}
+
 // Monaco Editor 初始化和消息处理
 (function() {
     const vscode = acquireVsCodeApi();
@@ -303,6 +361,13 @@ function isLightTheme() {
                         openerService: openerService
                     });
 
+                    // Initialize TextMate after editor is created
+                    try {
+                        initTextMate(monaco, editor, window.__grammarInfoFromExtension, window.__tmTokenColors, window.__onigasmWasmUrl);
+                    } catch (e) {
+                        console.warn('[definition] initTextMate failed to start:', e);
+                    }
+
                     // 添加ResizeObserver来监听容器大小变化（仅用于拖拽分隔条时重新布局）
                     const containerElement = document.getElementById('container');
                     if (containerElement && window.ResizeObserver) {
@@ -420,7 +485,7 @@ function tokenAtPosition(editor, pos) {
                     // 初始化时设置为默认光标
                     forcePointerCursor(false);
 
-                    if (true)/* (!contextEditorCfg.useDefaultTheme) */ {
+                    if (false)/* (!contextEditorCfg.useDefaultTheme) */ {
                         // 定义使用JavaScript提供器作为默认的语言列表
                         const defaultLanguages = [
                             'python', 'java', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
