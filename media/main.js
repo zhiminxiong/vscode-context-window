@@ -22,10 +22,11 @@ function getCssVar(name) {
 }
 
 function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, light) {
+    const rules = Array.isArray(window.__monacoTmRules) ? window.__monacoTmRules : [];
     monaco.editor.defineTheme('custom-vs', {
         base: light ? 'vs' : 'vs-dark',
         inherit: true,
-        rules: vsCodeEditorConfiguration.customThemeRules,
+        //rules: vsCodeEditorConfiguration.customThemeRules,
         colors: {
             'editor.background': getCssVar('--vscode-editor-background'),
             'editor.foreground': getCssVar('--vscode-editor-foreground'),
@@ -54,8 +55,10 @@ function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, light) {
             // 当前行高亮（背景/边框）
             'editor.lineHighlightBackground': getCssVar('--vscode-editor-lineHighlightBackground'),
             'editor.lineHighlightBorder': getCssVar('--vscode-editor-lineHighlightBorder'),
-        }
+        },
+        rules
     });
+    monaco.editor.setTheme('custom-vs');
 }
 function isLightTheme() {
     return window.vsCodeEditorConfiguration?.theme === 'vs';
@@ -67,60 +70,82 @@ function isLightTheme() {
 
 // 在 require(['vs/editor/editor.main'], function() { ... }) 回调里
 function initTextMate(monaco, editor, grammarInfo, themeRules, onigasmWasmUrl) {
-    // ... existing code ...
     (async () => {
-        // 1) 加载 onigasm wasm
-        // 注意：onigasm.wasm 需要通过 webview.asWebviewUri 传过来一个可访问的 URL
-        const { loadWASM } = await import(/* webpackIgnore: true */ 'onigasm');
-        await loadWASM(fetch(onigasmWasmUrl));
+        console.log('[definition] initTextMate started with grammarInfo:', grammarInfo, ', onigasmWasmUrl:', onigasmWasmUrl);
+        // 1) 本地加载 onigasm.wasm（优先 base64，失败再尝试 fetch），不再 import('onigasm')
+        try {
+            if (window.__onigasmWasmBase64 && typeof window.__onigasmWasmBase64 === 'string' && window.__onigasmWasmBase64.length > 0) {
+                const b64 = window.__onigasmWasmBase64;
+                const binary = atob(b64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                // 做一次实例化校验，避免后续因未加载 wasm 阻塞
+                await WebAssembly.compile(bytes.buffer);
+                console.log('[definition] onigasm wasm precompiled from base64 (local), size:', bytes.length);
+            } else {
+                // 兜底：允许使用 onigasmWasmUrl（需 CSP 放开 connect-src），否则可跳过
+                const resp = await fetch(onigasmWasmUrl);
+                const ab = await resp.arrayBuffer();
+                await WebAssembly.compile(ab);
+                console.log('[definition] onigasm wasm precompiled via fetch:', onigasmWasmUrl);
+            }
+        } catch (e) {
+            console.error('[definition] onigasm wasm precompile failed:', e);
+            // 不中断：语法高亮会退化到 Monaco 内置 tokenization
+        }
+        console.log('[definition] onigasm wasm loaded:', onigasmWasmUrl);
 
         // 2) 初始化 Registry（monaco-textmate）
         const { Registry, parseRawGrammar } = await import(/* webpackIgnore: true */ 'monaco-textmate');
         const registry = new Registry({
             loadGrammar: async (scopeName) => {
-                // 只加载当前语言的 grammar
                 if (scopeName !== grammarInfo.scopeName) return null;
-                const resp = await fetch(grammarInfo.grammarUrl); // 由扩展通过 webviewUri 传入
+                const resp = await fetch(grammarInfo.grammarUrl);
                 const content = await resp.text();
-                // grammar 可能是 JSON (.tmLanguage.json) 或 PLIST (.plist)
                 return parseRawGrammar(content, grammarInfo.grammarUrl);
             }
         });
+        console.log('[definition] TextMate Registry initialized with grammar:');
 
         // 3) 将 TextMate grammar 绑定到 Monaco
         const { wireTmGrammars } = await import(/* webpackIgnore: true */ 'monaco-textmate');
         const grammars = new Map();
-        // 将 Monaco 的 languageId 映射到 TextMate 的 scopeName
         const currentLangId = editor.getModel().getLanguageId();
         grammars.set(currentLangId, grammarInfo.scopeName);
 
         await wireTmGrammars(monaco, registry, editor, grammars);
+        console.log('[definition] TextMate grammar wired to Monaco for language:', currentLangId);
 
-        // 4) 应用主题：把 VS Code 的 tokenColors 转为 Monaco 主题规则
-        // 你已有 _getActiveThemeTextMateRules()，这里做一个简单映射
+        // 4) 清洗 tokenColors -> monaco 规则，不做 defineTheme，仅通知外部
         const rules = [];
-        for (const r of (themeRules || [])) {
+        const tmRules = Array.isArray(themeRules) ? themeRules : [];
+        for (const r of tmRules) {
+            if (!r || typeof r !== 'object') continue;
+            const settings = r.settings;
             const scopes = Array.isArray(r.scope) ? r.scope : (r.scope ? [r.scope] : []);
+            if (!settings || typeof settings !== 'object') continue;
+
+            const fg = typeof settings.foreground === 'string' ? settings.foreground.trim() : undefined;
+            const hex = fg ? (fg.startsWith('#') ? fg.slice(1) : fg) : undefined;
+
             for (const s of scopes) {
-                if (r.settings?.foreground) {
+                if (typeof s !== 'string' || !s) continue;
+                if (hex && (hex.length === 6 || hex.length === 8)) {
                     rules.push({
-                        token: s, // 直接用 scope 名作为 token，monaco-textmate 会把 scope 挂到 token 上
-                        foreground: r.settings.foreground.replace('#', '')
+                        token: s,
+                        foreground: hex
+                        // 如需传递 fontStyle，可在确保有效时再开启：
+                        // ...(typeof settings.fontStyle === 'string' && settings.fontStyle ? { fontStyle: settings.fontStyle.trim() } : {})
                     });
                 }
-                // 也可处理 fontStyle: italic/bold/underline
             }
         }
+        console.log('[definition] TextMate rules converted for Monaco:', rules);
 
-        monaco.editor.defineTheme('vscode-tm', {
-            base: window.vsCodeTheme || 'vs-dark',
-            inherit: true,
-            rules,
-            colors: {} // 也可追加 editor 背景/前景等
-        });
-        monaco.editor.setTheme('vscode-tm');
+        // 将规则放到全局，派发事件通知主题更新
+        window.__monacoTmRules = rules;
+        window.dispatchEvent(new CustomEvent('tmRulesReady', { detail: { rules } }));
     })();
-    // ... existing code ...
 }
 
 // Monaco Editor 初始化和消息处理
@@ -361,8 +386,14 @@ function initTextMate(monaco, editor, grammarInfo, themeRules, onigasmWasmUrl) {
                         openerService: openerService
                     });
 
+                    window.addEventListener('tmRulesReady', () => {
+        applyMonacoTheme(window.vsCodeEditorConfiguration || {}, contextEditorCfg, isLightTheme());
+        if (editor) editor.updateOptions({ theme: 'custom-vs' });
+    });
+
                     // Initialize TextMate after editor is created
                     try {
+                        console.log('[definition] Initializing TextMate with grammar info:', window.__grammarInfoFromExtension);
                         initTextMate(monaco, editor, window.__grammarInfoFromExtension, window.__tmTokenColors, window.__onigasmWasmUrl);
                     } catch (e) {
                         console.warn('[definition] initTextMate failed to start:', e);

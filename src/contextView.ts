@@ -674,8 +674,8 @@ private _getTokenKeywords(token: string): string[] {
                     ]
             */
         } else {
-            config.customThemeRules = this._buildCustomThemeRules();//[];
-            console.log('[definition] customThemeRules:', config.customThemeRules);
+            config.customThemeRules = [];//this._buildCustomThemeRules();//[];
+            //console.log('[definition] customThemeRules:', config.customThemeRules);
         }
 
         //console.log('[definition] editor', editorConfig);
@@ -1098,6 +1098,17 @@ private _getTokenKeywords(token: string): string[] {
             vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'onigasm', 'lib', 'onigasm.wasm')
         ).toString();
 
+        // 读取本地 onigasm.wasm 转为 base64，前端直接加载，避免 fetch/CSP
+        let onigasmWasmBase64 = '';
+        try {
+            const onigasmWasmFileUri = vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'onigasm', 'lib', 'onigasm.wasm');
+            const wasmBytes = await vscode.workspace.fs.readFile(onigasmWasmFileUri);
+            onigasmWasmBase64 = Buffer.from(wasmBytes).toString('base64');
+        } catch (e) {
+            // 读取失败时，保持空字符串，前端会回退到 fetch(onigasmWasmUrl)
+            console.warn('[definition] Failed to read onigasm.wasm from disk:', e);
+        }
+
         const nonce = getNonce();
 
         // 获取当前主题
@@ -1187,6 +1198,7 @@ private _getTokenKeywords(token: string): string[] {
                 window.__grammarInfoFromExtension = ${JSON.stringify(grammarInfo)};
                 window.__tmTokenColors = ${JSON.stringify(themeRules)};
                 window.__onigasmWasmUrl = '${onigasmWasmUri}';
+                window.__onigasmWasmBase64 = '${onigasmWasmBase64}';
 
                 // 设置当前主题 - 确保使用有效的Monaco主题名称
                 window.vsCodeTheme = '${currentTheme}';
