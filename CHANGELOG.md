@@ -4,6 +4,14 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.7.0] 2025.08.21
+
+#### Added
+
+- Sync editor color with VS Code.
+- Add "Reveal In File Explorer" option to the context menu.
+- Apply bold styling to custom dark theme.
+
 ## [0.6.6] 2025.08.13
 
 #### Added
