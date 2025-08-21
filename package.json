@@ -208,7 +208,16 @@
                 },
                 "contextView.contextWindow.darkThemeRules": {
                     "type": "array",
-                    "default": []
+                    "default": [
+                        { "token": "keyword.type", "fontStyle": "bold", "description": "function|class etc." },
+                        { "token": "keyword.flow", "fontStyle": "bold", "description": "if|else|for|while etc." },
+                        { "token": "keyword.directive.control", "fontStyle": "bold", "description": "#define|#undef|#if|#elif|#else|#endif etc." },
+                        { "token": "variable.name", "fontStyle": "bold"},
+                        { "token": "class.name", "fontStyle": "bold"},
+                        { "token": "function.name", "fontStyle": "bold"},
+                        { "token": "method.name", "fontStyle": "bold"},
+                        { "token": "macro", "fontStyle": "italic"}
+										]
                 }
 			}
 		}
