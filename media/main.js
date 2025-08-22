@@ -33,11 +33,117 @@ function getCssVar(name) {
     }
 }
 
+// 在同一作用域下新增：通过扩展端异步获取 token 的现有样式（仅 rules）
+async function requestTokenStyle(token) {
+    // 本地兜底读取（避免扩展未实现或超时）
+    function readLocalRule(token) {
+        const rules = window.vsCodeEditorConfiguration?.customThemeRules;
+        if (Array.isArray(rules)) {
+            const r = rules.find(x => x && x.token === token);
+            if (r) return { foreground: r.foreground, fontStyle: r.fontStyle };
+        }
+        return null;
+    }
+
+    // 优先尝试向扩展请求，超时后回退到本地
+    return new Promise((resolve) => {
+        try {
+            const reqId = `ts_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+            const timeout = setTimeout(() => {
+                window.removeEventListener('message', onMessage);
+                resolve(readLocalRule(token));
+            }, 1500); // 1.5s 超时兜底
+
+            function onMessage(event) {
+                const msg = event.data;
+                if (msg && msg.type === 'tokenStyle.get.result' && msg.token === token && (!msg.reqId || msg.reqId === reqId)) {
+                    clearTimeout(timeout);
+                    window.removeEventListener('message', onMessage);
+                    if (msg.error) {
+                        resolve(readLocalRule(token));
+                    } else {
+                        resolve(msg.style || readLocalRule(token));
+                    }
+                }
+            }
+
+            window.addEventListener('message', onMessage);
+            vscode.postMessage({ type: 'tokenStyle.get', token, reqId });
+        } catch (e) {
+            // 任意异常直接走本地兜底
+            resolve(readLocalRule(token));
+        }
+    });
+}
+
+// 通用颜色选择器（Promise 形式返回 hex 颜色或 null）
+function pickColor(initial = '#ff0000') {
+    return new Promise(resolve => {
+        try {
+            const input = document.createElement('input');
+            input.type = 'color';
+            if (typeof initial === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(initial)) {
+                input.value = initial;
+            }
+            input.style.position = 'fixed';
+            input.style.left = '-9999px';
+            input.style.top = '0';
+            input.tabIndex = -1;
+            document.body.appendChild(input);
+
+            const cleanup = () => {
+                if (input && input.parentNode) input.parentNode.removeChild(input);
+            };
+
+            input.addEventListener('change', () => {
+                const val = input.value;
+                cleanup();
+                resolve(val || null);
+            }, { once: true });
+
+            input.addEventListener('blur', () => {
+                setTimeout(() => {
+                    cleanup();
+                    resolve(null);
+                }, 0);
+            }, { once: true });
+
+            input.click();
+        } catch (e) {
+            console.error('[definition] pickColor failed:', e);
+            resolve(null);
+        }
+    });
+}
+
+function tokenAtPosition(model, editor, pos) {
+    const lang = model.getLanguageId();
+    const line = model.getLineContent(pos.lineNumber);
+    const row = monaco.editor.tokenize(line, lang)[0] || [];
+    // row: [{ offset: number, scopes?: string, type?: string }]
+    const col0 = pos.column - 1;
+    let i = 0;
+    for (; i < row.length; i++) {
+        const start = row[i].offset;
+        const end = (i + 1 < row.length ? row[i + 1].offset : line.length);
+        if (col0 >= start && col0 < end) {
+            return {
+                startColumn: start + 1,
+                endColumn: end + 1,
+                text: line.slice(start, end),
+                token: row[i].scopes || row[i].type || ''
+            };
+        }
+    }
+    return null;
+}
+
 // Monaco Editor 初始化和消息处理
 (function() {
     const vscode = acquireVsCodeApi();
     window.vscode = vscode;
     window.isPined = false;
+    window.pickTokenColor = false;
     //console.log('[definition] WebView script started from main.js');
 
     // 确保 WebView 使用 VS Code 的颜色主题
@@ -428,41 +534,6 @@ function getCssVar(name) {
                         monaco.languages.setMonarchTokensProvider('go', languageConfig_go);
                     }
 
-                    // 添加一个简单的 token 检测函数
-                    // function logTokenInfo() {
-                    //     const testCode = 'AA::BB::CC a, b, c = 0;';//editor.getValue();
-                    //     const languageId = editor.getModel().getLanguageId();
-                        
-                    //     console.log('[definition] 测试代码:', testCode);
-                    //     console.log('[definition] 语言ID:', languageId);
-                        
-                    //     // 使用 Monaco 的 tokenize 函数解析代码
-                    //     const tokens = monaco.editor.tokenize(testCode, languageId);
-                        
-                    //     console.log('[definition] Token 解析结果:', tokens);
-                        
-                    //     // 详细打印每个 token
-                    //     if (tokens && tokens.length > 0) {
-                    //         let lastOffset = 0;
-                    //         tokens[0].forEach(token => {
-                    //             const tokenType = token.type;
-                    //             const startOffset = lastOffset;
-                    //             const endOffset = token.offset || testCode.length;
-                    //             const tokenText = testCode.substring(startOffset, endOffset);
-                    //             lastOffset = endOffset;
-                                
-                    //             console.log(`[definition] Token: "${tokenType}",  : "${tokenText}"`);
-                    //         });
-                    //     } else {
-                    //         console.log('[definition] 没有找到 token 信息');
-                    //     }
-                    // }
-
-                    // // 在可能重置样式的场景中重新设置
-                    // editor.onDidChangeModelContent(() => {
-                    //     console.log('[definition] 编辑器内容已更改，token 解析结果:');
-                    //     logTokenInfo();
-                    // });
                     //editor.onDidScrollChange(forcePointerCursor);
                     //editor.onDidChangeConfiguration(forcePointerCursor);
 
@@ -639,7 +710,7 @@ function getCssVar(name) {
                     });
 
                     // 处理链接点击事件 - 在Monaco内部跳转
-                    editor.onMouseUp((e) => {
+                    editor.onMouseUp(async (e) => {
                         //console.log('[definition] Mouse up event:', e.target, e.event);
                         // 完全阻止事件传播
                         //e.event.preventDefault();
@@ -650,7 +721,7 @@ function getCssVar(name) {
                         
                         if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
                             // 获取当前单词
-                            const model = editor.getModel();
+                            let model = editor.getModel();
                             if (!model) {
                                 //console.log('[definition] **********************no model found************************');
                                 model = monaco.editor.createModel(content, language);
@@ -667,6 +738,30 @@ function getCssVar(name) {
                                 if (word) {
                                     if (e.event.rightButton) {
                                         //console.log('[definition] start to mid + jump definition: ', word);
+                                        if (window.pickTokenColor) {
+                                            let tokenInfo = tokenAtPosition(model, editor, position);
+                                            if (tokenInfo && tokenInfo.token) {
+                                                try {
+                                                    const style = await requestTokenStyle(tokenInfo.token);
+                                                    console.log('[definition] token style:', style);
+                                                    const initialColor = (style && typeof style.foreground === 'string' && style.foreground) || '#ff0000';
+                                                    const color = await pickColor(initialColor);
+                                                    console.log('[definition] picked color:', color);
+                                                    if (color) {
+                                                        // 回传扩展端，后续用于更新规则
+                                                        if (tokenInfo) {
+                                                            vscode.postMessage({
+                                                                type: 'tokenStyle.set',
+                                                                color,
+                                                                token: tokenInfo?.token || ''
+                                                            });
+                                                        }
+                                                    }
+                                                } catch (err) {
+                                                    console.error('[definition] pickColor action failed:', err);
+                                                }
+                                            }
+                                        }
                                         editor.setSelection({
                                             startLineNumber: position.lineNumber,
                                             startColumn: word.startColumn,
@@ -1139,6 +1234,9 @@ function getCssVar(name) {
                         
                         try {
                             switch (message.type) {
+                                case 'PickTokenColor':
+                                    window.pickTokenColor = !window.pickTokenColor;
+                                    break;
                                 case 'pinState':
                                     window.isPinned = message.pinned;
                                     if (doubleClickArea) {

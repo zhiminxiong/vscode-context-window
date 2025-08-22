@@ -281,6 +281,41 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    // 返回当前主题对应的配置键：lightThemeRules 或 darkThemeRules
+    private getThemeRuleKey(): 'lightThemeRules' | 'darkThemeRules' {
+        const current = this._getVSCodeTheme(); // 约定：返回 'vs'（light）或其他（dark/hc）
+        return current === 'vs' ? 'lightThemeRules' : 'darkThemeRules';
+    }
+
+    // 读取当前主题的规则数组（仅 rules）
+    private getThemeRules(): any[] {
+        const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+        const key = this.getThemeRuleKey();
+        const rules = cfg.get<any[]>(key, []);
+        return Array.isArray(rules) ? rules : [];
+    }
+
+    // 写回当前主题的规则数组（仅 rules，global = true）
+    private async setThemeRules(rules: any[]): Promise<void> {
+        const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+        const key = this.getThemeRuleKey();
+        await cfg.update(key, rules, true);
+    }
+
+    // upsert：按 token 更新/新增一条规则（仅 foreground/fontStyle）
+    private upsertRule(rules: any[], token: string, patch: { foreground?: string; fontStyle?: string }): any[] {
+        const idx = rules.findIndex(r => r && r.token === token);
+        if (idx >= 0) {
+            const next = { ...rules[idx], token, ...patch };
+            const out = rules.slice();
+            out[idx] = next;
+            return out;
+        } else {
+            const next = { token, ...patch };
+            return [...rules, next];
+        }
+    }
+
     // 获取 VS Code 编辑器完整配置
     private _getVSCodeEditorConfiguration(): any {
         // 获取所有编辑器相关配置
@@ -482,7 +517,82 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // if (!vscode.window.activeTextEditor && this._lastUpdateEditor) {
             //     console.error('[definition] No active text editor found, using last updated editor');
             // }
+            console.log('[definition] Received message from webview:', message);
             switch (message.type) {
+                // 通过 token 查询颜色与字体样式（仅从 rules 读取）
+                case 'tokenStyle.get': {
+                    try {
+                        const token = String(message.token ?? '');
+                        const rules = this.getThemeRules();
+                        let rule = rules.find(r => r && r.token === token);
+                        // 如果找不到，去掉语言后缀（最后一个 . 之后的部分）再尝试一次
+                        if (!rule) {
+                            const lastDot = token.lastIndexOf('.');
+                            if (lastDot > 0) {
+                                const tokenNoLang = token.slice(0, lastDot);
+                                rule = rules.find(r => r && r.token === tokenNoLang);
+                            }
+                        }
+                        this.postMessageToWebview({
+                            type: 'tokenStyle.get.result',
+                            token,
+                            found: !!rule,
+                            style: rule ? { foreground: rule.foreground, fontStyle: rule.fontStyle } : null,
+                        });
+                    } catch (err) {
+                        this.postMessageToWebview({
+                            type: 'tokenStyle.get.result',
+                            error: String(err),
+                            token: message?.token,
+                            found: false,
+                            style: null,
+                        });
+                    }
+                    break;
+                }
+
+                // 通过 token 设置颜色与字体样式（仅写入 rules，并只下发 rules 的更新消息）
+                case 'tokenStyle.set': {
+                    try {
+                        const token = String(message.token ?? '').trim();
+                        const patch: { foreground?: string; fontStyle?: string } = {};
+                        if (typeof message.foreground === 'string' && message.foreground.trim()) {
+                            patch.foreground = message.foreground.trim();
+                        }
+                        if (typeof message.fontStyle === 'string') {
+                            patch.fontStyle = message.fontStyle;
+                        }
+                        if (!token) {
+                            throw new Error('token is required');
+                        }
+
+                        const prev = this.getThemeRules();
+                        const next = this.upsertRule(prev, token, patch);
+                        await this.setThemeRules(next);
+
+                        // 仅推送 rules 的变更，不带其它配置
+                        // this.postMessageToWebview({
+                        //     type: 'customThemeRules.update',
+                        //     customThemeRules: next,
+                        // });
+
+                        // 回传设置结果
+                        this.postMessageToWebview({
+                            type: 'tokenStyle.set.result',
+                            ok: true,
+                            token,
+                            style: { foreground: patch.foreground, fontStyle: patch.fontStyle },
+                        });
+                    } catch (err) {
+                        this.postMessageToWebview({
+                            type: 'tokenStyle.set.result',
+                            ok: false,
+                            token: message?.token,
+                            error: String(err),
+                        });
+                    }
+                    break;
+                }
                 case 'editorReady':
                     if (this._currentPanel && webview == this._currentPanel.webview) {
                         let curContext = this.getCurrentContent();
