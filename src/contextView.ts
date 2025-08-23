@@ -541,7 +541,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             type: 'tokenStyle.get.result',
                             token,
                             found: !!rule,
-                            style: rule ? { foreground: rule.foreground, fontStyle: rule.fontStyle } : null,
+                            style: rule,
                         });
                     } catch (err) {
                         this.postMessageToWebview({

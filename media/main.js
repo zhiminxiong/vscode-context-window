@@ -78,6 +78,7 @@ async function requestTokenStyle(token) {
 }
 
 // 通用颜色选择器（Promise 形式返回 hex 颜色或 null）
+// { "token": "keyword.type", "foreground": "#ff0000", "fontStyle": "bold italic", "description": "function|class etc." }
 function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, tokenText = '') {
     return new Promise(resolve => {
         try {tokenText = 'function.name';
@@ -146,7 +147,7 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             // 显示当前token内容
             if (tokenText) {
                 const tokenLabel = document.createElement('div');
-                tokenLabel.textContent = `当前Token: ${tokenText}`;
+                tokenLabel.textContent = `cur Token: ${tokenText}`;
                 tokenLabel.style.color = 'var(--vscode-editor-foreground)';
                 tokenLabel.style.fontSize = '12px';
                 tokenLabel.style.marginBottom = '5px';
@@ -159,14 +160,50 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             styleContainer.style.alignItems = 'center';
             styleContainer.style.gap = '15px';
 
+            const colorContainer = document.createElement('div');
+            colorContainer.style.position = 'relative';
+            colorContainer.style.width = '30px';
+            colorContainer.style.height = '30px';
+
             // 创建颜色选择器
             const input = document.createElement('input');
             input.type = 'color';
-            if (typeof initial === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(initial)) {
+            const isValidColor = false;//typeof initial === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(initial);
+            if (isValidColor) {
                 input.value = initial;
+            } else {
+                input.value = '#808080'; // 默认灰色
             }
             input.style.width = '30px';
             input.style.height = '30px';
+
+            colorContainer.appendChild(input);
+            
+            // 创建禁用状态指示器（斜线）
+            if (!isValidColor) {
+                const disabledIndicator = document.createElement('div');
+                disabledIndicator.style.position = 'absolute';
+                disabledIndicator.style.top = '0';
+                disabledIndicator.style.left = '0';
+                disabledIndicator.style.width = '30px';
+                disabledIndicator.style.height = '30px';
+                disabledIndicator.style.pointerEvents = 'none';
+                disabledIndicator.style.display = 'flex';
+                disabledIndicator.style.alignItems = 'center';
+                disabledIndicator.style.justifyContent = 'center';
+                disabledIndicator.style.zIndex = '100001';
+                
+                // 创建斜线
+                const slash = document.createElement('div');
+                slash.style.width = '35px';
+                slash.style.height = '2px';
+                slash.style.background = 'var(--vscode-errorForeground)';
+                slash.style.transform = 'rotate(45deg)';
+                slash.style.opacity = '0.7';
+                
+                disabledIndicator.appendChild(slash);
+                colorContainer.appendChild(disabledIndicator);
+            }
 
             // 粗体复选框
             const boldCheckbox = document.createElement('input');
@@ -220,7 +257,7 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             italicOption.appendChild(italicLabel);
 
             // 组装样式容器（颜色选择器和样式选项在同一行）
-            styleContainer.appendChild(input);
+            styleContainer.appendChild(colorContainer);
             styleContainer.appendChild(boldOption);
             styleContainer.appendChild(italicOption);
 
