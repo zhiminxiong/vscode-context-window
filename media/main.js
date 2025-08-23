@@ -57,6 +57,7 @@ async function requestTokenStyle(token) {
             function onMessage(event) {
                 const msg = event.data;
                 if (msg && msg.type === 'tokenStyle.get.result' && msg.token === token && (!msg.reqId || msg.reqId === reqId)) {
+                    console.log('[definition] tokenStyle.get.result:', msg);
                     clearTimeout(timeout);
                     window.removeEventListener('message', onMessage);
                     if (msg.error) {
@@ -741,10 +742,12 @@ function tokenAtPosition(model, editor, pos) {
                                         if (window.pickTokenColor) {
                                             let tokenInfo = tokenAtPosition(model, editor, position);
                                             if (tokenInfo && tokenInfo.token) {
+                                                console.log('[definition] pickColor action for token:', tokenInfo);
                                                 try {
                                                     const style = await requestTokenStyle(tokenInfo.token);
                                                     console.log('[definition] token style:', style);
                                                     const initialColor = (style && typeof style.foreground === 'string' && style.foreground) || '#ff0000';
+                                                    const initalStyle = (style && typeof style.fontStyle === 'string' && style.fontStyle) || '';
                                                     const color = await pickColor(initialColor);
                                                     console.log('[definition] picked color:', color);
                                                     if (color) {

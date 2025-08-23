@@ -524,7 +524,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     try {
                         const token = String(message.token ?? '');
                         const rules = this.getThemeRules();
+                        console.log('[definition] tokenStyle.get rules', rules);
                         let rule = rules.find(r => r && r.token === token);
+                        console.log('[definition] tokenStyle.get exact rule: ', rule);
                         // 如果找不到，去掉语言后缀（最后一个 . 之后的部分）再尝试一次
                         if (!rule) {
                             const lastDot = token.lastIndexOf('.');
@@ -532,7 +534,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 const tokenNoLang = token.slice(0, lastDot);
                                 rule = rules.find(r => r && r.token === tokenNoLang);
                             }
+                            console.log('[definition] tokenStyle.get second rule: ', rule);
                         }
+                        
                         this.postMessageToWebview({
                             type: 'tokenStyle.get.result',
                             token,
