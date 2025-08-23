@@ -78,38 +78,135 @@ async function requestTokenStyle(token) {
 }
 
 // 通用颜色选择器（Promise 形式返回 hex 颜色或 null）
-function pickColor(initial = '#ff0000') {
+function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) {
     return new Promise(resolve => {
         try {
+            // 创建统一容器
+            const container = document.createElement('div');
+            container.style.position = 'fixed';
+            container.style.left = '50%';
+            container.style.top = '50%';
+            container.style.transform = 'translate(-50%, -50%)';
+            container.style.zIndex = '10000';
+            container.style.background = 'var(--vscode-editor-background)';
+            container.style.border = '1px solid var(--vscode-input-border)';
+            container.style.padding = '10px';
+            container.style.borderRadius = '4px';
+            container.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.gap = '10px';
+
+            // 创建颜色选择器
             const input = document.createElement('input');
             input.type = 'color';
             if (typeof initial === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(initial)) {
                 input.value = initial;
             }
-            input.style.position = 'fixed';
-            input.style.left = '-9999px';
-            input.style.top = '0';
-            input.tabIndex = -1;
-            document.body.appendChild(input);
+            input.style.width = '100%';
+            input.style.height = '40px';
+
+            // 创建样式选项容器
+            const styleContainer = document.createElement('div');
+            styleContainer.style.display = 'flex';
+            styleContainer.style.gap = '10px';
+
+            // 粗体复选框
+            const boldCheckbox = document.createElement('input');
+            boldCheckbox.type = 'checkbox';
+            boldCheckbox.id = 'bold-checkbox';
+            boldCheckbox.checked = style.bold;
+            const boldLabel = document.createElement('label');
+            boldLabel.htmlFor = 'bold-checkbox';
+            boldLabel.textContent = 'Bold';
+            boldLabel.style.color = 'var(--vscode-editor-foreground)';
+
+            // 斜体复选框
+            const italicCheckbox = document.createElement('input');
+            italicCheckbox.type = 'checkbox';
+            italicCheckbox.id = 'italic-checkbox';
+            italicCheckbox.checked = style.italic;
+            const italicLabel = document.createElement('label');
+            italicLabel.htmlFor = 'italic-checkbox';
+            italicLabel.textContent = 'Italic';
+            italicLabel.style.color = 'var(--vscode-editor-foreground)';
+
+            // 创建确定按钮
+            const confirmButton = document.createElement('button');
+            confirmButton.textContent = '确定';
+            confirmButton.style.padding = '5px 10px';
+            confirmButton.style.background = 'var(--vscode-button-background)';
+            confirmButton.style.color = 'var(--vscode-button-foreground)';
+            confirmButton.style.border = 'none';
+            confirmButton.style.borderRadius = '2px';
+            confirmButton.style.cursor = 'pointer';
+
+            // 组装样式选项
+            const boldOption = document.createElement('div');
+            boldOption.style.display = 'flex';
+            boldOption.style.alignItems = 'center';
+            boldOption.style.gap = '5px';
+            boldOption.appendChild(boldCheckbox);
+            boldOption.appendChild(boldLabel);
+
+            const italicOption = document.createElement('div');
+            italicOption.style.display = 'flex';
+            italicOption.style.alignItems = 'center';
+            italicOption.style.gap = '5px';
+            italicOption.appendChild(italicCheckbox);
+            italicOption.appendChild(italicLabel);
+
+            styleContainer.appendChild(boldOption);
+            styleContainer.appendChild(italicOption);
+
+            // 组装容器
+            container.appendChild(input);
+            container.appendChild(styleContainer);
+            container.appendChild(confirmButton);
+            document.body.appendChild(container);
 
             const cleanup = () => {
-                if (input && input.parentNode) input.parentNode.removeChild(input);
+                if (container && container.parentNode) {
+                    container.parentNode.removeChild(container);
+                }
             };
 
-            input.addEventListener('change', () => {
-                const val = input.value;
+            // 确定按钮点击事件
+            confirmButton.addEventListener('click', () => {
+                const result = {
+                    color: input.value || null,
+                    bold: boldCheckbox.checked,
+                    italic: italicCheckbox.checked
+                };
                 cleanup();
-                resolve(val || null);
+                resolve(result);
             }, { once: true });
 
-            input.addEventListener('blur', () => {
-                setTimeout(() => {
+            // ESC键关闭
+            const escHandler = (e) => {
+                if (e.key === 'Escape') {
                     cleanup();
+                    document.removeEventListener('keydown', escHandler);
                     resolve(null);
-                }, 0);
-            }, { once: true });
+                }
+            };
+            document.addEventListener('keydown', escHandler);
 
-            input.click();
+            // 外部点击关闭
+            const clickHandler = (e) => {
+                if (!container.contains(e.target)) {
+                    cleanup();
+                    document.removeEventListener('mousedown', clickHandler);
+                    resolve(null);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('mousedown', clickHandler);
+            }, 0);
+
+            // 自动聚焦颜色选择器
+            input.focus();
+
         } catch (e) {
             console.error('[definition] pickColor failed:', e);
             resolve(null);
