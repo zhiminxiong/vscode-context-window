@@ -90,12 +90,59 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             container.style.zIndex = '10000';
             container.style.background = 'var(--vscode-editor-background)';
             container.style.border = '1px solid var(--vscode-input-border)';
-            container.style.padding = '10px';
             container.style.borderRadius = '4px';
             container.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
             container.style.display = 'flex';
             container.style.flexDirection = 'column';
-            container.style.gap = '10px';
+            container.style.overflow = 'hidden';
+            container.style.width = '300px'
+
+            // 创建可拖动标题栏
+            const titleBar = document.createElement('div');
+            titleBar.style.background = 'var(--vscode-titleBar-activeBackground)';
+            titleBar.style.color = 'var(--vscode-titleBar-activeForeground)';
+            titleBar.style.padding = '8px 12px';
+            //titleBar.style.cursor = 'move';
+            titleBar.style.display = 'flex';
+            titleBar.style.justifyContent = 'space-between';
+            titleBar.style.alignItems = 'center';
+            titleBar.style.userSelect = 'none';
+
+            // 标题文字
+            const titleText = document.createElement('span');
+            titleText.textContent = '请选择颜色和样式';
+            titleText.style.fontSize = '13px';
+            titleText.style.fontWeight = '500';
+
+            // 关闭按钮
+            const closeButton = document.createElement('button');
+            closeButton.textContent = '×';
+            closeButton.style.background = 'var(--vscode-inputValidation-errorBorder)';
+            closeButton.style.border = 'none';
+            closeButton.style.color = 'var(--vscode-inputValidation-errorForeground)';
+            closeButton.style.fontSize = '18px';
+            closeButton.style.fontWeight = 'bold';
+            closeButton.style.cursor = 'pointer';
+            closeButton.style.padding = '0';
+            closeButton.style.width = '30px';
+            closeButton.style.height = '30px';
+            closeButton.style.display = 'flex';
+            closeButton.style.alignItems = 'center';
+            closeButton.style.justifyContent = 'center';
+            closeButton.style.borderRadius = '4px';
+            closeButton.addEventListener('mouseover', () => {
+                closeButton.style.background = 'var(--vscode-inputValidation-errorBackground)';
+            });
+            closeButton.addEventListener('mouseout', () => {
+                closeButton.style.background = 'var(--vscode-inputValidation-errorBorder)';
+            });
+
+            // 内容区域
+            const contentArea = document.createElement('div');
+            contentArea.style.padding = '10px';
+            contentArea.style.display = 'flex';
+            contentArea.style.flexDirection = 'column';
+            contentArea.style.gap = '10px';
 
             // 创建颜色选择器
             const input = document.createElement('input');
@@ -103,8 +150,8 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             if (typeof initial === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(initial)) {
                 input.value = initial;
             }
-            input.style.width = '100%';
-            input.style.height = '40px';
+            input.style.width = '30px';
+            input.style.height = '30px';
 
             // 创建样式选项容器
             const styleContainer = document.createElement('div');
@@ -138,6 +185,7 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             confirmButton.style.background = 'var(--vscode-button-background)';
             confirmButton.style.color = 'var(--vscode-button-foreground)';
             confirmButton.style.border = 'none';
+            confirmButton.style.width = '60px';
             confirmButton.style.borderRadius = '2px';
             confirmButton.style.cursor = 'pointer';
 
@@ -159,17 +207,68 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             styleContainer.appendChild(boldOption);
             styleContainer.appendChild(italicOption);
 
+            // 组装标题栏
+            titleBar.appendChild(titleText);
+            titleBar.appendChild(closeButton);
+
+            // 组装内容区域
+            contentArea.appendChild(input);
+            contentArea.appendChild(styleContainer);
+            contentArea.appendChild(confirmButton);
+
             // 组装容器
-            container.appendChild(input);
-            container.appendChild(styleContainer);
-            container.appendChild(confirmButton);
+            container.appendChild(titleBar);
+            container.appendChild(contentArea);
             document.body.appendChild(container);
+
+            // 拖动功能实现
+            let isDragging = false;
+            let startX, startY, startLeft, startTop;
+
+            titleBar.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                // 获取当前实际位置而不是转换后的位置
+                const rect = container.getBoundingClientRect();
+                startLeft = rect.left;
+                startTop = rect.top;
+                //container.style.cursor = 'move';
+                // 移除transform以便直接控制位置
+                container.style.transform = 'none';
+                container.style.left = startLeft + 'px';
+                container.style.top = startTop + 'px';
+            });
+
+            const dragHandler = (e) => {
+                if (!isDragging) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                container.style.left = (startLeft + dx) + 'px';
+                container.style.top = (startTop + dy) + 'px';
+            };
+
+            const dragEndHandler = () => {
+                isDragging = false;
+                container.style.cursor = 'default';
+            };
+
+            document.addEventListener('mousemove', dragHandler);
+            document.addEventListener('mouseup', dragEndHandler);
 
             const cleanup = () => {
                 if (container && container.parentNode) {
                     container.parentNode.removeChild(container);
                 }
+                document.removeEventListener('mousemove', dragHandler);
+                document.removeEventListener('mouseup', dragEndHandler);
             };
+
+            // 关闭按钮事件
+            closeButton.addEventListener('click', () => {
+                cleanup();
+                resolve(null);
+            }, { once: true });
 
             // 确定按钮点击事件
             confirmButton.addEventListener('click', () => {
