@@ -177,33 +177,44 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             input.style.width = '30px';
             input.style.height = '30px';
 
-            colorContainer.appendChild(input);
+            // 创建斜线指示器
+            const disabledIndicator = document.createElement('div');
+            disabledIndicator.style.position = 'absolute';
+            disabledIndicator.style.top = '0';
+            disabledIndicator.style.left = '0';
+            disabledIndicator.style.width = '100%';
+            disabledIndicator.style.height = '100%';
+            disabledIndicator.style.pointerEvents = 'none';
+            disabledIndicator.style.display = 'flex';
+            disabledIndicator.style.alignItems = 'center';
+            disabledIndicator.style.justifyContent = 'center';
+            disabledIndicator.style.zIndex = '1';
+
+            const slash = document.createElement('div');
+            slash.style.width = '42.426px';   // 30px * √2
+            slash.style.height = '2px';
+            slash.style.background = 'var(--vscode-errorForeground)';
+            slash.style.transform = 'rotate(45deg)';
+            slash.style.opacity = '0.7';
+
+            disabledIndicator.appendChild(slash);
             
-            // 创建禁用状态指示器（斜线）
-            if (!isValidColor) {
-                const disabledIndicator = document.createElement('div');
-                disabledIndicator.style.position = 'absolute';
-                disabledIndicator.style.top = '0';
-                disabledIndicator.style.left = '0';
-                disabledIndicator.style.width = '30px';
-                disabledIndicator.style.height = '30px';
-                disabledIndicator.style.pointerEvents = 'none';
-                disabledIndicator.style.display = 'flex';
-                disabledIndicator.style.alignItems = 'center';
-                disabledIndicator.style.justifyContent = 'center';
-                disabledIndicator.style.zIndex = '100001';
-                
-                // 创建斜线
-                const slash = document.createElement('div');
-                slash.style.width = '35px';
-                slash.style.height = '2px';
-                slash.style.background = 'var(--vscode-errorForeground)';
-                slash.style.transform = 'rotate(45deg)';
-                slash.style.opacity = '0.7';
-                
-                disabledIndicator.appendChild(slash);
-                colorContainer.appendChild(disabledIndicator);
-            }
+            // ⭐ 添加颜色选择事件处理
+            input.addEventListener('input', () => {
+                // 当用户选择颜色时，隐藏斜线
+                disabledIndicator.style.display = 'none';
+                input.style.opacity = '1';
+            });
+
+            // ⭐ 添加颜色选择完成事件
+            input.addEventListener('change', () => {
+                // 确保斜线保持隐藏
+                disabledIndicator.style.display = 'none';
+                input.style.opacity = '1';
+            });
+
+            colorContainer.appendChild(input);
+            colorContainer.appendChild(disabledIndicator);
 
             // 粗体复选框
             const boldCheckbox = document.createElement('input');
