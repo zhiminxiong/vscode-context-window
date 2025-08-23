@@ -78,9 +78,9 @@ async function requestTokenStyle(token) {
 }
 
 // 通用颜色选择器（Promise 形式返回 hex 颜色或 null）
-function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) {
+function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, tokenText = '') {
     return new Promise(resolve => {
-        try {
+        try {tokenText = 'function.name';
             // 创建统一容器
             const container = document.createElement('div');
             container.style.position = 'fixed';
@@ -95,14 +95,13 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             container.style.display = 'flex';
             container.style.flexDirection = 'column';
             container.style.overflow = 'hidden';
-            container.style.width = '300px'
+            container.style.width = '300px';
 
             // 创建可拖动标题栏
             const titleBar = document.createElement('div');
             titleBar.style.background = 'var(--vscode-titleBar-activeBackground)';
             titleBar.style.color = 'var(--vscode-titleBar-activeForeground)';
-            titleBar.style.padding = '8px 12px';
-            //titleBar.style.cursor = 'move';
+            titleBar.style.padding = '8px 8px';
             titleBar.style.display = 'flex';
             titleBar.style.justifyContent = 'space-between';
             titleBar.style.alignItems = 'center';
@@ -144,6 +143,22 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             contentArea.style.flexDirection = 'column';
             contentArea.style.gap = '10px';
 
+            // 显示当前token内容
+            if (tokenText) {
+                const tokenLabel = document.createElement('div');
+                tokenLabel.textContent = `当前Token: ${tokenText}`;
+                tokenLabel.style.color = 'var(--vscode-editor-foreground)';
+                tokenLabel.style.fontSize = '12px';
+                tokenLabel.style.marginBottom = '5px';
+                contentArea.appendChild(tokenLabel);
+            }
+
+            // 创建样式选项容器（同一行）
+            const styleContainer = document.createElement('div');
+            styleContainer.style.display = 'flex';
+            styleContainer.style.alignItems = 'center';
+            styleContainer.style.gap = '15px';
+
             // 创建颜色选择器
             const input = document.createElement('input');
             input.type = 'color';
@@ -152,11 +167,6 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             }
             input.style.width = '30px';
             input.style.height = '30px';
-
-            // 创建样式选项容器
-            const styleContainer = document.createElement('div');
-            styleContainer.style.display = 'flex';
-            styleContainer.style.gap = '10px';
 
             // 粗体复选框
             const boldCheckbox = document.createElement('input');
@@ -178,14 +188,19 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             italicLabel.textContent = 'Italic';
             italicLabel.style.color = 'var(--vscode-editor-foreground)';
 
+            // 创建确定按钮容器（居中）
+            const buttonContainer = document.createElement('div');
+            buttonContainer.style.display = 'flex';
+            buttonContainer.style.justifyContent = 'center';
+            buttonContainer.style.marginTop = '10px';
+
             // 创建确定按钮
             const confirmButton = document.createElement('button');
             confirmButton.textContent = '确定';
-            confirmButton.style.padding = '5px 10px';
+            confirmButton.style.padding = '5px 15px';
             confirmButton.style.background = 'var(--vscode-button-background)';
             confirmButton.style.color = 'var(--vscode-button-foreground)';
             confirmButton.style.border = 'none';
-            confirmButton.style.width = '60px';
             confirmButton.style.borderRadius = '2px';
             confirmButton.style.cursor = 'pointer';
 
@@ -204,17 +219,21 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             italicOption.appendChild(italicCheckbox);
             italicOption.appendChild(italicLabel);
 
+            // 组装样式容器（颜色选择器和样式选项在同一行）
+            styleContainer.appendChild(input);
             styleContainer.appendChild(boldOption);
             styleContainer.appendChild(italicOption);
+
+            // 组装按钮容器
+            buttonContainer.appendChild(confirmButton);
 
             // 组装标题栏
             titleBar.appendChild(titleText);
             titleBar.appendChild(closeButton);
 
             // 组装内容区域
-            contentArea.appendChild(input);
             contentArea.appendChild(styleContainer);
-            contentArea.appendChild(confirmButton);
+            contentArea.appendChild(buttonContainer);
 
             // 组装容器
             container.appendChild(titleBar);
@@ -233,7 +252,6 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
                 const rect = container.getBoundingClientRect();
                 startLeft = rect.left;
                 startTop = rect.top;
-                //container.style.cursor = 'move';
                 // 移除transform以便直接控制位置
                 container.style.transform = 'none';
                 container.style.left = startLeft + 'px';
@@ -250,7 +268,6 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
 
             const dragEndHandler = () => {
                 isDragging = false;
-                container.style.cursor = 'default';
             };
 
             document.addEventListener('mousemove', dragHandler);
@@ -285,29 +302,26 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }) 
             const escHandler = (e) => {
                 if (e.key === 'Escape') {
                     cleanup();
-                    document.removeEventListener('keydown', escHandler);
                     resolve(null);
+                    document.removeEventListener('keydown', escHandler);
                 }
             };
             document.addEventListener('keydown', escHandler);
 
-            // 外部点击关闭
-            const clickHandler = (e) => {
+            // 点击外部关闭
+            const outsideClickHandler = (e) => {
                 if (!container.contains(e.target)) {
                     cleanup();
-                    document.removeEventListener('mousedown', clickHandler);
                     resolve(null);
+                    document.removeEventListener('mousedown', outsideClickHandler);
                 }
             };
             setTimeout(() => {
-                document.addEventListener('mousedown', clickHandler);
+                document.addEventListener('mousedown', outsideClickHandler);
             }, 0);
 
-            // 自动聚焦颜色选择器
-            input.focus();
-
-        } catch (e) {
-            console.error('[definition] pickColor failed:', e);
+        } catch (error) {
+            console.error('Error in pickColor:', error);
             resolve(null);
         }
     });
