@@ -216,6 +216,50 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             colorContainer.appendChild(input);
             colorContainer.appendChild(disabledIndicator);
 
+            // 在创建样式选项时添加以下代码
+const noColorButton = document.createElement('div');
+noColorButton.style.position = 'relative';
+noColorButton.style.width = '15px';  // 缩小到一半
+noColorButton.style.height = '15px';  // 缩小到一半
+noColorButton.style.cursor = 'pointer';
+noColorButton.style.display = 'flex';
+noColorButton.style.alignItems = 'center';
+noColorButton.style.justifyContent = 'center';
+noColorButton.style.border = '1px solid var(--vscode-button-border, transparent)';
+noColorButton.style.borderRadius = '2px';
+noColorButton.style.backgroundColor = 'var(--vscode-button-background)';
+noColorButton.style.marginLeft = '-8px';  // 只留 1px 间隙
+noColorButton.style.marginRight = '8px';
+noColorButton.style.alignSelf = 'flex-end';
+noColorButton.style.marginBottom = '0';
+
+// 鼠标悬停效果
+noColorButton.addEventListener('mouseover', () => {
+    noColorButton.style.backgroundColor = 'var(--vscode-button-hoverBackground)';
+});
+noColorButton.addEventListener('mouseout', () => {
+    noColorButton.style.backgroundColor = 'var(--vscode-button-background)';
+});
+
+// 修改斜线样式
+const buttonSlash = document.createElement('div');
+buttonSlash.style.width = '12px';  // 缩小斜线
+buttonSlash.style.height = '1.5px';  // 稍微减小高度
+buttonSlash.style.background = 'var(--vscode-button-foreground)';
+buttonSlash.style.transform = 'rotate(45deg)';
+buttonSlash.style.opacity = '0.9';
+
+noColorButton.appendChild(buttonSlash);
+
+// 添加点击事件
+noColorButton.addEventListener('click', () => {
+    // 显示颜色选择器上的斜线
+    disabledIndicator.style.display = 'flex';
+    input.style.opacity = '1';
+    // 设置默认灰色
+    input.value = '#808080';
+});
+
             // 粗体复选框
             const boldCheckbox = document.createElement('input');
             boldCheckbox.type = 'checkbox';
@@ -269,6 +313,7 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
 
             // 组装样式容器（颜色选择器和样式选项在同一行）
             styleContainer.appendChild(colorContainer);
+            styleContainer.appendChild(noColorButton);
             styleContainer.appendChild(boldOption);
             styleContainer.appendChild(italicOption);
 
@@ -338,7 +383,7 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             // 确定按钮点击事件
             confirmButton.addEventListener('click', () => {
                 const result = {
-                    color: input.value || null,
+                    color: disabledIndicator.style.display === 'flex' ? null : input.value,//input.value || null,
                     bold: boldCheckbox.checked,
                     italic: italicCheckbox.checked
                 };
