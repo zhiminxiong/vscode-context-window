@@ -1683,6 +1683,7 @@ function tokenAtPosition(model, editor, pos) {
                                 case 'PickTokenStyle':
                                     if (!contextEditorCfg.useDefaultTheme) {
                                         window.pickTokenStyle = !window.pickTokenStyle;
+                                        lastPickColorPosition = null;
                                     }
                                     break;
                                 case 'pinState':
