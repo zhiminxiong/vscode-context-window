@@ -366,12 +366,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 fontSize: contextWindowConfig.get('fontSize', 14),
                 fontFamily: contextWindowConfig.get('fontFamily', 'Consolas, monospace'),
                 minimap: contextWindowConfig.get('minimap', true),
-                useDefaultTheme: contextWindowConfig.get('useDefaultTheme', true),
+                useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
             }
         };
 
         // 根据当前主题类型获取对应的自定义主题规则
-        if (!config.contextEditorCfg.useDefaultTheme) {
+        if (!config.contextEditorCfg.useDefaultTokenizer) {
             if (currentTheme === 'vs') {
                 // light主题
                 config.customThemeRules = contextWindowConfig.get('lightThemeRules', []);

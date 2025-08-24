@@ -365,20 +365,30 @@ async function pickTokenStyle(options = {
             boldCheckbox.type = 'checkbox';
             boldCheckbox.id = 'bold-checkbox';
             boldCheckbox.checked = style.bold;
+            boldCheckbox.style.margin = '0';
             const boldLabel = document.createElement('label');
             boldLabel.htmlFor = 'bold-checkbox';
             boldLabel.textContent = 'Bold';
             boldLabel.style.color = 'var(--vscode-editor-foreground)';
+            boldLabel.addEventListener('click', (e) => {
+                e.preventDefault();
+                boldCheckbox.click();
+            });
 
             // 斜体复选框
             const italicCheckbox = document.createElement('input');
             italicCheckbox.type = 'checkbox';
             italicCheckbox.id = 'italic-checkbox';
             italicCheckbox.checked = style.italic;
+            italicCheckbox.style.margin = '0';
             const italicLabel = document.createElement('label');
             italicLabel.htmlFor = 'italic-checkbox';
             italicLabel.textContent = 'Italic';
             italicLabel.style.color = 'var(--vscode-editor-foreground)';
+            italicLabel.addEventListener('click', (e) => {
+                e.preventDefault();
+                italicCheckbox.click();
+            });
 
             // 创建确定按钮容器（居中）
             const buttonContainer = document.createElement('div');
@@ -718,7 +728,7 @@ function tokenAtPosition(model, editor, pos) {
                 function isLightTheme() {
                     return window.vsCodeEditorConfiguration?.theme === 'vs';
                     // const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
-                    // if (!contextEditorCfg.useDefaultTheme)
+                    // if (!contextEditorCfg.useDefaultTokenizer)
                     //     light = true; // 如果不使用默认主题，则强制使用自定义浅色主题
                     // return light;
                 }
@@ -948,7 +958,7 @@ function tokenAtPosition(model, editor, pos) {
                     // 初始化时设置为默认光标
                     forcePointerCursor(false);
 
-                    if (!contextEditorCfg.useDefaultTheme) {
+                    if (!contextEditorCfg.useDefaultTokenizer) {
                         // 定义使用JavaScript提供器作为默认的语言列表
                         const defaultLanguages = [
                             'python', 'java', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
@@ -1681,7 +1691,7 @@ function tokenAtPosition(model, editor, pos) {
                         try {
                             switch (message.type) {
                                 case 'PickTokenStyle':
-                                    if (!contextEditorCfg.useDefaultTheme) {
+                                    if (!contextEditorCfg.useDefaultTokenizer) {
                                         window.pickTokenStyle = !window.pickTokenStyle;
                                         lastPickColorPosition = null;
                                     }

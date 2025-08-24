@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.7.1] 2025.08.24
+
+#### Added
+
+- When `useDefaultTokenizer` is disabled, add a context-menu option to apply a style to the token under the cursor.
+
 ## [0.7.0] 2025.08.21
 
 #### Added

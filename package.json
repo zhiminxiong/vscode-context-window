@@ -165,10 +165,10 @@
                     "default": "Consolas, monospace",
                     "description": "Context Window fontFamily"
                 },
-                "contextView.contextWindow.useDefaultTheme": {
+                "contextView.contextWindow.useDefaultTokenizer": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Using the default theme of Monaco Editor.\nTake effect when VSCode starts."
+                    "description": "Using the default tokenizer of Monaco Editor.\nTake effect when VSCode starts."
                 },
                 "contextView.contextWindow.fixToken": {
                     "type": "boolean",

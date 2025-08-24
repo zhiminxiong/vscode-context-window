@@ -22,16 +22,20 @@ Please check out that extension if you just want documentation in the panel or s
 ![feature2](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature2.gif?raw=true)
 - Floating windows are supported—you can trigger them via a keyboard shortcut or by right-clicking and selecting "Float".
 
+![tokenStyle](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/tokenStyle.gif?raw=true)
+
+- When `useDefaultTokenizer` is disabled, add a context-menu option to apply a style to the token under the cursor.
+
 ## Configuration
 
 - `contextView.contextWindow.updateMode` — Controls how the documentation view is updated when the cursor moves. Possible values:
     - `live` — (default) The context always tracks the current cursor position.
     - `sticky` — The context tracks the current cursor position. However if there is no symbol at the current position, it continues showing the previous context.
-- `contextView.contextWindow.useDefaultTheme` — Using the default theme of Monaco Editor
-    - Checked by default to use the default theme.
-    - When unchecked, the custom theme will be used—primarily for token  highlighting—and it must be used together with lightThemeRules or darkThemeRules.
+- `contextView.contextWindow.useDefaultTokenizer` — Using the default tokenizer of Monaco Editor
+    - Checked by default to use the default tokenizer.
+    - When unchecked, the custom tokenizer will be used—primarily for token  highlighting—and it must be used together with lightThemeRules or darkThemeRules.
 - `contextView.contextWindow.lightThemeRules` — Color rules for the light theme
-    - Default colors are provided—modify them as needed; leaving the fields empty will fall back to the default theme.
+    - Default colors are provided—modify them as needed; leaving the fields empty will fall back to the default tokenizer.
 
 ## Commands
 
