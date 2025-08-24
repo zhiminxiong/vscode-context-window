@@ -179,7 +179,7 @@ async function pickTokenStyle(options = {
             const titleBar = document.createElement('div');
             titleBar.style.background = 'var(--vscode-titleBar-activeBackground)';
             titleBar.style.color = 'var(--vscode-titleBar-activeForeground)';
-            titleBar.style.padding = '8px 8px';
+            titleBar.style.padding = '5px 8px';
             titleBar.style.display = 'flex';
             titleBar.style.justifyContent = 'space-between';
             titleBar.style.alignItems = 'center';
@@ -189,7 +189,7 @@ async function pickTokenStyle(options = {
             const titleText = document.createElement('span');
             titleText.textContent = 'Select Token Style';
             titleText.style.fontSize = '13px';
-            titleText.style.fontWeight = '500';
+            titleText.style.fontWeight = '600';
 
             // 关闭按钮
             const closeButton = document.createElement('button');
@@ -201,12 +201,12 @@ async function pickTokenStyle(options = {
             closeButton.style.fontWeight = 'bold';
             closeButton.style.cursor = 'pointer';
             closeButton.style.padding = '0';
-            closeButton.style.width = '30px';
-            closeButton.style.height = '30px';
+            closeButton.style.width = '26px';
+            closeButton.style.height = '26px';
             closeButton.style.display = 'flex';
             closeButton.style.alignItems = 'center';
             closeButton.style.justifyContent = 'center';
-            closeButton.style.borderRadius = '4px';
+            closeButton.style.borderRadius = '3px';
 
             // 修改悬停效果
             closeButton.addEventListener('mouseover', () => {
@@ -383,8 +383,22 @@ async function pickTokenStyle(options = {
             // 创建确定按钮容器（居中）
             const buttonContainer = document.createElement('div');
             buttonContainer.style.display = 'flex';
+            buttonContainer.style.flexDirection = 'column'; // 垂直堆叠
+            buttonContainer.style.alignItems = 'center';    // 水平居中按钮
             buttonContainer.style.justifyContent = 'center';
             buttonContainer.style.marginTop = '10px';
+            buttonContainer.style.width = '100%';
+
+            // 分隔条（位于按钮上方）
+            const btnSeparator = document.createElement('div');
+            btnSeparator.style.width = '100%';
+            btnSeparator.style.height = '1px';
+            btnSeparator.style.background = 'var(--vscode-editorWidget-border)'; // 主题感知颜色
+            btnSeparator.style.opacity = '1';
+            btnSeparator.style.marginBottom = '8px';
+            btnSeparator.style.alignSelf = 'stretch'; // 拉满容器宽度
+
+            buttonContainer.appendChild(btnSeparator);
 
             // 创建确定按钮
             const confirmButton = document.createElement('button');
@@ -1664,11 +1678,12 @@ function tokenAtPosition(model, editor, pos) {
                     window.addEventListener('message', event => {
                         const message = event.data;
                         //console.log('[definition] Received message:', message);
-                        
                         try {
                             switch (message.type) {
                                 case 'PickTokenStyle':
-                                    window.pickTokenStyle = !window.pickTokenStyle;
+                                    if (!contextEditorCfg.useDefaultTheme) {
+                                        window.pickTokenStyle = !window.pickTokenStyle;
+                                    }
                                     break;
                                 case 'pinState':
                                     window.isPinned = message.pinned;
