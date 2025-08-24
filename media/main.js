@@ -33,11 +33,555 @@ function getCssVar(name) {
     }
 }
 
+// 在同一作用域下新增：通过扩展端异步获取 token 的现有样式（仅 rules）
+async function requestTokenStyle(token) {
+    // 本地兜底读取（避免扩展未实现或超时）
+    function readLocalRule(token) {
+        const rules = window.vsCodeEditorConfiguration?.customThemeRules;
+        if (Array.isArray(rules)) {
+            const r = rules.find(x => x && x.token === token);
+            if (r) return { foreground: r.foreground, fontStyle: r.fontStyle };
+        }
+        return null;
+    }
+
+    // 优先尝试向扩展请求，超时后回退到本地
+    return new Promise((resolve) => {
+        try {
+            const reqId = `ts_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+            const timeout = setTimeout(() => {
+                window.removeEventListener('message', onMessage);
+                resolve(readLocalRule(token));
+            }, 1500); // 1.5s 超时兜底
+
+            function onMessage(event) {
+                const msg = event.data;
+                if (msg && msg.type === 'tokenStyle.get.result' && msg.token === token && (!msg.reqId || msg.reqId === reqId)) {
+                    //console.log('[definition] tokenStyle.get.result:', msg);
+                    clearTimeout(timeout);
+                    window.removeEventListener('message', onMessage);
+                    if (msg.error) {
+                        resolve(readLocalRule(token));
+                    } else {
+                        resolve(msg.style || readLocalRule(token));
+                    }
+                }
+            }
+
+            window.addEventListener('message', onMessage);
+            vscode.postMessage({ type: 'tokenStyle.get', token, reqId });
+        } catch (e) {
+            // 任意异常直接走本地兜底
+            resolve(readLocalRule(token));
+        }
+    });
+}
+
+function getTokenColorFromDOM(editor, position) {
+    // 只负责从 DOM 获取渲染颜色，返回 hex 字符串或 null
+    try {
+        const domNode = editor.getDomNode();
+        if (!domNode) return null;
+
+        // getScrolledVisiblePosition 返回 null 当 position 不在可视区域
+        const viewPos = editor.getScrolledVisiblePosition(position);
+        if (!viewPos) return null;
+
+        const editorRect = domNode.getBoundingClientRect();
+        // 取位置中点，避免落到字符边缘（调整偏移以对齐到字符）
+        const x = Math.round(editorRect.left + viewPos.left + 2);
+        const y = Math.round(editorRect.top + viewPos.top + (viewPos.height || 16) / 2);
+
+        // 获取该点所有元素（比 elementFromPoint 更稳）
+        const els = document.elementsFromPoint(x, y);
+        if (!els || els.length === 0) return null;
+
+        // 寻找最可能是 token 的元素：span、class 包含 mtk（monaco token class）或有 color 样式
+        for (const el of els) {
+            if (!el) continue;
+            // 优先找 <span class="mtk..."> 或直接带内联 color
+            const tag = el.tagName;
+            const cls = (el.className || '').toString();
+            if (tag === 'SPAN' && (cls.includes('mtk') || cls.includes('token') || window.getComputedStyle(el).color)) {
+                const computed = window.getComputedStyle(el).color;
+                const hex = cssColorToMonaco(computed);
+                if (hex) return hex;
+            }
+            // 也检查父元素（有时 color 在父上）
+            const parent = el.parentElement;
+            if (parent) {
+                const parentColor = window.getComputedStyle(parent).color;
+                const hex2 = cssColorToMonaco(parentColor);
+                if (hex2) return hex2;
+            }
+        }
+
+        return null;
+    } catch (err) {
+        console.error('[getTokenColorFromDOM] error', err);
+        return null;
+    }
+}
+
+let lastPickColorPosition = null; // 记录上次弹窗位置
+
+// 通用颜色选择器（Promise 形式返回 hex 颜色或 null）
+// { "token": "keyword.type", "foreground": "#ff0000", "fontStyle": "bold italic", "description": "function|class etc." }
+async function pickTokenStyle(options = { 
+    token: '',
+    foreground: '#ff0000', 
+    fontStyle: '',
+    description: '' 
+}, domColor = '#808080', word = '') {
+    const hasInitialColor = typeof options.foreground === 'string' && options.foreground.trim();
+    const initialColor = hasInitialColor ? options.foreground : '#ff0000';
+
+    //console.log('[definition] pickColor initial:', initialColor, ' domColor:', domColor, ' hasInitialColor:', hasInitialColor);
+    
+    const style = {
+        bold: options.fontStyle?.includes('bold') || false,
+        italic: options.fontStyle?.includes('italic') || false
+    };
+    
+    const tokenText = options.token || '';
+    //console.log('[definition] domcolor: ', domColor);
+
+    return new Promise(resolve => {
+        try {
+            //console.log('[definition] pickColor options:', options);
+            // 创建统一容器
+            const container = document.createElement('div');
+            container.style.position = 'fixed';
+            container.style.zIndex = '10000';
+            container.style.background = 'var(--vscode-editor-background)';
+            container.style.border = '1px solid var(--vscode-input-border)';
+            container.style.borderRadius = '4px';
+            container.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.overflow = 'hidden';
+            container.style.width = '300px';
+
+            // 使用上次记录的位置，如果没有则居中显示
+            if (lastPickColorPosition) {
+                container.style.left = lastPickColorPosition.left + 'px';
+                container.style.top = lastPickColorPosition.top + 'px';
+                // 移除 transform，因为我们使用具体坐标
+                container.style.transform = 'none';
+            } else {
+                // 首次显示时居中
+                container.style.left = '50%';
+                container.style.top = '50%';
+                container.style.transform = 'translate(-50%, -50%)';
+            }
+
+            // 创建可拖动标题栏
+            const titleBar = document.createElement('div');
+            titleBar.style.background = 'var(--vscode-titleBar-activeBackground)';
+            titleBar.style.color = 'var(--vscode-titleBar-activeForeground)';
+            titleBar.style.padding = '5px 8px';
+            titleBar.style.display = 'flex';
+            titleBar.style.justifyContent = 'space-between';
+            titleBar.style.alignItems = 'center';
+            titleBar.style.userSelect = 'none';
+
+            // 标题文字
+            const titleText = document.createElement('span');
+            titleText.textContent = 'Select Token Style';
+            titleText.style.fontSize = '13px';
+            titleText.style.fontWeight = '600';
+
+            // 关闭按钮
+            const closeButton = document.createElement('button');
+            closeButton.textContent = '×';
+            closeButton.style.background = 'var(--vscode-titleBar-activeBackground)'; // 使用标题栏背景色
+            closeButton.style.border = 'none';
+            closeButton.style.color = 'var(--vscode-titleBar-activeForeground)';  // 使用标题栏前景色
+            closeButton.style.fontSize = '18px';
+            closeButton.style.fontWeight = 'bold';
+            closeButton.style.cursor = 'pointer';
+            closeButton.style.padding = '0';
+            closeButton.style.width = '26px';
+            closeButton.style.height = '26px';
+            closeButton.style.display = 'flex';
+            closeButton.style.alignItems = 'center';
+            closeButton.style.justifyContent = 'center';
+            closeButton.style.borderRadius = '3px';
+
+            // 修改悬停效果
+            closeButton.addEventListener('mouseover', () => {
+                closeButton.style.background = 'var(--vscode-errorForeground)'; // hover 时使用错误前景色（通常是红色）
+            });
+            closeButton.addEventListener('mouseout', () => {
+                closeButton.style.background = 'var(--vscode-titleBar-activeBackground)'; // 恢复标题栏背景色
+            });
+
+            // 内容区域
+            const contentArea = document.createElement('div');
+            contentArea.style.padding = '10px';
+            contentArea.style.display = 'flex';
+            contentArea.style.flexDirection = 'column';
+            contentArea.style.gap = '10px';
+
+            // 显示当前token内容
+            const tokenLabel = document.createElement('div');
+            tokenLabel.style.display = 'flex';
+            tokenLabel.style.alignItems = 'flex-end';
+            tokenLabel.style.gap = '5px';
+            tokenLabel.style.alignSelf = 'flex-start';
+            tokenLabel.style.width = '100%';
+            tokenLabel.style.marginBottom = '5px';
+
+            const tokenPrefix = document.createElement('span');
+            tokenPrefix.textContent = word ? word+' : ' : 'Cur Token : ';
+            tokenPrefix.style.color = 'var(--vscode-editor-foreground)';
+            tokenPrefix.style.fontSize = '12px';
+            tokenPrefix.style.display = 'inline-block';
+            tokenPrefix.style.verticalAlign = 'bottom';
+            tokenPrefix.style.lineHeight = '1';
+
+            const tokenValue = document.createElement('span');
+            tokenValue.textContent = tokenText || '(none)';
+            tokenValue.style.color = 'var(--vscode-editor-foreground)';//'#000080';  // 蓝黑色
+            tokenValue.style.fontSize = '15px';   // 比前缀大一号
+            tokenValue.style.fontWeight = '500';  // 稍微加粗
+            tokenValue.style.display = 'inline-block';
+            tokenValue.style.verticalAlign = 'bottom';
+            tokenValue.style.lineHeight = '1';
+
+            tokenLabel.appendChild(tokenPrefix);
+            tokenLabel.appendChild(tokenValue);
+            tokenLabel.style.marginBottom = '5px';
+            contentArea.appendChild(tokenLabel);
+
+            // 创建样式选项容器（同一行）
+            const styleContainer = document.createElement('div');
+            styleContainer.style.display = 'flex';
+            styleContainer.style.alignItems = 'flex-end';
+            styleContainer.style.gap = '15px';
+
+            const colorContainer = document.createElement('div');
+            colorContainer.style.position = 'relative';
+            colorContainer.style.width = '30px';
+            colorContainer.style.height = '30px';``
+
+            // 创建颜色选择器
+            const input = document.createElement('input');
+            input.type = 'color';
+            if (hasInitialColor) {
+                input.value = initialColor;
+            } else {
+                input.value = domColor; // 默认灰色
+            }
+            //console.log('create input:', input.value);
+            input.style.width = '30px';
+            input.style.height = '30px';
+
+            // 创建斜线指示器
+            const disabledIndicator = document.createElement('div');
+            disabledIndicator.style.position = 'absolute';
+            disabledIndicator.style.top = '0';
+            disabledIndicator.style.left = '0';
+            disabledIndicator.style.width = '100%';
+            disabledIndicator.style.height = '100%';
+            disabledIndicator.style.pointerEvents = 'none';
+            disabledIndicator.style.alignItems = 'center';
+            disabledIndicator.style.justifyContent = 'center';
+            disabledIndicator.style.zIndex = '1';
+            disabledIndicator.style.display = hasInitialColor ? 'none' : 'flex';
+
+            const slash = document.createElement('div');
+            slash.style.width = '42.426px';   // 30px * √2
+            slash.style.height = '2px';
+            slash.style.background = 'var(--vscode-errorForeground)';
+            slash.style.transform = 'rotate(45deg)';
+            slash.style.opacity = '0.7';
+
+            disabledIndicator.appendChild(slash);
+            
+            // ⭐ 添加颜色选择事件处理
+            input.addEventListener('input', () => {
+                // 当用户选择颜色时，隐藏斜线
+                disabledIndicator.style.display = 'none';
+                input.style.opacity = '1';
+            });
+
+            // ⭐ 添加颜色选择完成事件
+            input.addEventListener('change', () => {
+                // 确保斜线保持隐藏
+                disabledIndicator.style.display = 'none';
+                input.style.opacity = '1';
+            });
+
+            colorContainer.appendChild(input);
+            colorContainer.appendChild(disabledIndicator);
+
+            // 在创建样式选项时添加以下代码
+            const noColorButton = document.createElement('div');
+            noColorButton.style.position = 'relative';
+            noColorButton.style.width = '15px';  // 缩小到一半
+            noColorButton.style.height = '15px';  // 缩小到一半
+            noColorButton.style.cursor = 'pointer';
+            noColorButton.style.display = 'flex';
+            noColorButton.style.alignItems = 'center';
+            noColorButton.style.justifyContent = 'center';
+            noColorButton.style.border = '1px solid var(--vscode-button-border, transparent)';
+            noColorButton.style.borderRadius = '2px';
+            noColorButton.style.backgroundColor = 'var(--vscode-button-background)';
+            noColorButton.style.marginLeft = '-8px';  // 只留 1px 间隙
+            noColorButton.style.marginRight = '8px';
+            noColorButton.style.alignSelf = 'flex-end';
+            noColorButton.style.marginBottom = '0';
+
+            // 鼠标悬停效果
+            noColorButton.addEventListener('mouseover', () => {
+                noColorButton.style.backgroundColor = 'var(--vscode-button-hoverBackground)';
+            });
+            noColorButton.addEventListener('mouseout', () => {
+                noColorButton.style.backgroundColor = 'var(--vscode-button-background)';
+            });
+
+            // 修改斜线样式
+            const buttonSlash = document.createElement('div');
+            buttonSlash.style.width = '12px';  // 缩小斜线
+            buttonSlash.style.height = '1.5px';  // 稍微减小高度
+            buttonSlash.style.background = 'var(--vscode-button-foreground)';
+            buttonSlash.style.transform = 'rotate(45deg)';
+            buttonSlash.style.opacity = '0.9';
+
+            noColorButton.appendChild(buttonSlash);
+
+            // 添加点击事件
+            noColorButton.addEventListener('click', () => {
+                // 显示颜色选择器上的斜线
+                disabledIndicator.style.display = 'flex';
+                input.style.opacity = '1';
+                // 设置默认灰色
+                input.value = domColor;
+            });
+
+            // 粗体复选框
+            const boldCheckbox = document.createElement('input');
+            boldCheckbox.type = 'checkbox';
+            boldCheckbox.id = 'bold-checkbox';
+            boldCheckbox.checked = style.bold;
+            const boldLabel = document.createElement('label');
+            boldLabel.htmlFor = 'bold-checkbox';
+            boldLabel.textContent = 'Bold';
+            boldLabel.style.color = 'var(--vscode-editor-foreground)';
+
+            // 斜体复选框
+            const italicCheckbox = document.createElement('input');
+            italicCheckbox.type = 'checkbox';
+            italicCheckbox.id = 'italic-checkbox';
+            italicCheckbox.checked = style.italic;
+            const italicLabel = document.createElement('label');
+            italicLabel.htmlFor = 'italic-checkbox';
+            italicLabel.textContent = 'Italic';
+            italicLabel.style.color = 'var(--vscode-editor-foreground)';
+
+            // 创建确定按钮容器（居中）
+            const buttonContainer = document.createElement('div');
+            buttonContainer.style.display = 'flex';
+            buttonContainer.style.flexDirection = 'column'; // 垂直堆叠
+            buttonContainer.style.alignItems = 'center';    // 水平居中按钮
+            buttonContainer.style.justifyContent = 'center';
+            buttonContainer.style.marginTop = '10px';
+            buttonContainer.style.width = '100%';
+
+            // 分隔条（位于按钮上方）
+            const btnSeparator = document.createElement('div');
+            btnSeparator.style.width = '100%';
+            btnSeparator.style.height = '1px';
+            btnSeparator.style.background = 'var(--vscode-editorWidget-border)'; // 主题感知颜色
+            btnSeparator.style.opacity = '1';
+            btnSeparator.style.marginBottom = '8px';
+            btnSeparator.style.alignSelf = 'stretch'; // 拉满容器宽度
+
+            buttonContainer.appendChild(btnSeparator);
+
+            // 创建确定按钮
+            const confirmButton = document.createElement('button');
+            confirmButton.textContent = 'OK';
+            confirmButton.style.padding = '5px 15px';
+            confirmButton.style.background = 'var(--vscode-button-background)';
+            confirmButton.style.color = 'var(--vscode-button-foreground)';
+            confirmButton.style.border = 'none';
+            confirmButton.style.borderRadius = '2px';
+            confirmButton.style.cursor = 'pointer';
+
+            // 组装样式选项
+            const boldOption = document.createElement('div');
+            boldOption.style.display = 'flex';
+            boldOption.style.alignItems = 'center';
+            boldOption.style.gap = '5px';
+            boldOption.style.height = '15px';
+            boldOption.appendChild(boldCheckbox);
+            boldOption.appendChild(boldLabel);
+
+            const italicOption = document.createElement('div');
+            italicOption.style.display = 'flex';
+            italicOption.style.alignItems = 'center';
+            italicOption.style.gap = '5px';
+            italicOption.style.height = '15px';
+            italicOption.appendChild(italicCheckbox);
+            italicOption.appendChild(italicLabel);
+
+            // 组装样式容器（颜色选择器和样式选项在同一行）
+            styleContainer.appendChild(colorContainer);
+            styleContainer.appendChild(noColorButton);
+            styleContainer.appendChild(boldOption);
+            styleContainer.appendChild(italicOption);
+
+            // 组装按钮容器
+            buttonContainer.appendChild(confirmButton);
+
+            // 组装标题栏
+            titleBar.appendChild(titleText);
+            titleBar.appendChild(closeButton);
+
+            // 组装内容区域
+            contentArea.appendChild(styleContainer);
+            contentArea.appendChild(buttonContainer);
+
+            // 组装容器
+            container.appendChild(titleBar);
+            container.appendChild(contentArea);
+            document.body.appendChild(container);
+
+            // 拖动功能实现
+            let isDragging = false;
+            let startX, startY, startLeft, startTop;
+
+            titleBar.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                // 获取当前实际位置而不是转换后的位置
+                const rect = container.getBoundingClientRect();
+                startLeft = rect.left;
+                startTop = rect.top;
+                // 移除transform以便直接控制位置
+                container.style.transform = 'none';
+                container.style.left = startLeft + 'px';
+                container.style.top = startTop + 'px';
+            });
+
+            const dragHandler = (e) => {
+                if (!isDragging) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                const newLeft = startLeft + dx;
+                const newTop = startTop + dy;
+                container.style.left = newLeft + 'px';
+                container.style.top = newTop + 'px';
+                // 更新位置记录
+                lastPickColorPosition = { left: newLeft, top: newTop };
+            };
+
+            const dragEndHandler = () => {
+                if (isDragging) {
+                    // 在拖动结束时记录最终位置
+                    const rect = container.getBoundingClientRect();
+                    lastPickColorPosition = {
+                        left: rect.left,
+                        top: rect.top
+                    };
+                }
+                isDragging = false;
+            };
+
+            document.addEventListener('mousemove', dragHandler);
+            document.addEventListener('mouseup', dragEndHandler);
+
+            const cleanup = () => {
+                if (container && container.parentNode) {
+                    // 记录关闭时的位置
+                    const rect = container.getBoundingClientRect();
+                    lastPickColorPosition = {
+                        left: rect.left,
+                        top: rect.top
+                    };
+                    container.parentNode.removeChild(container);
+                }
+                document.removeEventListener('mousemove', dragHandler);
+                document.removeEventListener('mouseup', dragEndHandler);
+            };
+
+            // 关闭按钮事件
+            closeButton.addEventListener('click', () => {
+                cleanup();
+                resolve(null);
+            }, { once: true });
+
+            // 确定按钮点击事件
+            confirmButton.addEventListener('click', () => {
+                const result = {
+                    foreground: disabledIndicator.style.display === 'flex' ? null : input.value,//input.value || null,
+                    bold: boldCheckbox.checked,
+                    italic: italicCheckbox.checked
+                };
+                cleanup();
+                resolve(result);
+            }, { once: true });
+
+            // ESC键关闭
+            const escHandler = (e) => {
+                if (e.key === 'Escape') {
+                    cleanup();
+                    resolve(null);
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+
+            // 点击外部关闭
+            const outsideClickHandler = (e) => {
+                if (!container.contains(e.target)) {
+                    cleanup();
+                    resolve(null);
+                    document.removeEventListener('mousedown', outsideClickHandler);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('mousedown', outsideClickHandler);
+            }, 0);
+
+        } catch (error) {
+            console.error('Error in pickColor:', error);
+            resolve(null);
+        }
+    });
+}
+
+function tokenAtPosition(model, editor, pos) {
+    const lang = model.getLanguageId();
+    const line = model.getLineContent(pos.lineNumber);
+    const row = monaco.editor.tokenize(line, lang)[0] || [];
+    // row: [{ offset: number, scopes?: string, type?: string }]
+    const col0 = pos.column - 1;
+    let i = 0;
+    for (; i < row.length; i++) {
+        const start = row[i].offset;
+        const end = (i + 1 < row.length ? row[i + 1].offset : line.length);
+        if (col0 >= start && col0 < end) {
+            return {
+                startColumn: start + 1,
+                endColumn: end + 1,
+                text: line.slice(start, end),
+                token: row[i].scopes || row[i].type || ''
+            };
+        }
+    }
+    return null;
+}
+
 // Monaco Editor 初始化和消息处理
 (function() {
     const vscode = acquireVsCodeApi();
     window.vscode = vscode;
     window.isPined = false;
+    window.pickTokenStyle = false;
     //console.log('[definition] WebView script started from main.js');
 
     // 确保 WebView 使用 VS Code 的颜色主题
@@ -428,41 +972,6 @@ function getCssVar(name) {
                         monaco.languages.setMonarchTokensProvider('go', languageConfig_go);
                     }
 
-                    // 添加一个简单的 token 检测函数
-                    // function logTokenInfo() {
-                    //     const testCode = 'AA::BB::CC a, b, c = 0;';//editor.getValue();
-                    //     const languageId = editor.getModel().getLanguageId();
-                        
-                    //     console.log('[definition] 测试代码:', testCode);
-                    //     console.log('[definition] 语言ID:', languageId);
-                        
-                    //     // 使用 Monaco 的 tokenize 函数解析代码
-                    //     const tokens = monaco.editor.tokenize(testCode, languageId);
-                        
-                    //     console.log('[definition] Token 解析结果:', tokens);
-                        
-                    //     // 详细打印每个 token
-                    //     if (tokens && tokens.length > 0) {
-                    //         let lastOffset = 0;
-                    //         tokens[0].forEach(token => {
-                    //             const tokenType = token.type;
-                    //             const startOffset = lastOffset;
-                    //             const endOffset = token.offset || testCode.length;
-                    //             const tokenText = testCode.substring(startOffset, endOffset);
-                    //             lastOffset = endOffset;
-                                
-                    //             console.log(`[definition] Token: "${tokenType}",  : "${tokenText}"`);
-                    //         });
-                    //     } else {
-                    //         console.log('[definition] 没有找到 token 信息');
-                    //     }
-                    // }
-
-                    // // 在可能重置样式的场景中重新设置
-                    // editor.onDidChangeModelContent(() => {
-                    //     console.log('[definition] 编辑器内容已更改，token 解析结果:');
-                    //     logTokenInfo();
-                    // });
                     //editor.onDidScrollChange(forcePointerCursor);
                     //editor.onDidChangeConfiguration(forcePointerCursor);
 
@@ -639,7 +1148,7 @@ function getCssVar(name) {
                     });
 
                     // 处理链接点击事件 - 在Monaco内部跳转
-                    editor.onMouseUp((e) => {
+                    editor.onMouseUp(async (e) => {
                         //console.log('[definition] Mouse up event:', e.target, e.event);
                         // 完全阻止事件传播
                         //e.event.preventDefault();
@@ -650,7 +1159,7 @@ function getCssVar(name) {
                         
                         if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
                             // 获取当前单词
-                            const model = editor.getModel();
+                            let model = editor.getModel();
                             if (!model) {
                                 //console.log('[definition] **********************no model found************************');
                                 model = monaco.editor.createModel(content, language);
@@ -667,12 +1176,45 @@ function getCssVar(name) {
                                 if (word) {
                                     if (e.event.rightButton) {
                                         //console.log('[definition] start to mid + jump definition: ', word);
-                                        editor.setSelection({
-                                            startLineNumber: position.lineNumber,
-                                            startColumn: word.startColumn,
-                                            endLineNumber: position.lineNumber,
-                                            endColumn: word.endColumn
-                                        });
+                                        if (window.pickTokenStyle) {
+                                            let tokenInfo = tokenAtPosition(model, editor, position);
+                                            if (tokenInfo && tokenInfo.token) {
+                                                //console.log('[definition] pickColor action for token:', tokenInfo);
+                                                try {
+                                                    const style = await requestTokenStyle(tokenInfo.token);
+                                                    let token = tokenInfo.token;
+                                                    if (!style || !style.found) {
+                                                        const lastDot = tokenInfo.token.lastIndexOf('.');
+                                                        token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
+                                                    }
+                                                    //console.log('[definition] token style:', style);
+                                                    const newStyle = await pickTokenStyle({
+                                                        token,
+                                                        foreground: style?.foreground,
+                                                        fontStyle: style?.fontStyle,
+                                                        description: style?.description
+                                                    }, getTokenColorFromDOM(editor, position) || '#808080', word.word);
+                                                    //console.log('[definition] picked new style:', newStyle);
+                                                    if (newStyle) {
+                                                        // 回传扩展端，后续用于更新规则
+                                                        vscode.postMessage({
+                                                            type: 'tokenStyle.set',
+                                                            newStyle,
+                                                            token
+                                                        });
+                                                    }
+                                                } catch (err) {
+                                                    console.error('[definition] pickColor action failed:', err);
+                                                }
+                                            }
+                                        } else {
+                                            editor.setSelection({
+                                                startLineNumber: position.lineNumber,
+                                                startColumn: word.startColumn,
+                                                endLineNumber: position.lineNumber,
+                                                endColumn: word.endColumn
+                                            });
+                                        }
                                     } else {
                                         //console.log('[definition] start to jump definition: ', word);
                                         vscode.postMessage({
@@ -1136,9 +1678,14 @@ function getCssVar(name) {
                     window.addEventListener('message', event => {
                         const message = event.data;
                         //console.log('[definition] Received message:', message);
-                        
                         try {
                             switch (message.type) {
+                                case 'PickTokenStyle':
+                                    if (!contextEditorCfg.useDefaultTheme) {
+                                        window.pickTokenStyle = !window.pickTokenStyle;
+                                        lastPickColorPosition = null;
+                                    }
+                                    break;
                                 case 'pinState':
                                     window.isPinned = message.pinned;
                                     if (doubleClickArea) {

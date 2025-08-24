@@ -1,79 +1,79 @@
 {
-	"name": "context-window",
-	"displayName": "Context Window",
-	"description": "Display full code context in the panel, similar to the context window in Source Insight.",
-	"version": "0.7.0",
-	"publisher": "zhiminxiong",
-	"keywords": [
-        "context",
-		"definition",
-        "source insight",
-		"docs",
-		"hover",
-		"sidebar",
-		"panel"
-	],
-	"galleryBanner": {
-		"color": "4C4C4C",
-		"theme": "dark"
-	},
-	"icon": "icon.png",
-	"engines": {
-		"vscode": "^1.50.0"
-	},
-	"categories": [
-		"Other",
+  "name": "context-window",
+  "displayName": "Context Window",
+  "description": "Display full code context in the panel, similar to the context window in Source Insight.",
+  "version": "0.7.1",
+  "publisher": "zhiminxiong",
+  "keywords": [
+    "context",
+    "definition",
+    "source insight",
+    "docs",
+    "hover",
+    "sidebar",
+    "panel"
+  ],
+  "galleryBanner": {
+    "color": "4C4C4C",
+    "theme": "dark"
+  },
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.50.0"
+  },
+  "categories": [
+    "Other",
         "Programming Languages"
-	],
-	"activationEvents": [
-		"onView:contextView.context",
-		"onCommand:contextView.contextWindow.pin",
-		"onCommand:contextView.contextWindow.unpin",
+  ],
+  "activationEvents": [
+    "onView:contextView.context",
+    "onCommand:contextView.contextWindow.pin",
+    "onCommand:contextView.contextWindow.unpin",
         "onStartupFinished"
-	],
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/zhiminxiong/vscode-context-window"
-	},
-	"bugs": "https://github.com/zhiminxiong/vscode-context-window/issues",
-	"main": "./dist/extension",
-	"extensionKind": [
-		"ui",
-		"workspace"
-	],
-	"contributes": {
-		"viewsContainers": {
-			"panel": [
-				{
-					"id": "contextView-context",
-					"title": "Context",
-					"icon": "$(symbol-class)"
-				}
-			]
-		},
-		"views": {
-			"contextView-context": [
-				{
-					"type": "webview",
-					"id": "contextView.context",
-					"name": "Context Window",
-					"contextualTitle": "Context"
-				}
-			]
-		},
-		"commands": [
-			{
-				"command": "contextView.contextWindow.pin",
-				"title": "Pin Current Context",
-				"icon": "$(pin)",
-				"category": "Context View"
-			},
-			{
-				"command": "contextView.contextWindow.unpin",
-				"title": "Unpin Current Context",
-				"icon": "$(pinned)",
-				"category": "Context View"
-			},
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhiminxiong/vscode-context-window"
+  },
+  "bugs": "https://github.com/zhiminxiong/vscode-context-window/issues",
+  "main": "./dist/extension",
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "contextView-context",
+          "title": "Context",
+          "icon": "$(symbol-class)"
+        }
+      ]
+    },
+    "views": {
+      "contextView-context": [
+        {
+          "type": "webview",
+          "id": "contextView.context",
+          "name": "Context Window",
+          "contextualTitle": "Context"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "contextView.contextWindow.pin",
+        "title": "Pin Current Context",
+        "icon": "$(pin)",
+        "category": "Context View"
+      },
+      {
+        "command": "contextView.contextWindow.unpin",
+        "title": "Unpin Current Context",
+        "icon": "$(pinned)",
+        "category": "Context View"
+      },
             {
                 "command": "vscode-context-window.showContextWindow",
                 "title": "Show Context Window"
@@ -82,7 +82,7 @@
                 "command": "vscode-context-window.float",
                 "title": "Display the floating Context Window"
             }
-		],
+    ],
         "keybindings": [
             {
                 "command": "vscode-context-window.float",
@@ -90,46 +90,46 @@
                 "mac": "cmd+shift+9"
             }
         ],
-		"menus": {
-			"commandPalette": [
-				{
-					"command": "contextView.contextWindow.pin",
-					"when": "!contextView.contextWindow.isPinned"
-				},
-				{
-					"command": "contextView.contextWindow.unpin",
-					"when": "contextView.contextWindow.isPinned"
-				}
-			],
-			"view/title": [
-				{
-					"command": "contextView.contextWindow.pin",
-					"when": "view == contextView.context && !contextView.contextWindow.isPinned",
-					"group": "navigation"
-				},
-				{
-					"command": "contextView.contextWindow.unpin",
-					"when": "view == contextView.context && contextView.contextWindow.isPinned",
-					"group": "navigation"
-				}
-			]
-		},
-		"configuration": {
-			"title": "Context View",
-			"properties": {
-				"contextView.contextWindow.updateMode": {
-					"type": "string",
-					"description": "Controls how the context view is updated when the cursor moves.",
-					"default": "live",
-					"enum": [
-						"live",
-						"sticky"
-					],
-					"enumDescriptions": [
-						"The context view tracks the current cursor position. Display empty content if no symbol is found at the current position.",
-						"The context view tries to show the context for the symbol at the current cursor position. If there is none, it continues showing the last available context."
-					]
-				},
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "contextView.contextWindow.pin",
+          "when": "!contextView.contextWindow.isPinned"
+        },
+        {
+          "command": "contextView.contextWindow.unpin",
+          "when": "contextView.contextWindow.isPinned"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "contextView.contextWindow.pin",
+          "when": "view == contextView.context && !contextView.contextWindow.isPinned",
+          "group": "navigation"
+        },
+        {
+          "command": "contextView.contextWindow.unpin",
+          "when": "view == contextView.context && contextView.contextWindow.isPinned",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Context View",
+      "properties": {
+        "contextView.contextWindow.updateMode": {
+          "type": "string",
+          "description": "Controls how the context view is updated when the cursor moves.",
+          "default": "live",
+          "enum": [
+            "live",
+            "sticky"
+          ],
+          "enumDescriptions": [
+            "The context view tracks the current cursor position. Display empty content if no symbol is found at the current position.",
+            "The context view tries to show the context for the symbol at the current cursor position. If there is none, it continues showing the last available context."
+          ]
+        },
                 "contextView.contextWindow.selectionBackground": {
                     "type": "string",
                     "default": "#07c2db71",
@@ -217,29 +217,29 @@
                         { "token": "function.name", "fontStyle": "bold"},
                         { "token": "method.name", "fontStyle": "bold"},
                         { "token": "macro", "fontStyle": "italic"}
-										]
+                    ]
                 }
-			}
-		}
-	},
-	"scripts": {
-		"vscode:prepublish": "webpack --mode production",
-		"webpack": "webpack --mode development",
-		"webpack-dev": "webpack --mode development --watch",
-		"lint": "eslint . --ext .ts,.tsx"
-	},
-	"dependencies": {
-		"monaco-editor": "^0.34.0"
-	},
-	"devDependencies": {
-		"@types/node": "^14.11.2",
-		"@types/vscode": "^1.50.0",
-		"@typescript-eslint/eslint-plugin": "^3.0.2",
-		"@typescript-eslint/parser": "^3.0.2",
-		"eslint": "^7.1.0",
-		"ts-loader": "^8.0.4",
-		"typescript": "^4.6.4",
-		"webpack": "^5.72.0",
-		"webpack-cli": "^4.9.0"
-	}
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "webpack --mode production",
+    "webpack": "webpack --mode development",
+    "webpack-dev": "webpack --mode development --watch",
+    "lint": "eslint . --ext .ts,.tsx"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^14.11.2",
+    "@types/vscode": "^1.50.0",
+    "@typescript-eslint/eslint-plugin": "^3.0.2",
+    "@typescript-eslint/parser": "^3.0.2",
+    "eslint": "^7.1.0",
+    "ts-loader": "^8.0.4",
+    "typescript": "^4.6.4",
+    "webpack": "^5.72.0",
+    "webpack-cli": "^4.9.0"
+  }
 }

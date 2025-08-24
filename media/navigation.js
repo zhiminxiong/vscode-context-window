@@ -135,6 +135,11 @@
             {
                 label: 'Float',
                 action: () => window.vscode.postMessage({ type: 'float' })
+            },
+            {
+                label: 'Pick Token Style',
+                checked: window.pickTokenStyle,
+                action: () => window.postMessage({ type: 'PickTokenStyle' })
             }
         ];
 
