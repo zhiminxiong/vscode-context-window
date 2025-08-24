@@ -57,7 +57,7 @@ async function requestTokenStyle(token) {
             function onMessage(event) {
                 const msg = event.data;
                 if (msg && msg.type === 'tokenStyle.get.result' && msg.token === token && (!msg.reqId || msg.reqId === reqId)) {
-                    console.log('[definition] tokenStyle.get.result:', msg);
+                    //console.log('[definition] tokenStyle.get.result:', msg);
                     clearTimeout(timeout);
                     window.removeEventListener('message', onMessage);
                     if (msg.error) {
@@ -132,11 +132,11 @@ async function pickTokenStyle(options = {
     foreground: '#ff0000', 
     fontStyle: '',
     description: '' 
-}, domColor = '#808080') {
+}, domColor = '#808080', word = '') {
     const hasInitialColor = typeof options.foreground === 'string' && options.foreground.trim();
     const initialColor = hasInitialColor ? options.foreground : '#ff0000';
 
-    console.log('[definition] pickColor initial:', initialColor, ' domColor:', domColor, ' hasInitialColor:', hasInitialColor);
+    //console.log('[definition] pickColor initial:', initialColor, ' domColor:', domColor, ' hasInitialColor:', hasInitialColor);
     
     const style = {
         bold: options.fontStyle?.includes('bold') || false,
@@ -144,11 +144,11 @@ async function pickTokenStyle(options = {
     };
     
     const tokenText = options.token || '';
-    console.log('[definition] domcolor: ', domColor);
+    //console.log('[definition] domcolor: ', domColor);
 
     return new Promise(resolve => {
         try {
-            console.log('[definition] pickColor options:', options);
+            //console.log('[definition] pickColor options:', options);
             // 创建统一容器
             const container = document.createElement('div');
             container.style.position = 'fixed';
@@ -187,7 +187,7 @@ async function pickTokenStyle(options = {
 
             // 标题文字
             const titleText = document.createElement('span');
-            titleText.textContent = 'Select Token Color & Style';
+            titleText.textContent = 'Select Token Style';
             titleText.style.fontSize = '13px';
             titleText.style.fontWeight = '500';
 
@@ -226,19 +226,28 @@ async function pickTokenStyle(options = {
             // 显示当前token内容
             const tokenLabel = document.createElement('div');
             tokenLabel.style.display = 'flex';
-            tokenLabel.style.alignItems = 'center';
+            tokenLabel.style.alignItems = 'flex-end';
             tokenLabel.style.gap = '5px';
+            tokenLabel.style.alignSelf = 'flex-start';
+            tokenLabel.style.width = '100%';
+            tokenLabel.style.marginBottom = '5px';
 
             const tokenPrefix = document.createElement('span');
-            tokenPrefix.textContent = 'Cur Token: ';
+            tokenPrefix.textContent = word ? word+' : ' : 'Cur Token : ';
             tokenPrefix.style.color = 'var(--vscode-editor-foreground)';
             tokenPrefix.style.fontSize = '12px';
+            tokenPrefix.style.display = 'inline-block';
+            tokenPrefix.style.verticalAlign = 'bottom';
+            tokenPrefix.style.lineHeight = '1';
 
             const tokenValue = document.createElement('span');
             tokenValue.textContent = tokenText || '(none)';
             tokenValue.style.color = 'var(--vscode-editor-foreground)';//'#000080';  // 蓝黑色
             tokenValue.style.fontSize = '15px';   // 比前缀大一号
             tokenValue.style.fontWeight = '500';  // 稍微加粗
+            tokenValue.style.display = 'inline-block';
+            tokenValue.style.verticalAlign = 'bottom';
+            tokenValue.style.lineHeight = '1';
 
             tokenLabel.appendChild(tokenPrefix);
             tokenLabel.appendChild(tokenValue);
@@ -264,7 +273,7 @@ async function pickTokenStyle(options = {
             } else {
                 input.value = domColor; // 默认灰色
             }
-            console.log('create input:', input.value);
+            //console.log('create input:', input.value);
             input.style.width = '30px';
             input.style.height = '30px';
 
@@ -558,7 +567,7 @@ function tokenAtPosition(model, editor, pos) {
     const vscode = acquireVsCodeApi();
     window.vscode = vscode;
     window.isPined = false;
-    window.pickTokenColor = false;
+    window.pickTokenStyle = false;
     //console.log('[definition] WebView script started from main.js');
 
     // 确保 WebView 使用 VS Code 的颜色主题
@@ -1153,10 +1162,10 @@ function tokenAtPosition(model, editor, pos) {
                                 if (word) {
                                     if (e.event.rightButton) {
                                         //console.log('[definition] start to mid + jump definition: ', word);
-                                        if (window.pickTokenColor) {
+                                        if (window.pickTokenStyle) {
                                             let tokenInfo = tokenAtPosition(model, editor, position);
                                             if (tokenInfo && tokenInfo.token) {
-                                                console.log('[definition] pickColor action for token:', tokenInfo);
+                                                //console.log('[definition] pickColor action for token:', tokenInfo);
                                                 try {
                                                     const style = await requestTokenStyle(tokenInfo.token);
                                                     let token = tokenInfo.token;
@@ -1164,14 +1173,14 @@ function tokenAtPosition(model, editor, pos) {
                                                         const lastDot = tokenInfo.token.lastIndexOf('.');
                                                         token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
                                                     }
-                                                    console.log('[definition] token style:', style);
+                                                    //console.log('[definition] token style:', style);
                                                     const newStyle = await pickTokenStyle({
                                                         token,
                                                         foreground: style?.foreground,
                                                         fontStyle: style?.fontStyle,
                                                         description: style?.description
-                                                    }, getTokenColorFromDOM(editor, position) || '#808080');
-                                                    console.log('[definition] picked new style:', newStyle);
+                                                    }, getTokenColorFromDOM(editor, position) || '#808080', word.word);
+                                                    //console.log('[definition] picked new style:', newStyle);
                                                     if (newStyle) {
                                                         // 回传扩展端，后续用于更新规则
                                                         vscode.postMessage({
@@ -1658,8 +1667,8 @@ function tokenAtPosition(model, editor, pos) {
                         
                         try {
                             switch (message.type) {
-                                case 'PickTokenColor':
-                                    window.pickTokenColor = !window.pickTokenColor;
+                                case 'PickTokenStyle':
+                                    window.pickTokenStyle = !window.pickTokenStyle;
                                     break;
                                 case 'pinState':
                                     window.isPinned = message.pinned;

@@ -539,16 +539,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // if (!vscode.window.activeTextEditor && this._lastUpdateEditor) {
             //     console.error('[definition] No active text editor found, using last updated editor');
             // }
-            console.log('[definition] Received message from webview:', message);
+            //console.log('[definition] Received message from webview:', message);
             switch (message.type) {
                 // 通过 token 查询颜色与字体样式（仅从 rules 读取）
                 case 'tokenStyle.get': {
                     try {
                         const token = String(message.token ?? '');
                         const rules = this.getThemeRules();
-                        console.log('[definition] tokenStyle.get rules', rules);
+                        //console.log('[definition] tokenStyle.get rules', rules);
                         let rule = rules.find(r => r && r.token === token);
-                        console.log('[definition] tokenStyle.get exact rule: ', rule);
+                        //console.log('[definition] tokenStyle.get exact rule: ', rule);
                         // 如果找不到，去掉语言后缀（最后一个 . 之后的部分）再尝试一次
                         if (!rule) {
                             const lastDot = token.lastIndexOf('.');
@@ -556,7 +556,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 const tokenNoLang = token.slice(0, lastDot);
                                 rule = rules.find(r => r && r.token === tokenNoLang);
                             }
-                            console.log('[definition] tokenStyle.get second rule: ', rule);
+                            //console.log('[definition] tokenStyle.get second rule: ', rule);
                         }
                         
                         this.postMessageToWebview({
@@ -599,15 +599,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             throw new Error('token is required');
                         }
 
-                        console.log('[definition] tokenStyle.set token:', token, 'patch:', patch);
+                        //console.log('[definition] tokenStyle.set token:', token, 'patch:', patch);
 
                         const prev = this.getThemeRules();
                         const next = this.upsertRule(prev, token, patch);
                         await this.setThemeRules(next);
 
-                        console.log('[definition] tokenStyle.set updated rules', next);
-                        const cur = this.getThemeRules();
-                        console.log('[definition] tokenStyle.set cur rules', cur);
+                        //console.log('[definition] tokenStyle.set updated rules', next);
+                        //const cur = this.getThemeRules();
+                        //console.log('[definition] tokenStyle.set cur rules', cur);
 
                         // 仅推送 rules 的变更，不带其它配置
                         // this.postMessageToWebview({
@@ -616,12 +616,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         // });
 
                         // 回传设置结果
-                        this.postMessageToWebview({
-                            type: 'tokenStyle.set.result',
-                            ok: true,
-                            token,
-                            style: { foreground: patch.foreground, fontStyle: patch.fontStyle },
-                        });
+                        // this.postMessageToWebview({
+                        //     type: 'tokenStyle.set.result',
+                        //     ok: true,
+                        //     token,
+                        //     style: { foreground: patch.foreground, fontStyle: patch.fontStyle },
+                        // });
                     } catch (err) {
                         this.postMessageToWebview({
                             type: 'tokenStyle.set.result',

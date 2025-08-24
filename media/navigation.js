@@ -137,9 +137,9 @@
                 action: () => window.vscode.postMessage({ type: 'float' })
             },
             {
-                label: 'Pick Token Color',
-                checked: window.pickTokenColor,
-                action: () => window.postMessage({ type: 'PickTokenColor' })
+                label: 'Pick Token Style',
+                checked: window.pickTokenStyle,
+                action: () => window.postMessage({ type: 'PickTokenStyle' })
             }
         ];
 
