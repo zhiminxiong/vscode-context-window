@@ -77,17 +77,81 @@ async function requestTokenStyle(token) {
     });
 }
 
+function getTokenColorFromDOM(editor, position) {
+    // 只负责从 DOM 获取渲染颜色，返回 hex 字符串或 null
+    try {
+        const domNode = editor.getDomNode();
+        if (!domNode) return null;
+
+        // getScrolledVisiblePosition 返回 null 当 position 不在可视区域
+        const viewPos = editor.getScrolledVisiblePosition(position);
+        if (!viewPos) return null;
+
+        const editorRect = domNode.getBoundingClientRect();
+        // 取位置中点，避免落到字符边缘（调整偏移以对齐到字符）
+        const x = Math.round(editorRect.left + viewPos.left + 2);
+        const y = Math.round(editorRect.top + viewPos.top + (viewPos.height || 16) / 2);
+
+        // 获取该点所有元素（比 elementFromPoint 更稳）
+        const els = document.elementsFromPoint(x, y);
+        if (!els || els.length === 0) return null;
+
+        // 寻找最可能是 token 的元素：span、class 包含 mtk（monaco token class）或有 color 样式
+        for (const el of els) {
+            if (!el) continue;
+            // 优先找 <span class="mtk..."> 或直接带内联 color
+            const tag = el.tagName;
+            const cls = (el.className || '').toString();
+            if (tag === 'SPAN' && (cls.includes('mtk') || cls.includes('token') || window.getComputedStyle(el).color)) {
+                const computed = window.getComputedStyle(el).color;
+                const hex = cssColorToMonaco(computed);
+                if (hex) return hex;
+            }
+            // 也检查父元素（有时 color 在父上）
+            const parent = el.parentElement;
+            if (parent) {
+                const parentColor = window.getComputedStyle(parent).color;
+                const hex2 = cssColorToMonaco(parentColor);
+                if (hex2) return hex2;
+            }
+        }
+
+        return null;
+    } catch (err) {
+        console.error('[getTokenColorFromDOM] error', err);
+        return null;
+    }
+}
+
+let lastPickColorPosition = null; // 记录上次弹窗位置
+
 // 通用颜色选择器（Promise 形式返回 hex 颜色或 null）
 // { "token": "keyword.type", "foreground": "#ff0000", "fontStyle": "bold italic", "description": "function|class etc." }
-function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, tokenText = '') {
+async function pickColor(options = { 
+    token: '',
+    foreground: '#ff0000', 
+    fontStyle: '',
+    description: '' 
+}, domColor = '#808080') {
+    const hasInitialColor = typeof options.foreground === 'string' && options.foreground.trim();
+    const initialColor = hasInitialColor ? options.foreground : '#ff0000';
+
+    console.log('[definition] pickColor initial:', initialColor, ' domColor:', domColor, ' hasInitialColor:', hasInitialColor);
+    
+    const style = {
+        bold: options.fontStyle?.includes('bold') || false,
+        italic: options.fontStyle?.includes('italic') || false
+    };
+    
+    const tokenText = options.token || '';
+    console.log('[definition] domcolor: ', domColor);
+
     return new Promise(resolve => {
-        try {tokenText = 'function.name';
+        try {
+            console.log('[definition] pickColor options:', options);
             // 创建统一容器
             const container = document.createElement('div');
             container.style.position = 'fixed';
-            container.style.left = '50%';
-            container.style.top = '50%';
-            container.style.transform = 'translate(-50%, -50%)';
             container.style.zIndex = '10000';
             container.style.background = 'var(--vscode-editor-background)';
             container.style.border = '1px solid var(--vscode-input-border)';
@@ -97,6 +161,19 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             container.style.flexDirection = 'column';
             container.style.overflow = 'hidden';
             container.style.width = '300px';
+
+            // 使用上次记录的位置，如果没有则居中显示
+            if (lastPickColorPosition) {
+                container.style.left = lastPickColorPosition.left + 'px';
+                container.style.top = lastPickColorPosition.top + 'px';
+                // 移除 transform，因为我们使用具体坐标
+                container.style.transform = 'none';
+            } else {
+                // 首次显示时居中
+                container.style.left = '50%';
+                container.style.top = '50%';
+                container.style.transform = 'translate(-50%, -50%)';
+            }
 
             // 创建可拖动标题栏
             const titleBar = document.createElement('div');
@@ -110,16 +187,16 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
 
             // 标题文字
             const titleText = document.createElement('span');
-            titleText.textContent = '请选择颜色和样式';
+            titleText.textContent = 'Select Token Color & Style';
             titleText.style.fontSize = '13px';
             titleText.style.fontWeight = '500';
 
             // 关闭按钮
             const closeButton = document.createElement('button');
             closeButton.textContent = '×';
-            closeButton.style.background = 'var(--vscode-inputValidation-errorBorder)';
+            closeButton.style.background = 'var(--vscode-titleBar-activeBackground)'; // 使用标题栏背景色
             closeButton.style.border = 'none';
-            closeButton.style.color = 'var(--vscode-inputValidation-errorForeground)';
+            closeButton.style.color = 'var(--vscode-titleBar-activeForeground)';  // 使用标题栏前景色
             closeButton.style.fontSize = '18px';
             closeButton.style.fontWeight = 'bold';
             closeButton.style.cursor = 'pointer';
@@ -130,11 +207,13 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             closeButton.style.alignItems = 'center';
             closeButton.style.justifyContent = 'center';
             closeButton.style.borderRadius = '4px';
+
+            // 修改悬停效果
             closeButton.addEventListener('mouseover', () => {
-                closeButton.style.background = 'var(--vscode-inputValidation-errorBackground)';
+                closeButton.style.background = 'var(--vscode-errorForeground)'; // hover 时使用错误前景色（通常是红色）
             });
             closeButton.addEventListener('mouseout', () => {
-                closeButton.style.background = 'var(--vscode-inputValidation-errorBorder)';
+                closeButton.style.background = 'var(--vscode-titleBar-activeBackground)'; // 恢复标题栏背景色
             });
 
             // 内容区域
@@ -145,35 +224,47 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             contentArea.style.gap = '10px';
 
             // 显示当前token内容
-            if (tokenText) {
-                const tokenLabel = document.createElement('div');
-                tokenLabel.textContent = `cur Token: ${tokenText}`;
-                tokenLabel.style.color = 'var(--vscode-editor-foreground)';
-                tokenLabel.style.fontSize = '12px';
-                tokenLabel.style.marginBottom = '5px';
-                contentArea.appendChild(tokenLabel);
-            }
+            const tokenLabel = document.createElement('div');
+            tokenLabel.style.display = 'flex';
+            tokenLabel.style.alignItems = 'center';
+            tokenLabel.style.gap = '5px';
+
+            const tokenPrefix = document.createElement('span');
+            tokenPrefix.textContent = 'Cur Token: ';
+            tokenPrefix.style.color = 'var(--vscode-editor-foreground)';
+            tokenPrefix.style.fontSize = '12px';
+
+            const tokenValue = document.createElement('span');
+            tokenValue.textContent = tokenText || '(none)';
+            tokenValue.style.color = 'var(--vscode-editor-foreground)';//'#000080';  // 蓝黑色
+            tokenValue.style.fontSize = '15px';   // 比前缀大一号
+            tokenValue.style.fontWeight = '500';  // 稍微加粗
+
+            tokenLabel.appendChild(tokenPrefix);
+            tokenLabel.appendChild(tokenValue);
+            tokenLabel.style.marginBottom = '5px';
+            contentArea.appendChild(tokenLabel);
 
             // 创建样式选项容器（同一行）
             const styleContainer = document.createElement('div');
             styleContainer.style.display = 'flex';
-            styleContainer.style.alignItems = 'center';
+            styleContainer.style.alignItems = 'flex-end';
             styleContainer.style.gap = '15px';
 
             const colorContainer = document.createElement('div');
             colorContainer.style.position = 'relative';
             colorContainer.style.width = '30px';
-            colorContainer.style.height = '30px';
+            colorContainer.style.height = '30px';``
 
             // 创建颜色选择器
             const input = document.createElement('input');
             input.type = 'color';
-            const isValidColor = false;//typeof initial === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(initial);
-            if (isValidColor) {
-                input.value = initial;
+            if (hasInitialColor) {
+                input.value = initialColor;
             } else {
-                input.value = '#808080'; // 默认灰色
+                input.value = domColor; // 默认灰色
             }
+            console.log('create input:', input.value);
             input.style.width = '30px';
             input.style.height = '30px';
 
@@ -185,10 +276,10 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             disabledIndicator.style.width = '100%';
             disabledIndicator.style.height = '100%';
             disabledIndicator.style.pointerEvents = 'none';
-            disabledIndicator.style.display = 'flex';
             disabledIndicator.style.alignItems = 'center';
             disabledIndicator.style.justifyContent = 'center';
             disabledIndicator.style.zIndex = '1';
+            disabledIndicator.style.display = hasInitialColor ? 'none' : 'flex';
 
             const slash = document.createElement('div');
             slash.style.width = '42.426px';   // 30px * √2
@@ -217,48 +308,48 @@ function pickColor(initial = '#ff0000', style = { bold: false, italic: false }, 
             colorContainer.appendChild(disabledIndicator);
 
             // 在创建样式选项时添加以下代码
-const noColorButton = document.createElement('div');
-noColorButton.style.position = 'relative';
-noColorButton.style.width = '15px';  // 缩小到一半
-noColorButton.style.height = '15px';  // 缩小到一半
-noColorButton.style.cursor = 'pointer';
-noColorButton.style.display = 'flex';
-noColorButton.style.alignItems = 'center';
-noColorButton.style.justifyContent = 'center';
-noColorButton.style.border = '1px solid var(--vscode-button-border, transparent)';
-noColorButton.style.borderRadius = '2px';
-noColorButton.style.backgroundColor = 'var(--vscode-button-background)';
-noColorButton.style.marginLeft = '-8px';  // 只留 1px 间隙
-noColorButton.style.marginRight = '8px';
-noColorButton.style.alignSelf = 'flex-end';
-noColorButton.style.marginBottom = '0';
+            const noColorButton = document.createElement('div');
+            noColorButton.style.position = 'relative';
+            noColorButton.style.width = '15px';  // 缩小到一半
+            noColorButton.style.height = '15px';  // 缩小到一半
+            noColorButton.style.cursor = 'pointer';
+            noColorButton.style.display = 'flex';
+            noColorButton.style.alignItems = 'center';
+            noColorButton.style.justifyContent = 'center';
+            noColorButton.style.border = '1px solid var(--vscode-button-border, transparent)';
+            noColorButton.style.borderRadius = '2px';
+            noColorButton.style.backgroundColor = 'var(--vscode-button-background)';
+            noColorButton.style.marginLeft = '-8px';  // 只留 1px 间隙
+            noColorButton.style.marginRight = '8px';
+            noColorButton.style.alignSelf = 'flex-end';
+            noColorButton.style.marginBottom = '0';
 
-// 鼠标悬停效果
-noColorButton.addEventListener('mouseover', () => {
-    noColorButton.style.backgroundColor = 'var(--vscode-button-hoverBackground)';
-});
-noColorButton.addEventListener('mouseout', () => {
-    noColorButton.style.backgroundColor = 'var(--vscode-button-background)';
-});
+            // 鼠标悬停效果
+            noColorButton.addEventListener('mouseover', () => {
+                noColorButton.style.backgroundColor = 'var(--vscode-button-hoverBackground)';
+            });
+            noColorButton.addEventListener('mouseout', () => {
+                noColorButton.style.backgroundColor = 'var(--vscode-button-background)';
+            });
 
-// 修改斜线样式
-const buttonSlash = document.createElement('div');
-buttonSlash.style.width = '12px';  // 缩小斜线
-buttonSlash.style.height = '1.5px';  // 稍微减小高度
-buttonSlash.style.background = 'var(--vscode-button-foreground)';
-buttonSlash.style.transform = 'rotate(45deg)';
-buttonSlash.style.opacity = '0.9';
+            // 修改斜线样式
+            const buttonSlash = document.createElement('div');
+            buttonSlash.style.width = '12px';  // 缩小斜线
+            buttonSlash.style.height = '1.5px';  // 稍微减小高度
+            buttonSlash.style.background = 'var(--vscode-button-foreground)';
+            buttonSlash.style.transform = 'rotate(45deg)';
+            buttonSlash.style.opacity = '0.9';
 
-noColorButton.appendChild(buttonSlash);
+            noColorButton.appendChild(buttonSlash);
 
-// 添加点击事件
-noColorButton.addEventListener('click', () => {
-    // 显示颜色选择器上的斜线
-    disabledIndicator.style.display = 'flex';
-    input.style.opacity = '1';
-    // 设置默认灰色
-    input.value = '#808080';
-});
+            // 添加点击事件
+            noColorButton.addEventListener('click', () => {
+                // 显示颜色选择器上的斜线
+                disabledIndicator.style.display = 'flex';
+                input.style.opacity = '1';
+                // 设置默认灰色
+                input.value = domColor;
+            });
 
             // 粗体复选框
             const boldCheckbox = document.createElement('input');
@@ -288,7 +379,7 @@ noColorButton.addEventListener('click', () => {
 
             // 创建确定按钮
             const confirmButton = document.createElement('button');
-            confirmButton.textContent = '确定';
+            confirmButton.textContent = 'OK';
             confirmButton.style.padding = '5px 15px';
             confirmButton.style.background = 'var(--vscode-button-background)';
             confirmButton.style.color = 'var(--vscode-button-foreground)';
@@ -301,6 +392,7 @@ noColorButton.addEventListener('click', () => {
             boldOption.style.display = 'flex';
             boldOption.style.alignItems = 'center';
             boldOption.style.gap = '5px';
+            boldOption.style.height = '15px';
             boldOption.appendChild(boldCheckbox);
             boldOption.appendChild(boldLabel);
 
@@ -308,6 +400,7 @@ noColorButton.addEventListener('click', () => {
             italicOption.style.display = 'flex';
             italicOption.style.alignItems = 'center';
             italicOption.style.gap = '5px';
+            italicOption.style.height = '15px';
             italicOption.appendChild(italicCheckbox);
             italicOption.appendChild(italicLabel);
 
@@ -355,11 +448,23 @@ noColorButton.addEventListener('click', () => {
                 if (!isDragging) return;
                 const dx = e.clientX - startX;
                 const dy = e.clientY - startY;
-                container.style.left = (startLeft + dx) + 'px';
-                container.style.top = (startTop + dy) + 'px';
+                const newLeft = startLeft + dx;
+                const newTop = startTop + dy;
+                container.style.left = newLeft + 'px';
+                container.style.top = newTop + 'px';
+                // 更新位置记录
+                lastPickColorPosition = { left: newLeft, top: newTop };
             };
 
             const dragEndHandler = () => {
+                if (isDragging) {
+                    // 在拖动结束时记录最终位置
+                    const rect = container.getBoundingClientRect();
+                    lastPickColorPosition = {
+                        left: rect.left,
+                        top: rect.top
+                    };
+                }
                 isDragging = false;
             };
 
@@ -368,6 +473,12 @@ noColorButton.addEventListener('click', () => {
 
             const cleanup = () => {
                 if (container && container.parentNode) {
+                    // 记录关闭时的位置
+                    const rect = container.getBoundingClientRect();
+                    lastPickColorPosition = {
+                        left: rect.left,
+                        top: rect.top
+                    };
                     container.parentNode.removeChild(container);
                 }
                 document.removeEventListener('mousemove', dragHandler);
@@ -1048,10 +1159,18 @@ function tokenAtPosition(model, editor, pos) {
                                                 console.log('[definition] pickColor action for token:', tokenInfo);
                                                 try {
                                                     const style = await requestTokenStyle(tokenInfo.token);
+                                                    let token = tokenInfo.token;
+                                                    if (!style || !style.found) {
+                                                        const lastDot = tokenInfo.token.lastIndexOf('.');
+                                                        token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
+                                                    }
                                                     console.log('[definition] token style:', style);
-                                                    const initialColor = (style && typeof style.foreground === 'string' && style.foreground) || '#ff0000';
-                                                    const initalStyle = (style && typeof style.fontStyle === 'string' && style.fontStyle) || '';
-                                                    const color = await pickColor(initialColor);
+                                                    const color = await pickColor({
+                                                        token,
+                                                        foreground: style?.foreground,
+                                                        fontStyle: style?.fontStyle,
+                                                        description: style?.description
+                                                    }, getTokenColorFromDOM(editor, position) || '#808080');
                                                     console.log('[definition] picked color:', color);
                                                     if (color) {
                                                         // 回传扩展端，后续用于更新规则
@@ -1067,13 +1186,14 @@ function tokenAtPosition(model, editor, pos) {
                                                     console.error('[definition] pickColor action failed:', err);
                                                 }
                                             }
+                                        } else {
+                                            editor.setSelection({
+                                                startLineNumber: position.lineNumber,
+                                                startColumn: word.startColumn,
+                                                endLineNumber: position.lineNumber,
+                                                endColumn: word.endColumn
+                                            });
                                         }
-                                        editor.setSelection({
-                                            startLineNumber: position.lineNumber,
-                                            startColumn: word.startColumn,
-                                            endLineNumber: position.lineNumber,
-                                            endColumn: word.endColumn
-                                        });
                                     } else {
                                         //console.log('[definition] start to jump definition: ', word);
                                         vscode.postMessage({
