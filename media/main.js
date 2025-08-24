@@ -127,7 +127,7 @@ let lastPickColorPosition = null; // 记录上次弹窗位置
 
 // 通用颜色选择器（Promise 形式返回 hex 颜色或 null）
 // { "token": "keyword.type", "foreground": "#ff0000", "fontStyle": "bold italic", "description": "function|class etc." }
-async function pickColor(options = { 
+async function pickTokenStyle(options = { 
     token: '',
     foreground: '#ff0000', 
     fontStyle: '',
@@ -494,7 +494,7 @@ async function pickColor(options = {
             // 确定按钮点击事件
             confirmButton.addEventListener('click', () => {
                 const result = {
-                    color: disabledIndicator.style.display === 'flex' ? null : input.value,//input.value || null,
+                    foreground: disabledIndicator.style.display === 'flex' ? null : input.value,//input.value || null,
                     bold: boldCheckbox.checked,
                     italic: italicCheckbox.checked
                 };
@@ -1165,22 +1165,20 @@ function tokenAtPosition(model, editor, pos) {
                                                         token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
                                                     }
                                                     console.log('[definition] token style:', style);
-                                                    const color = await pickColor({
+                                                    const newStyle = await pickTokenStyle({
                                                         token,
                                                         foreground: style?.foreground,
                                                         fontStyle: style?.fontStyle,
                                                         description: style?.description
                                                     }, getTokenColorFromDOM(editor, position) || '#808080');
-                                                    console.log('[definition] picked color:', color);
-                                                    if (color) {
+                                                    console.log('[definition] picked new style:', newStyle);
+                                                    if (newStyle) {
                                                         // 回传扩展端，后续用于更新规则
-                                                        if (tokenInfo) {
-                                                            vscode.postMessage({
-                                                                type: 'tokenStyle.set',
-                                                                color,
-                                                                token: tokenInfo?.token || ''
-                                                            });
-                                                        }
+                                                        vscode.postMessage({
+                                                            type: 'tokenStyle.set',
+                                                            newStyle,
+                                                            token
+                                                        });
                                                     }
                                                 } catch (err) {
                                                     console.error('[definition] pickColor action failed:', err);

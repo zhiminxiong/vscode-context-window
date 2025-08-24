@@ -306,12 +306,34 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private upsertRule(rules: any[], token: string, patch: { foreground?: string; fontStyle?: string }): any[] {
         const idx = rules.findIndex(r => r && r.token === token);
         if (idx >= 0) {
-            const next = { ...rules[idx], token, ...patch };
+            // 克隆原条目，按需求设置或清除字段（patch 中不存在则清空）
+            const base = { ...rules[idx] };
+            base.token = token;
+
+            if (Object.prototype.hasOwnProperty.call(patch, 'foreground')) {
+                base.foreground = patch.foreground;
+            } else {
+                delete base.foreground;
+            }
+
+            if (Object.prototype.hasOwnProperty.call(patch, 'fontStyle')) {
+                base.fontStyle = patch.fontStyle;
+            } else {
+                delete base.fontStyle;
+            }
+
             const out = rules.slice();
-            out[idx] = next;
+            out[idx] = base;
             return out;
         } else {
-            const next = { token, ...patch };
+            // 新增：只包含 token 和 patch 中存在的字段
+            const next: any = { token };
+            if (Object.prototype.hasOwnProperty.call(patch, 'foreground')) {
+                next.foreground = patch.foreground;
+            }
+            if (Object.prototype.hasOwnProperty.call(patch, 'fontStyle')) {
+                next.fontStyle = patch.fontStyle;
+            }
             return [...rules, next];
         }
     }
@@ -560,19 +582,32 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     try {
                         const token = String(message.token ?? '').trim();
                         const patch: { foreground?: string; fontStyle?: string } = {};
-                        if (typeof message.foreground === 'string' && message.foreground.trim()) {
-                            patch.foreground = message.foreground.trim();
+
+                        if (message.newStyle && typeof message.newStyle.foreground === 'string' && message.newStyle.foreground.trim()) {
+                            patch.foreground = message.newStyle.foreground.trim();
                         }
-                        if (typeof message.fontStyle === 'string') {
-                            patch.fontStyle = message.fontStyle;
+                        if (message.newStyle && (message.newStyle.bold || message.newStyle.italic)) {
+                            if (message.newStyle.bold && message.newStyle.italic) {
+                                patch.fontStyle = "bold italic";
+                            } else if (message.newStyle.bold) {
+                                patch.fontStyle = "bold";
+                            } else if (message.newStyle.italic) {
+                                patch.fontStyle = "italic";
+                            }
                         }
                         if (!token) {
                             throw new Error('token is required');
                         }
 
+                        console.log('[definition] tokenStyle.set token:', token, 'patch:', patch);
+
                         const prev = this.getThemeRules();
                         const next = this.upsertRule(prev, token, patch);
                         await this.setThemeRules(next);
+
+                        console.log('[definition] tokenStyle.set updated rules', next);
+                        const cur = this.getThemeRules();
+                        console.log('[definition] tokenStyle.set cur rules', cur);
 
                         // 仅推送 rules 的变更，不带其它配置
                         // this.postMessageToWebview({
