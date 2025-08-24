@@ -504,6 +504,10 @@ async function pickTokenStyle(options = {
             document.addEventListener('mousemove', dragHandler);
             document.addEventListener('mouseup', dragEndHandler);
 
+            let escHandler = null;
+            let blurHandler = null;
+            let outsideClickHandler = null;
+
             const cleanup = () => {
                 if (container && container.parentNode) {
                     // 记录关闭时的位置
@@ -516,6 +520,16 @@ async function pickTokenStyle(options = {
                 }
                 document.removeEventListener('mousemove', dragHandler);
                 document.removeEventListener('mouseup', dragEndHandler);
+
+                if (typeof outsideClickHandler === 'function') {
+                    document.removeEventListener('mousedown', outsideClickHandler);
+                }
+                if (typeof escHandler === 'function') {
+                    document.removeEventListener('keydown', escHandler);
+                }
+                if (typeof blurHandler === 'function') {
+                    window.removeEventListener('blur', blurHandler);
+                }
             };
 
             // 关闭按钮事件
@@ -536,7 +550,7 @@ async function pickTokenStyle(options = {
             }, { once: true });
 
             // ESC键关闭
-            const escHandler = (e) => {
+            escHandler = (e) => {
                 if (e.key === 'Escape') {
                     cleanup();
                     resolve(null);
@@ -545,8 +559,14 @@ async function pickTokenStyle(options = {
             };
             document.addEventListener('keydown', escHandler);
 
+            blurHandler = () => {
+                cleanup();
+                resolve(null);
+            };
+            window.addEventListener('blur', blurHandler);
+
             // 点击外部关闭
-            const outsideClickHandler = (e) => {
+            outsideClickHandler = (e) => {
                 if (!container.contains(e.target)) {
                     cleanup();
                     resolve(null);
