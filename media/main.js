@@ -188,8 +188,9 @@ async function pickTokenStyle(options = {
             // 标题文字
             const titleText = document.createElement('span');
             titleText.textContent = 'Select Token Style';
-            titleText.style.fontSize = '13px';
-            titleText.style.fontWeight = '600';
+            titleText.style.fontSize = '15px';
+            //titleText.style.fontWeight = '600';
+            titleText.style.fontFamily = 'var(--vscode-font-family)';
 
             // 关闭按钮
             const closeButton = document.createElement('button');
@@ -240,16 +241,21 @@ async function pickTokenStyle(options = {
             }
             tokenPrefix.textContent = displayWord + ' : ';
             tokenPrefix.style.color = 'var(--vscode-editor-foreground)';
-            tokenPrefix.style.fontSize = '12px';
+            tokenPrefix.style.fontSize = '13px';
+            tokenPrefix.style.fontFamily = 'var(--vscode-font-family)';
+            tokenPrefix.style.fontStyle = 'italic';
             tokenPrefix.style.display = 'inline-block';
             tokenPrefix.style.verticalAlign = 'bottom';
             tokenPrefix.style.lineHeight = '1';
 
             const tokenValue = document.createElement('span');
             tokenValue.textContent = tokenText || '(none)';
-            tokenValue.style.color = 'var(--vscode-editor-foreground)';//'#000080';  // 蓝黑色
-            tokenValue.style.fontSize = '15px';   // 比前缀大一号
-            tokenValue.style.fontWeight = '500';  // 稍微加粗
+            tokenValue.style.color = hasInitialColor ? initialColor : domColor;// || 'var(--vscode-editor-foreground)';//'#000080';  // 蓝黑色
+            tokenValue.style.fontSize = '16px';   // 比前缀大一号
+            tokenValue.style.fontFamily = 'var(--vscode-font-family)';
+            if (style.italic) tokenValue.style.fontStyle = 'italic';
+            if (style.bold) tokenValue.style.fontWeight = '500';
+            //tokenValue.style.fontWeight = '500';  // 稍微加粗
             tokenValue.style.display = 'inline-block';
             tokenValue.style.verticalAlign = 'bottom';
             tokenValue.style.lineHeight = '1';
@@ -273,11 +279,7 @@ async function pickTokenStyle(options = {
             // 创建颜色选择器
             const input = document.createElement('input');
             input.type = 'color';
-            if (hasInitialColor) {
-                input.value = initialColor;
-            } else {
-                input.value = domColor; // 默认灰色
-            }
+            input.value = hasInitialColor ? initialColor : domColor; // 默认灰色
             //console.log('create input:', input.value);
             input.style.width = '30px';
             input.style.height = '30px';
