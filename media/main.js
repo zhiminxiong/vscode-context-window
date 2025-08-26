@@ -233,7 +233,12 @@ async function pickTokenStyle(options = {
             tokenLabel.style.marginBottom = '5px';
 
             const tokenPrefix = document.createElement('span');
-            tokenPrefix.textContent = word ? word+' : ' : 'Cur Token : ';
+            const maxWordLen = 30;  // 可调整的最大长度
+            let displayWord = word || 'Cur Token';
+            if (displayWord.length > maxWordLen) {
+                displayWord = displayWord.slice(0, maxWordLen - 3) + '...';
+            }
+            tokenPrefix.textContent = displayWord + ' : ';
             tokenPrefix.style.color = 'var(--vscode-editor-foreground)';
             tokenPrefix.style.fontSize = '12px';
             tokenPrefix.style.display = 'inline-block';
