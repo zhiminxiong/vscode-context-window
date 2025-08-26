@@ -24,7 +24,7 @@ Please check out that extension if you just want documentation in the panel or s
 
 ![tokenStyle](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/tokenStyle.gif?raw=true)
 
-- When `useDefaultTokenizer` is disabled, add a context-menu option to apply a style to the token under the cursor.
+- For custom token parsing and adding a right-click context menu to adjust the style of the selected token, you must first uncheck `useDefaultTokenizer`.
 
 ## Configuration
 
