@@ -475,12 +475,14 @@ body {
     gap: 0
 }
 .filename-icon {
-    font-size: 15px;
+    font-size: 16px;
     margin: 0;
     padding: 0;
     flex-shrink: 0;
-    opacity: 0.7;
+    opacity: 1.0;
+    color: rgba(0, 0, 0, 1.0);
     display: inline-block;
+    font-family: 'Segoe UI Emoji', sans-serif;
 }
 .filename-path-text {
     overflow: hidden;
