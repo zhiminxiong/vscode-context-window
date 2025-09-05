@@ -74,13 +74,13 @@ export class Renderer {
 
         // Read entire file.
         const rangeText = new vscode.Range(0, 0, doc.lineCount, 0);
-        let lines = doc.getText(rangeText).split(/\r?\n/);
+        let lines = doc.getText(rangeText);//.split(/\r?\n/);
         let firstLine = range.start.line;
 
         //console.debug(`uri = ${uri} firstLine = ${firstLine} lastLine = ${lastLine}`);
 
         return {
-            content: lines.join("\n"),
+            content: lines,//.join("\n"),
             line: firstLine,
             column: range.start.character,
             jmpUri: uri.toString(),
