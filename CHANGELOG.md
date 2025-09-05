@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.7.2] 2025.09.05
+
+#### Changed
+
+- Drastically improve the performance of jumping to large files.
+
 ## [0.7.1] 2025.08.24
 
 #### Added
