@@ -1400,8 +1400,6 @@ function tokenAtPosition(model, editor, pos) {
                         const icon = pathContainer?.querySelector('.filename-icon');
                         const pathText = pathContainer?.querySelector('.filename-path-text');
                         if (uri && filenameDisplay) {
-                            // 从URI中提取文件名
-                            const filename = uri.split('/').pop().split('\\').pop();
                             let filePath = uri;
                             try {
                                 filePath = decodeURIComponent(uri);
@@ -1409,6 +1407,7 @@ function tokenAtPosition(model, editor, pos) {
                                 //console.log('[definition] Error decoding URI:', e);
                                 filePath = uri;
                             }
+                            const filename = filePath.split('/').pop().split('\\').pop();
                             //const displayText = `${filename}       (${filePath})`;
                             //console.log('[definition] File name:', filename, uri);
                             //filenameDisplay.textContent = displayText || '';

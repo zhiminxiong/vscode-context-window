@@ -1110,7 +1110,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             });
 
             if (this._currentPanel) {
-                let filename = contentInfo.jmpUri.split('/').pop()?.split('\\').pop();
+                let filePath;
+                try {
+                    filePath = decodeURIComponent(contentInfo.jmpUri);
+                } catch (e) {
+                    filePath = contentInfo.jmpUri;
+                }
+                let filename = filePath.split('/').pop()?.split('\\').pop();
                 this._currentPanel.title = filename ?? "Context Window";
             }
 
