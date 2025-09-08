@@ -803,7 +803,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 }
                             })();
 
-                            this.withProgress<void>(()=>updatePromise);
+                            setTimeout(() => {
+                                this.withProgress<void>(()=>updatePromise);
+                            }, 0); 
                         }
                     }
                     break;
