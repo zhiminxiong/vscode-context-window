@@ -835,9 +835,22 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     private async createFloatingWebview() {
+        let title = "Context Window";
+        let curContext = this.getCurrentContent();
+        if (curContext?.content && curContext.content.jmpUri) {
+            let filePath;
+            try {
+                filePath = decodeURIComponent(curContext.content.jmpUri);
+            } catch (e) {
+                filePath = curContext.content.jmpUri;
+            }
+            let filename = filePath.split('/').pop()?.split('\\').pop();
+            title = filename ?? "Context Window";
+        }
+
         this._currentPanel = vscode.window.createWebviewPanel(
             'FloatContextView',
-            'Context Window',
+            title,
             vscode.ViewColumn.Beside,
             {
                 enableScripts: true,
