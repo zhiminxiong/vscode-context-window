@@ -700,16 +700,17 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                             type: 'clearDefinitionList'
                                         });
                                     }
+
+                                    let definition = definitions[0];
                                     
                                     // 如果有多个定义，传递给 Monaco Editor
                                     if (definitions.length > 1) {
                                         const currentPosition = new vscode.Position(message.position.line, message.position.character);
-                                        const selectedDefinition = await this.showDefinitionPicker(definitions, editor, currentPosition);
-                                        definitions = selectedDefinition ? [selectedDefinition] : [];
+                                        definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
                                     }
                                     //console.log('[definition] jumpDefinition: ', message.token);
                                     if (definitions && definitions.length > 0) {
-                                        const contentInfo = await this._renderer.renderDefinitions(editor.document, definitions, message.token);
+                                        const contentInfo = await this._renderer.renderDefinition(editor.document, definition, message.token);
                                         this.updateContent(contentInfo);
                                         this.addToHistory(contentInfo, message.position.line);
                                         //console.log('[definition] jumpDefinition: ', contentInfo);
@@ -772,7 +773,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             const selectedText = this._currentSelectedText;
                             
                             // 渲染选中的定义
-                            // this._renderer.renderDefinitions(editor.document, [selected.definition], selectedText).then(contentInfo => {
+                            // this._renderer.renderDefinition(editor.document, selected.definition, selectedText).then(contentInfo => {
                             //     this.updateContent(contentInfo);
                             //     // 更新历史记录的内容，但保持当前行号
                             //     if (this._history.length > this._historyIndex) {
@@ -781,9 +782,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             // });
                             const updatePromise = (async () => {
                                 try {
-                                    const contentInfo = await this._renderer.renderDefinitions(
+                                    const contentInfo = await this._renderer.renderDefinition(
                                         editor.document, 
-                                        [selected.definition], 
+                                        selected.definition, 
                                         selectedText
                                     );
                                     
@@ -1285,13 +1286,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //this._currentPanel = undefined;
         }
 
+        let definition = definitions[0];
+
         if (definitions.length > 1) {
             const currentPosition = editor.selection.active;
-            const selectedDefinition = await this.showDefinitionPicker(definitions, editor, currentPosition);
-            if (!selectedDefinition) {
+            definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
+            if (!definition) {
                 return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '' };
             }
-            definitions = [selectedDefinition];
         } else {
             // 主动隐藏定义列表
             this.postMessageToWebview({
@@ -1300,7 +1302,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
 
         //console.log(definitions);
-        return definitions.length ? await this._renderer.renderDefinitions(editor.document, definitions, selectedText) : {
+        return definitions.length ? await this._renderer.renderDefinition(editor.document, definition, selectedText) : {
             content: '',
             line: 0,
             column: 0,

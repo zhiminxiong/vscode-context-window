@@ -29,38 +29,16 @@ export class Renderer {
         this._onNeedsRender.dispose();
     }
 
-    public async renderDefinitions(document: vscode.TextDocument, definitions: readonly vscode.Location[] | vscode.LocationLink[], 
+    public async renderDefinition(document: vscode.TextDocument, def: vscode.Location | vscode.LocationLink, 
                                 selectedText: string | undefined): Promise<FileContentInfo> {
-        let docs: FileContentInfo[] = [];
-
-        for (const def of definitions) {
-            if (def instanceof vscode.Location) {
-                docs.push(await this.getFileContents(def.uri, def.range, document.languageId));
-            } else {
-                if (def.targetSelectionRange)
-                    docs.push(await this.getFileContents(def.targetUri, def.targetSelectionRange, document.languageId));
-                else
-                    docs.push(await this.getFileContents(def.targetUri, def.targetRange, document.languageId));
-            }
+        if (def instanceof vscode.Location) {
+            return await this.getFileContents(def.uri, def.range, document.languageId);
+        } else {
+            if (def.targetSelectionRange)
+                return await this.getFileContents(def.targetUri, def.targetSelectionRange, document.languageId);
+            else
+                return await this.getFileContents(def.targetUri, def.targetRange, document.languageId);
         }
-
-        const parts = docs
-            .filter(info => info.content.length > 0)
-            .map(info => info.content);
-
-        if (!parts.length) {
-            return { content: '', line: 0, column: 0, jmpUri: '', languageId: document.languageId, symbolName: '' }
-        };
-
-        // 直接返回内容，不再使用highlighter
-        return {
-            content: parts.join('\n'),
-            line: docs[0].line,
-            column: docs[0].column,
-            jmpUri: docs[0].jmpUri,
-            languageId: docs[0].languageId,
-            symbolName: selectedText || '' // 如果没有选中文本，则使用空字符串
-        };
     }
 
     private async getFileContents(uri: vscode.Uri, range: vscode.Range, languageId: string): Promise<FileContentInfo> {
