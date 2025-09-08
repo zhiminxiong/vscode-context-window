@@ -32,16 +32,16 @@ export class Renderer {
     public async renderDefinition(document: vscode.TextDocument, def: vscode.Location | vscode.LocationLink, 
                                 selectedText: string | undefined): Promise<FileContentInfo> {
         if (def instanceof vscode.Location) {
-            return await this.getFileContents(def.uri, def.range, document.languageId);
+            return await this.getFileContents(def.uri, def.range, document.languageId, selectedText || '');
         } else {
             if (def.targetSelectionRange)
-                return await this.getFileContents(def.targetUri, def.targetSelectionRange, document.languageId);
+                return await this.getFileContents(def.targetUri, def.targetSelectionRange, document.languageId, selectedText || '');
             else
-                return await this.getFileContents(def.targetUri, def.targetRange, document.languageId);
+                return await this.getFileContents(def.targetUri, def.targetRange, document.languageId, selectedText || '');
         }
     }
 
-    private async getFileContents(uri: vscode.Uri, range: vscode.Range, languageId: string): Promise<FileContentInfo> {
+    private async getFileContents(uri: vscode.Uri, range: vscode.Range, languageId: string, selectedText: string): Promise<FileContentInfo> {
         const doc = await vscode.workspace.openTextDocument(uri);
         // console.debug(`uri = ${uri}`);
         // console.debug(`range = ${range.start.line} - ${range.end.line}`);
@@ -63,7 +63,7 @@ export class Renderer {
             column: range.start.character,
             jmpUri: uri.toString(),
             languageId: finalLanguageId,
-            symbolName: '' // 使用文档的语言ID或传入的语言ID
+            symbolName: selectedText // 使用文档的语言ID或传入的语言ID
         };
     }
 }
