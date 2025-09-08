@@ -772,13 +772,37 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             const selectedText = this._currentSelectedText;
                             
                             // 渲染选中的定义
-                            this._renderer.renderDefinitions(editor.document, [selected.definition], selectedText).then(contentInfo => {
-                                this.updateContent(contentInfo);
-                                // 更新历史记录的内容，但保持当前行号
-                                if (this._history.length > this._historyIndex) {
-                                    this._history[this._historyIndex].content = contentInfo;
+                            // this._renderer.renderDefinitions(editor.document, [selected.definition], selectedText).then(contentInfo => {
+                            //     this.updateContent(contentInfo);
+                            //     // 更新历史记录的内容，但保持当前行号
+                            //     if (this._history.length > this._historyIndex) {
+                            //         this._history[this._historyIndex].content = contentInfo;
+                            //     }
+                            // });
+                            const updatePromise = (async () => {
+                                try {
+                                    const contentInfo = await this._renderer.renderDefinitions(
+                                        editor.document, 
+                                        [selected.definition], 
+                                        selectedText
+                                    );
+                                    
+                                    this.updateContent(contentInfo);
+                                    
+                                    // 更新历史记录
+                                    if (this._history.length > this._historyIndex) {
+                                        this._history[this._historyIndex].content = contentInfo;
+                                    }
+                                } catch (error) {
+                                    // 错误处理
+                                    this.postMessageToWebview({
+                                        type: 'showContentError',
+                                        message: 'Failed to load definition content'
+                                    });
                                 }
-                            });
+                            })();
+
+                            this.withProgress<void>(()=>updatePromise);
                         }
                     }
                     break;
@@ -1302,20 +1326,18 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private async showDefinitionPicker(definitions: any[], editor: vscode.TextEditor, currentPosition?: vscode.Position): Promise<any> {
         // 准备定义列表数据并发送到webview
         try {
-            const definitionListData = await Promise.all(definitions.map(async (definition, index) => {
+            const definitionListData = definitions.map((definition, index) => {
                 try {
                     let def = definition;
                     let uri = (def instanceof vscode.Location) ? def.uri : def.targetUri;
                     let range = (def instanceof vscode.Location) ? def.range : (def.targetSelectionRange ?? def.targetRange);
-
+            
                     // 使用全路径
                     const displayPath = uri.fsPath;
 
-                    // 获取符号名称
-                    const document = await vscode.workspace.openTextDocument(uri);
-                    const wordRange = document.getWordRangeAtPosition(new vscode.Position(range.start.line, range.start.character));
-                    const symbolName = wordRange ? document.getText(wordRange) : `Definition ${index + 1}`;
-
+                    // 使用传入的符号名称，避免异步文件操作
+                    const symbolName = this._currentSelectedText || `Definition ${index + 1}`;
+                    
                     return {
                         title: symbolName,
                         location: `${displayPath}:${range.start.line + 1}`,
@@ -1331,7 +1353,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 } catch (error) {
                     return null;
                 }
-            }));
+            });
             
             // 过滤掉null项
             const validDefinitions = definitionListData.filter(item => item !== null);
