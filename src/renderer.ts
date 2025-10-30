@@ -12,6 +12,7 @@ export interface FileContentInfo {
 interface FileCacheEntry {
     content: string;
     languageId: string;
+    documentVersion: number;  // 添加：文档版本号
     lastAccessTime: number;  // 最后访问时间，用于LRU淘汰
 }
 
@@ -59,9 +60,16 @@ export class Renderer {
         const cacheKey = uri.toString();
         const firstLine = range.start.line;
 
+        // 先打开文档获取版本号（无论如何都需要打开文档）
+        //let beginTime = Date.now();
+        const doc = await vscode.workspace.openTextDocument(uri);
+        //let costtime = Date.now() - beginTime;
+        //console.log(`[definition] 打开文档 ${uri.toString()} 花费时间: ${costtime} ms`);
+        const currentVersion = doc.version;
+
         // 1. 先检查缓存
         const cached = this._fileCache.get(cacheKey);
-        if (cached) {
+        if (cached && cached.documentVersion === currentVersion) {
             // 更新访问时间（LRU）
             cached.lastAccessTime = Date.now();
             return {
@@ -72,32 +80,32 @@ export class Renderer {
                 languageId: cached.languageId,
                 symbolName: selectedText
             };
-        } else {
-            const doc = await vscode.workspace.openTextDocument(uri);
-            const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
-            const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || languageId);
-
-            const isLargeFile = doc.lineCount > this.LARGE_FILE_THRESHOLD;
-
-            let content = this.readFullFileContent(doc);
-
-            if (isLargeFile) {
-                this.addToCache(cacheKey, {
-                    content,
-                    languageId: finalLanguageId,
-                    lastAccessTime: Date.now()
-                });
-            }
-
-            return {
-                content,
-                line: firstLine,
-                column: range.start.character,
-                jmpUri: uri.toString(),
-                languageId: finalLanguageId,
-                symbolName: selectedText
-            };
         }
+
+        const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
+        const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || languageId);
+
+        const isLargeFile = doc.lineCount > this.LARGE_FILE_THRESHOLD;
+
+        let content = this.readFullFileContent(doc);
+
+        if (isLargeFile) {
+            this.addToCache(cacheKey, {
+                content,
+                languageId: finalLanguageId,
+                documentVersion: currentVersion,
+                lastAccessTime: Date.now()
+            });
+        }
+
+        return {
+            content,
+            line: firstLine,
+            column: range.start.character,
+            jmpUri: uri.toString(),
+            languageId: finalLanguageId,
+            symbolName: selectedText
+        };
     }
 
     // 读取完整文件内容
