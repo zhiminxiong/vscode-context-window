@@ -9,12 +9,24 @@ export interface FileContentInfo {
     symbolName: string; // 添加符号名称字段
 }
 
+interface FileCacheEntry {
+    content: string;
+    languageId: string;
+    lastAccessTime: number;  // 最后访问时间，用于LRU淘汰
+}
+
 export class Renderer {
     private readonly _disposables: vscode.Disposable[] = [];
         
     // 创建一个事件发射器用于通知需要重新渲染
     private readonly _onNeedsRender = new vscode.EventEmitter<void>();
     public readonly needsRender: vscode.Event<void>;
+
+    // 文件内容缓存（最多10个）
+    private readonly _fileCache = new Map<string, FileCacheEntry>();
+    private readonly MAX_CACHE_SIZE = 10;
+    // 大文件阈值（超过这个行数视为大文件，需要缓存）
+    private readonly LARGE_FILE_THRESHOLD = 5000;
 
     constructor() {
         // 使用自己的事件发射器
@@ -27,6 +39,8 @@ export class Renderer {
             item.dispose();
         }
         this._onNeedsRender.dispose();
+
+        this._fileCache.clear();
     }
 
     public async renderDefinition(document: vscode.TextDocument, def: vscode.Location | vscode.LocationLink, 
@@ -42,28 +56,87 @@ export class Renderer {
     }
 
     private async getFileContents(uri: vscode.Uri, range: vscode.Range, languageId: string, selectedText: string): Promise<FileContentInfo> {
-        const doc = await vscode.workspace.openTextDocument(uri);
-        // console.debug(`uri = ${uri}`);
-        // console.debug(`range = ${range.start.line} - ${range.end.line}`);
+        const cacheKey = uri.toString();
+        const firstLine = range.start.line;
 
-        // 检查文件扩展名，如果是 .inc 文件则强制使用 cpp 语言
-        const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
-        const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || languageId);
+        // 1. 先检查缓存
+        const cached = this._fileCache.get(cacheKey);
+        if (cached) {
+            // 更新访问时间（LRU）
+            cached.lastAccessTime = Date.now();
+            return {
+                content: cached.content,
+                line: firstLine,
+                column: range.start.character,
+                jmpUri: uri.toString(),
+                languageId: cached.languageId,
+                symbolName: selectedText
+            };
+        } else {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
+            const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || languageId);
 
-        // Read entire file.
+            const isLargeFile = doc.lineCount > this.LARGE_FILE_THRESHOLD;
+
+            let content = this.readFullFileContent(doc);
+
+            if (isLargeFile) {
+                this.addToCache(cacheKey, {
+                    content,
+                    languageId: finalLanguageId,
+                    lastAccessTime: Date.now()
+                });
+            }
+
+            return {
+                content,
+                line: firstLine,
+                column: range.start.character,
+                jmpUri: uri.toString(),
+                languageId: finalLanguageId,
+                symbolName: selectedText
+            };
+        }
+    }
+
+    // 读取完整文件内容
+    private readFullFileContent(doc: vscode.TextDocument): string {
         const rangeText = new vscode.Range(0, 0, doc.lineCount, 0);
-        let lines = doc.getText(rangeText);//.split(/\r?\n/);
-        let firstLine = range.start.line;
+        return doc.getText(rangeText);
+    }
 
-        //console.debug(`uri = ${uri} firstLine = ${firstLine} lastLine = ${lastLine}`);
+    // 添加到缓存（LRU淘汰）
+    private addToCache(key: string, entry: FileCacheEntry): void {
+        // 如果已存在，直接更新
+        if (this._fileCache.has(key)) {
+            this._fileCache.set(key, entry);
+            return;
+        }
+        
+        // 如果缓存已满，淘汰最久未访问的
+        if (this._fileCache.size >= this.MAX_CACHE_SIZE) {
+            this.evictLRU();
+        }
+        
+        // 添加新条目
+        this._fileCache.set(key, entry);
+    }
 
-        return {
-            content: lines,//.join("\n"),
-            line: firstLine,
-            column: range.start.character,
-            jmpUri: uri.toString(),
-            languageId: finalLanguageId,
-            symbolName: selectedText // 使用文档的语言ID或传入的语言ID
-        };
+    // LRU淘汰：移除最久未访问的条目
+    private evictLRU(): void {
+        let oldestKey: string | null = null;
+        let oldestTime = Infinity;
+        
+        for (const [key, entry] of this._fileCache.entries()) {
+            if (entry.lastAccessTime < oldestTime) {
+                oldestTime = entry.lastAccessTime;
+                oldestKey = key;
+            }
+        }
+        
+        if (oldestKey) {
+            this._fileCache.delete(oldestKey);
+        }
     }
 }
