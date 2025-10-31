@@ -7,6 +7,7 @@ export interface FileContentInfo {
     jmpUri: string;
     languageId: string; // 添加语言ID用于Monaco Editor
     symbolName: string; // 添加符号名称字段
+    documentVersion: number;
 }
 
 interface FileCacheEntry {
@@ -78,7 +79,8 @@ export class Renderer {
                 column: range.start.character,
                 jmpUri: uri.toString(),
                 languageId: cached.languageId,
-                symbolName: selectedText
+                symbolName: selectedText,
+                documentVersion: currentVersion
             };
         }
 
@@ -104,7 +106,8 @@ export class Renderer {
             column: range.start.character,
             jmpUri: uri.toString(),
             languageId: finalLanguageId,
-            symbolName: selectedText
+            symbolName: selectedText,
+            documentVersion: currentVersion
         };
     }
 
