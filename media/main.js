@@ -5,133 +5,6 @@ import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfi
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
-function updateEditorContent(content, options) {
-    const {
-        uri: fileUri,
-        languageId,
-        scrollToLine,
-        curLine,
-        symbolName
-    } = options || {};
-    
-    // 显示编辑器，隐藏原始内容区域
-    document.getElementById('container').style.display = 'block';
-    document.getElementById('main').style.display = 'none';
-    
-    // 更新 URI 和文件名显示
-    if (fileUri) {
-        uri = fileUri;
-        updateFilenameDisplay(fileUri);
-    }
-    
-    // 更新编辑器内容和语言
-    if (editor) {
-        const models = monaco.editor.getModels();
-        let model = models.length > 0 ? models[0] : null;
-        
-        // 更新全局变量
-        if (content) {
-            content = content;
-        }
-        if (languageId) {
-            language = languageId;
-        }
-        
-        if (!model) {
-            // 创建新模型
-            model = monaco.editor.createModel(content || '', languageId || 'plaintext');
-            editor.setModel(model);
-        } else {
-            // 更新现有模型
-            // 如果语言变了，更新语言
-            if (model.getLanguageId() !== languageId && languageId) {
-                monaco.editor.setModelLanguage(model, languageId);
-            }
-            // 更新内容（只有在内容变化时才更新）
-            if (content && model.getValue() !== content) {
-                model.setValue(content);
-            }
-        }
-        
-        applyIndentationForModel(model);
-        
-        const lineCount = model.getLineCount();
-        const requiredChars = Math.max(3, lineCount.toString().length + 1);
-        
-        editor.updateOptions({ lineNumbersMinChars: requiredChars });
-        editor.layout();
-        
-        // 清除之前的装饰
-        const existingDecorations = editor.getDecorationsInRange(new monaco.Range(
-            1, 1,
-            model.getLineCount(),
-            Number.MAX_SAFE_INTEGER
-        ));
-        const symbolDecorations = existingDecorations?.filter(d => d.options.inlineClassName === 'highlighted-symbol');
-        if (symbolDecorations && symbolDecorations.length > 0) {
-            editor.deltaDecorations(symbolDecorations.map(d => d.id), []);
-        }
-        
-        // 滚动到指定行
-        if (scrollToLine) {
-            let targetLine = scrollToLine;
-            if (curLine && curLine !== -1) {
-                targetLine = curLine;
-            }
-            editor.revealLineInCenter(targetLine);
-            
-            // 添加行高亮装饰
-            const lineDecorations = editor.deltaDecorations([], [{
-                range: new monaco.Range(scrollToLine, 1, scrollToLine, 1),
-                options: {
-                    isWholeLine: true,
-                    className: 'highlighted-line',
-                    glyphMarginClassName: 'highlighted-glyph'
-                }
-            }]);
-            
-            let column = 1;
-            // 如果有定义名，高亮它
-            if (symbolName) {
-                const text = model.getValue();
-                const lines = text.split('\n');
-                const lineText = lines[scrollToLine - 1] || '';
-                
-                // 在当前行查找符号名（使用单词边界匹配）
-                const symbolRegex = new RegExp(`\\b${symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
-                const symbolMatch = lineText.match(symbolRegex);
-                const symbolIndex = symbolMatch ? symbolMatch.index : -1;
-                
-                if (symbolIndex !== -1) {
-                    column = symbolIndex + 1;
-                    // 添加符号高亮装饰
-                    editor.deltaDecorations([], [{
-                        range: new monaco.Range(
-                            scrollToLine,
-                            symbolIndex + 1,
-                            scrollToLine,
-                            symbolIndex + symbolName.length + 1
-                        ),
-                        options: {
-                            inlineClassName: 'highlighted-symbol'
-                        }
-                    }]);
-                }
-            }
-            
-            // 设置光标位置
-            editor.setSelection({
-                startLineNumber: targetLine,
-                startColumn: column,
-                endLineNumber: targetLine,
-                endColumn: column
-            });
-        }
-    } else {
-        console.error('[definition] Editor not initialized');
-    }
-}
-
 function cssColorToMonaco(color) {
     if (!color) return undefined;
     const v = color.trim();
@@ -1832,6 +1705,133 @@ function tokenAtPosition(model, editor, pos) {
                         }
                     }
 
+                    function updateEditorContent(content, options) {
+                        const {
+                            uri: fileUri,
+                            languageId,
+                            scrollToLine,
+                            curLine,
+                            symbolName
+                        } = options || {};
+                        
+                        // 显示编辑器，隐藏原始内容区域
+                        document.getElementById('container').style.display = 'block';
+                        document.getElementById('main').style.display = 'none';
+                        
+                        // 更新 URI 和文件名显示
+                        if (fileUri) {
+                            uri = fileUri;
+                            updateFilenameDisplay(fileUri);
+                        }
+                        
+                        // 更新编辑器内容和语言
+                        if (editor) {
+                            const models = monaco.editor.getModels();
+                            let model = models.length > 0 ? models[0] : null;
+                            
+                            // 更新全局变量
+                            if (content) {
+                                content = content;
+                            }
+                            if (languageId) {
+                                language = languageId;
+                            }
+                            
+                            if (!model) {
+                                // 创建新模型
+                                model = monaco.editor.createModel(content || '', languageId || 'plaintext');
+                                editor.setModel(model);
+                            } else {
+                                // 更新现有模型
+                                // 如果语言变了，更新语言
+                                if (model.getLanguageId() !== languageId && languageId) {
+                                    monaco.editor.setModelLanguage(model, languageId);
+                                }
+                                // 更新内容（只有在内容变化时才更新）
+                                if (content && model.getValue() !== content) {
+                                    model.setValue(content);
+                                }
+                            }
+                            
+                            applyIndentationForModel(model);
+                            
+                            const lineCount = model.getLineCount();
+                            const requiredChars = Math.max(3, lineCount.toString().length + 1);
+                            
+                            editor.updateOptions({ lineNumbersMinChars: requiredChars });
+                            editor.layout();
+                            
+                            // 清除之前的装饰
+                            const existingDecorations = editor.getDecorationsInRange(new monaco.Range(
+                                1, 1,
+                                model.getLineCount(),
+                                Number.MAX_SAFE_INTEGER
+                            ));
+                            const symbolDecorations = existingDecorations?.filter(d => d.options.inlineClassName === 'highlighted-symbol');
+                            if (symbolDecorations && symbolDecorations.length > 0) {
+                                editor.deltaDecorations(symbolDecorations.map(d => d.id), []);
+                            }
+                            
+                            // 滚动到指定行
+                            if (scrollToLine) {
+                                let targetLine = scrollToLine;
+                                if (curLine && curLine !== -1) {
+                                    targetLine = curLine;
+                                }
+                                editor.revealLineInCenter(targetLine);
+                                
+                                // 添加行高亮装饰
+                                const lineDecorations = editor.deltaDecorations([], [{
+                                    range: new monaco.Range(scrollToLine, 1, scrollToLine, 1),
+                                    options: {
+                                        isWholeLine: true,
+                                        className: 'highlighted-line',
+                                        glyphMarginClassName: 'highlighted-glyph'
+                                    }
+                                }]);
+                                
+                                let column = 1;
+                                // 如果有定义名，高亮它
+                                if (symbolName) {
+                                    const text = model.getValue();
+                                    const lines = text.split('\n');
+                                    const lineText = lines[scrollToLine - 1] || '';
+                                    
+                                    // 在当前行查找符号名（使用单词边界匹配）
+                                    const symbolRegex = new RegExp(`\\b${symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+                                    const symbolMatch = lineText.match(symbolRegex);
+                                    const symbolIndex = symbolMatch ? symbolMatch.index : -1;
+                                    
+                                    if (symbolIndex !== -1) {
+                                        column = symbolIndex + 1;
+                                        // 添加符号高亮装饰
+                                        editor.deltaDecorations([], [{
+                                            range: new monaco.Range(
+                                                scrollToLine,
+                                                symbolIndex + 1,
+                                                scrollToLine,
+                                                symbolIndex + symbolName.length + 1
+                                            ),
+                                            options: {
+                                                inlineClassName: 'highlighted-symbol'
+                                            }
+                                        }]);
+                                    }
+                                }
+                                
+                                // 设置光标位置
+                                editor.setSelection({
+                                    startLineNumber: targetLine,
+                                    startColumn: column,
+                                    endLineNumber: targetLine,
+                                    endColumn: column
+                                });
+                            }
+                        } else {
+                            console.error('[definition] Editor not initialized');
+                        }
+                    }
+
                     window.addEventListener('blur', () => {
                         const menu = document.getElementById('custom-context-menu');
                         if (menu) menu.remove();
@@ -2096,11 +2096,12 @@ function tokenAtPosition(model, editor, pos) {
                                         if (cached && cached.version !== requestVersion) {
                                             fileContentCache.delete(uri);
                                         }
+
+                                        const contentHash = `${uri}:${requestVersion}`;
                                         
                                         vscode.postMessage({
                                             type: 'requestContent',
-                                            uri: message.uri,
-                                            documentVersion: requestVersion
+                                            contentHash: contentHash
                                         });
                                     }
                                     break;
