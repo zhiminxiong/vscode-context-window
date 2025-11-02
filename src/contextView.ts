@@ -53,6 +53,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _isFirstStart: boolean = true;
     private _lastUpdateEditor: vscode.TextEditor | undefined;
 
+    private _lastContentHash: string | undefined;  // 最近一次的内容标识
+    private _lastContent: FileContentInfo | undefined;  // 最近一次的内容
+
     constructor(
         private readonly _extensionUri: vscode.Uri,
     ) {
@@ -640,15 +643,22 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         if (curContext?.content) {
                             //console.log('[definition] editorReady update');
 
+                            const uri = curContext.content.jmpUri.toString();
+                            const currentVersion = curContext.content.documentVersion;
+                            
+                            // 生成内容的唯一标识
+                            const contentHash = `${uri}:${currentVersion}`;
+
                             this._currentPanel.webview.postMessage({
-                                type: 'update',
-                                body: curContext.content.content,
-                                uri: curContext.content.jmpUri,
+                                type: 'updateMetadata',
+                                contentHash: contentHash,
+                                uri: uri,
                                 languageId: curContext.content.languageId,
                                 updateMode: this._updateMode,
                                 scrollToLine: curContext.content.line + 1,
                                 curLine: curContext.curLine + 1,
-                                symbolName: curContext.content.symbolName
+                                symbolName: curContext.content.symbolName,
+                                documentVersion: currentVersion
                             });
                         }
                     }
@@ -675,6 +685,29 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 case 'navigate':
                     this.navigate(message.direction);
                     break;
+                case 'requestContent':
+                    // WebView 请求完整内容（只返回最近一次的内容）
+                    if (message.contentHash && message.contentHash === this._lastContentHash && this._lastContent) {
+                        this.postMessageToWebview({
+                            type: 'updateContent',
+                            contentHash: this._lastContentHash,
+                            body: this._lastContent.content,
+                            uri: this._lastContent.jmpUri.toString(),
+                            languageId: this._lastContent.languageId,
+                            updateMode: this._updateMode,
+                            scrollToLine: this._lastContent.line + 1,
+                            symbolName: this._lastContent.symbolName,
+                            documentVersion: this._lastContent.documentVersion
+                        });
+                    } else {
+                        // 缓存不存在或已过期
+                        this.postMessageToWebview({
+                            type: 'contentError',
+                            contentHash: message.contentHash,
+                            message: 'Content not available, cache expired'
+                        });
+                    }
+                    break;
                 case 'jumpDefinition':
                     if (editor && message.uri?.length > 0) {
                         /* if (this.isSameDefinition(message.uri, message.position.line, message.token)) {
@@ -692,7 +725,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 );
 
                                 if (definitions && definitions.length > 0) {
-                                    //console.log('[definition] jumpDefinition: ', definitions);
+                                    console.log('[definition] jumpDefinition: ', definitions);
                                     
                                     // 主动隐藏定义列表（在处理新的跳转前）
                                     if (definitions.length === 1) {
@@ -713,10 +746,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                         const contentInfo = await this._renderer.renderDefinition(editor.document, definition, message.token);
                                         this.updateContent(contentInfo);
                                         this.addToHistory(contentInfo, message.position.line);
-                                        //console.log('[definition] jumpDefinition: ', contentInfo);
+                                        console.log('[definition] jumpDefinition: ', contentInfo);
                                     }
                                 } else {
-                                    //console.log('[definition] No symbol found at position:', message.position);
+                                    console.log('[definition] No symbol found at position:', message.position);
                                     this.postMessageToWebview({
                                             type: 'noSymbolFound',
                                             pos: message.position,
@@ -896,15 +929,21 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 if (curContext?.content) {
                     // Show loading
                     //this._view?.webview.postMessage({ type: 'startLoading' });
+                    const uri = curContext.content.jmpUri.toString();
+                    const currentVersion = curContext.content.documentVersion;
+                    
+                    // 生成内容的唯一标识
+                    const contentHash = `${uri}:${currentVersion}`;
                     this._view.webview.postMessage({
-                        type: 'update',
-                        body: curContext.content.content,
-                        uri: curContext.content.jmpUri,
+                        type: 'updateMetadata',
+                        contentHash: contentHash,
+                        uri: uri,
                         languageId: curContext.content.languageId,
                         updateMode: this._updateMode,
                         scrollToLine: curContext.content.line + 1,
                         curLine: curContext.curLine + 1,
-                        symbolName: curContext.content.symbolName
+                        symbolName: curContext.content.symbolName,
+                        documentVersion: currentVersion
                     });
                     // Hide loading after content is updated
                     //this._view?.webview.postMessage({ type: 'endLoading' });
@@ -934,14 +973,21 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //console.log('[definition] Using cached content for initial load');
             // Show loading
             //this._view?.webview.postMessage({ type: 'startLoading' });
+            const uri = curContext.content.jmpUri.toString();
+            const currentVersion = curContext.content.documentVersion;
+            
+            // 生成内容的唯一标识
+            const contentHash = `${uri}:${currentVersion}`;
             this._view.webview.postMessage({
-                type: 'update',
-                body: curContext.content.content,
+                type: 'updateMetadata',
+                contentHash: contentHash,
+                uri: uri,
                 languageId: curContext.content.languageId,
                 updateMode: this._updateMode,
                 scrollToLine: curContext.content.line + 1,
                 curLine: curContext.curLine + 1,
-                symbolName: curContext.content.symbolName
+                symbolName: curContext.content.symbolName,
+                documentVersion: currentVersion
             });
             // Hide loading after content is updated
             //this._view?.webview.postMessage({ type: 'endLoading' });
@@ -1134,19 +1180,40 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         //console.log('[definition] updateContent', contentInfo);
         if (contentInfo && contentInfo.content.length && contentInfo.jmpUri) {
             //console.log(`definition: update content ${contentInfo.content}`);
-            //console.log(`definition: update content ${curLine}`);
-            // Show loading
-            //this._view?.webview.postMessage({ type: 'startLoading' });
+            const uri = contentInfo.jmpUri.toString();
+            const currentVersion = contentInfo.documentVersion;
+            
+            // 生成内容的唯一标识
+            const contentHash = `${uri}:${currentVersion}`;
+            
+            // 只缓存最近一次的内容（供前端请求使用）
+            this._lastContentHash = contentHash;
+            this._lastContent = contentInfo;
 
+            // this.postMessageToWebview({
+            //     type: 'update',
+            //     body: contentInfo.content,
+            //     uri: contentInfo.jmpUri.toString(),
+            //     languageId: contentInfo.languageId, // 添加语言ID
+            //     updateMode: this._updateMode,
+            //     scrollToLine: contentInfo.line + 1,
+            //     curLine: (curLine !== -1) ? curLine + 1 : -1,
+            //     symbolName: contentInfo.symbolName // 添加符号名称
+            // });
+
+            console.log(`[definition] updateContent: Sending metadata for contentHash ${contentHash}`);
+
+            // 先发送元数据（不包含 body）
             this.postMessageToWebview({
-                type: 'update',
-                body: contentInfo.content,
-                uri: contentInfo.jmpUri.toString(),
-                languageId: contentInfo.languageId, // 添加语言ID
+                type: 'updateMetadata',
+                contentHash: contentHash,
+                uri: uri,
+                languageId: contentInfo.languageId,
                 updateMode: this._updateMode,
                 scrollToLine: contentInfo.line + 1,
                 curLine: (curLine !== -1) ? curLine + 1 : -1,
-                symbolName: contentInfo.symbolName // 添加符号名称
+                symbolName: contentInfo.symbolName,
+                documentVersion: currentVersion
             });
 
             if (this._currentPanel) {
@@ -1275,7 +1342,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //console.log('No editor');
             // Around line 452, there's likely a return statement like this:
             // It needs to be updated to include the languageId property:
-            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '' };
+            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0 };
         }
         // 获取当前光标位置
         const position = editor.selection.active;
@@ -1292,7 +1359,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         if (token.isCancellationRequested || !definitions || definitions.length === 0) {
             //console.log('[definition] No definitions found');
-            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '' };
+            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0 };
         }
 
         // 确保关闭之前的面板
@@ -1307,7 +1374,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             const currentPosition = editor.selection.active;
             definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
             if (!definition) {
-                return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '' };
+                return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0 };
             }
         } else {
             // 主动隐藏定义列表
@@ -1323,7 +1390,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             column: 0,
             jmpUri: '',
             languageId: 'plaintext',
-            symbolName: ''
+            symbolName: '',
+            documentVersion: 0
         };
     }
 
