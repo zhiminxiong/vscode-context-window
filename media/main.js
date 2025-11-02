@@ -1749,6 +1749,7 @@ function tokenAtPosition(model, editor, pos) {
                                 }
                                 // 更新内容（只有在内容变化时才更新）
                                 if (newContent && model.getValue() !== newContent) {
+                                    console.log('[definition] Model content updated');
                                     model.setValue(newContent);
                                 }
                             }
