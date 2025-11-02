@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.8.0] 2025.11.02
+
+#### Changed
+
+- WebView adds caching to improve performance when jumping to definitions.
+
 ## [0.7.2] 2025.09.05
 
 #### Changed
