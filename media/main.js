@@ -1255,16 +1255,16 @@ function tokenAtPosition(model, editor, pos) {
                                             });
                                         }
                                     } else {
-                                        //console.log('[definition] start to jump definition: ', word);
+                                        console.log(`[definition] start to jump definition: ${word} with uri ${uri}`);
                                         vscode.postMessage({
-                                                        type: 'jumpDefinition',
-                                                        uri: uri,
-                                                        token: word.word,
-                                                        position: {
-                                                            line: position.lineNumber - 1,
-                                                            character: position.column - 1
-                                                        }
-                                                    });
+                                            type: 'jumpDefinition',
+                                            uri: uri,
+                                            token: word.word,
+                                            position: {
+                                                line: position.lineNumber - 1,
+                                                character: position.column - 1
+                                            }
+                                        });
                                     }
                                 }
                             }
@@ -1705,9 +1705,12 @@ function tokenAtPosition(model, editor, pos) {
                         }
                     }
 
-                    function updateEditorContent(content, options) {
+                    let activeLineDecorations = [];
+
+                    function updateEditorContent(newContent, options) {
+                        //console.log('[definition] Updating editor content with options:', options);
                         const {
-                            uri: fileUri,
+                            newUri,
                             languageId,
                             scrollToLine,
                             curLine,
@@ -1717,11 +1720,12 @@ function tokenAtPosition(model, editor, pos) {
                         // 显示编辑器，隐藏原始内容区域
                         document.getElementById('container').style.display = 'block';
                         document.getElementById('main').style.display = 'none';
+
+                        uri = newUri;
                         
                         // 更新 URI 和文件名显示
-                        if (fileUri) {
-                            uri = fileUri;
-                            updateFilenameDisplay(fileUri);
+                        if (uri) {
+                            updateFilenameDisplay(uri);
                         }
                         
                         // 更新编辑器内容和语言
@@ -1730,16 +1734,12 @@ function tokenAtPosition(model, editor, pos) {
                             let model = models.length > 0 ? models[0] : null;
                             
                             // 更新全局变量
-                            if (content) {
-                                content = content;
-                            }
-                            if (languageId) {
-                                language = languageId;
-                            }
+                            content = newContent;
+                            language = languageId;
                             
                             if (!model) {
                                 // 创建新模型
-                                model = monaco.editor.createModel(content || '', languageId || 'plaintext');
+                                model = monaco.editor.createModel(newContent || '', languageId || 'plaintext');
                                 editor.setModel(model);
                             } else {
                                 // 更新现有模型
@@ -1748,8 +1748,8 @@ function tokenAtPosition(model, editor, pos) {
                                     monaco.editor.setModelLanguage(model, languageId);
                                 }
                                 // 更新内容（只有在内容变化时才更新）
-                                if (content && model.getValue() !== content) {
-                                    model.setValue(content);
+                                if (newContent && model.getValue() !== newContent) {
+                                    model.setValue(newContent);
                                 }
                             }
                             
@@ -1781,12 +1781,12 @@ function tokenAtPosition(model, editor, pos) {
                                 editor.revealLineInCenter(targetLine);
                                 
                                 // 添加行高亮装饰
-                                const lineDecorations = editor.deltaDecorations([], [{
+                                activeLineDecorations = editor.deltaDecorations(activeLineDecorations, [{
                                     range: new monaco.Range(scrollToLine, 1, scrollToLine, 1),
-                                    options: {
-                                        isWholeLine: true,
-                                        className: 'highlighted-line',
-                                        glyphMarginClassName: 'highlighted-glyph'
+                                    options: { 
+                                        isWholeLine: true, 
+                                        className: 'highlighted-line', 
+                                        glyphMarginClassName: 'highlighted-glyph' 
                                     }
                                 }]);
                                 
@@ -1830,6 +1830,8 @@ function tokenAtPosition(model, editor, pos) {
                         } else {
                             console.error('[definition] Editor not initialized');
                         }
+
+                        document.querySelector('.progress-container').style.display = 'none';
                     }
 
                     window.addEventListener('blur', () => {
@@ -2076,15 +2078,16 @@ function tokenAtPosition(model, editor, pos) {
                                     document.querySelector('.progress-container').style.display = 'none';
                                     break;
                                 case 'updateMetadata':
-                                    const uri = message.uri;
+                                    uri = message.uri;
                                     const requestVersion = message.documentVersion;
                                     
                                     // 检查前端缓存
                                     const cached = fileContentCache.get(uri);
                                     if (cached && cached.version === requestVersion) {
+                                        console.log(`[definition] Cache hit for ${uri} with version ${requestVersion}`);
                                         // 缓存命中且版本匹配，直接使用
                                         updateEditorContent(cached.content, {
-                                            uri: message.uri,
+                                            newUri: message.uri,
                                             languageId: message.languageId,
                                             scrollToLine: message.scrollToLine,
                                             curLine: message.curLine,
@@ -2098,6 +2101,8 @@ function tokenAtPosition(model, editor, pos) {
                                         }
 
                                         const contentHash = `${uri}:${requestVersion}`;
+
+                                        console.log(`[definition] Cache miss for ${uri} with version ${requestVersion}, requesting content`);
                                         
                                         vscode.postMessage({
                                             type: 'requestContent',
@@ -2122,131 +2127,17 @@ function tokenAtPosition(model, editor, pos) {
                                         const firstKey = fileContentCache.keys().next().value;
                                         fileContentCache.delete(firstKey);
                                     }
+
+                                    console.log(`[definition] updateContent content for ${cacheUri} with version ${message.documentVersion}`);
                                     
                                     updateEditorContent(message.body, {
-                                        uri: message.uri,
+                                        newUri: message.uri,
                                         languageId: message.languageId,
                                         scrollToLine: message.scrollToLine,
                                         curLine: message.curLine,
                                         symbolName: message.symbolName
                                     });
                                     break;
-                                case 'update':
-                                    //console.log('[definition] Updating editor content');
-                                    // 显示编辑器，隐藏原始内容区域
-                                    document.getElementById('container').style.display = 'block';
-                                    document.getElementById('main').style.display = 'none';
-
-                                    uri = message.uri;
-                                    //console.log('[definition] Updating editor content with URI:', uri);
-                                    updateFilenameDisplay(uri);
-                                    
-                                    // 更新编辑器内容和语言
-                                    if (editor) {
-                                        const models = monaco.editor.getModels();
-                                        let model = models.length > 0 ? models[0] : null;
-
-                                        content = message.body;
-                                        language = message.languageId;
-                                        
-                                        if (!model) {
-                                            //console.log('[definition] no model', models);
-                                            //console.log('[definition] ***********Creating new model with language*************:', message.languageId);
-                                            model = monaco.editor.createModel(message.body, message.languageId || 'plaintext');
-                                            editor.setModel(model);
-                                        } else {
-                                            //console.log('[definition] Updating existing model');
-                                            // 如果语言变了，更新语言
-                                            if (model.getLanguageId() !== message.languageId && message.languageId) {
-                                                //console.log('[definition] Changing language from', model.getLanguageId(), 'to', message.languageId);
-                                                monaco.editor.setModelLanguage(model, message.languageId);
-                                            }
-                                            // 更新内容
-                                            model.setValue(message.body);
-                                        }
-
-                                        applyIndentationForModel(model);
-
-                                        const lineCount = model.getLineCount();
-                                        const requiredChars = Math.max(3, lineCount.toString().length+1);
-
-                                        editor.updateOptions({ lineNumbersMinChars: requiredChars });
-                                        editor.layout();
-
-                                        const initialTheme = editor.getOption(monaco.editor.EditorOption.theme);
-                                        //console.log('[definition] 初始主题:', initialTheme);
-
-                                        // 清除之前的装饰
-                                        const existingDecorations = editor.getDecorationsInRange(new monaco.Range(
-                                            1, 1,
-                                            model.getLineCount(),
-                                            Number.MAX_SAFE_INTEGER
-                                        ));
-                                        const symbolDecorations = existingDecorations?.filter(d => d.options.inlineClassName === 'highlighted-symbol');
-                                        if (symbolDecorations && symbolDecorations.length > 0) {
-                                            editor.deltaDecorations(symbolDecorations.map(d => d.id), []);
-                                        }
-                                        
-                                        // 滚动到指定行
-                                        if (message.scrollToLine) {
-                                            //console.log('[definition] Scrolling to line:', message.curLine);
-
-                                            let line = message.scrollToLine;
-                                            if (message.curLine && message.curLine !== -1)
-                                                line = message.curLine;
-                                            editor.revealLineInCenter(line);
-
-                                            // 添加行高亮装饰
-                                            const lineDecorations = editor.deltaDecorations([], [{
-                                                range: new monaco.Range(message.scrollToLine, 1, message.scrollToLine, 1),
-                                                options: {
-                                                    isWholeLine: true,
-                                                    className: 'highlighted-line',
-                                                    glyphMarginClassName: 'highlighted-glyph'
-                                                }
-                                            }]);
-                                            let column = 1;
-                                            // 如果有定义名，高亮它
-                                            if (message.symbolName) {
-                                                const text = model.getValue();
-                                                const lines = text.split('\n');
-                                                const lineText = lines[message.scrollToLine - 1] || '';
-                                                
-                                                // 在当前行查找符号名
-                                                const symbolRegex = new RegExp(`\\b${message.symbolName}\\b`);
-                                                const symbolMatch = lineText.match(symbolRegex);
-                                                const symbolIndex = symbolMatch ? symbolMatch.index : -1;
-                                                //console.log('[definition] Symbol index:', symbolIndex);
-                                                if (symbolIndex !== -1) {
-                                                    column = symbolIndex + 1;
-                                                    // 添加符号高亮装饰
-                                                    editor.deltaDecorations([], [{
-                                                        range: new monaco.Range(
-                                                            message.scrollToLine,
-                                                            symbolIndex + 1,
-                                                            message.scrollToLine,
-                                                            symbolIndex + message.symbolName.length + 1
-                                                        ),
-                                                        options: {
-                                                            inlineClassName: 'highlighted-symbol'
-                                                        }
-                                                    }]);
-                                                } else {
-                                                    //console.log('[definition] Symbol not found in line: ', lineText);
-                                                    //console.log(`[definition] Symbol not found in line: ${message.symbolName}`);
-                                                }
-                                            }
-                                        }
-                                        // 内容设置完成后，发送确认消息
-                                        // setTimeout(() => {
-                                        //     vscode.postMessage({ type: 'contentReady' });
-                                        // }, 1); // 稍微延迟确保渲染完成
-                                    } else {
-                                        console.error('[definition] Editor not initialized');
-                                    }
-                                    document.querySelector('.progress-container').style.display = 'none';
-                                    break;
-                                    
                                 case 'noContent':
                                     //console.log('[definition] Showing no content message');
                                     // 显示原始内容区域，隐藏编辑器
