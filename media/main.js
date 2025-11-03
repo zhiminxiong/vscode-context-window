@@ -2123,16 +2123,41 @@ function tokenAtPosition(model, editor, pos) {
                                     fileContentCache.set(cacheUri, {
                                         version: message.documentVersion,
                                         content: message.body,
+                                        lines: message.lineCount,  // 添加行数信息
+                                        timestamp: Date.now(),  // 添加时间戳
                                         metadata: {
                                             languageId: message.languageId,
                                             symbolName: message.symbolName
                                         }
                                     });
+
+                                    console.log(`[definition] Cache set for ${cacheUri} size ${fileContentCache.size}`);
                                     
                                     // 限制前端缓存大小
                                     if (fileContentCache.size > 20) {
-                                        const firstKey = fileContentCache.keys().next().value;
-                                        fileContentCache.delete(firstKey);
+                                        // 将缓存转换为数组以便排序
+                                        const cacheEntries = Array.from(fileContentCache.entries());
+                                        
+                                        // 分类：大文件（>2000行）和小文件（<=2000行）
+                                        const largeFiles = cacheEntries.filter(([_, entry]) => entry.lines > 2000);
+                                        const smallFiles = cacheEntries.filter(([_, entry]) => entry.lines <= 2000);
+                                        
+                                        let keyToDelete;
+                                        
+                                        if (smallFiles.length > 0) {
+                                            // 优先淘汰小文件中最旧的
+                                            smallFiles.sort((a, b) => a[1].timestamp - b[1].timestamp);
+                                            keyToDelete = smallFiles[0][0];
+                                        } else {
+                                            // 所有都是大文件，淘汰最旧的大文件
+                                            largeFiles.sort((a, b) => a[1].timestamp - b[1].timestamp);
+                                            keyToDelete = largeFiles[0][0];
+                                        }
+                                        
+                                        if (keyToDelete) {
+                                            fileContentCache.delete(keyToDelete);
+                                            console.log(`[definition] Cache evicted: ${keyToDelete} (${fileContentCache.size} entries remaining)`);
+                                        }
                                     }
 
                                     console.log(`[definition] updateContent content for ${cacheUri} with version ${message.documentVersion}`);

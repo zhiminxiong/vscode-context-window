@@ -697,7 +697,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             updateMode: this._updateMode,
                             scrollToLine: this._lastContent.line + 1,
                             symbolName: this._lastContent.symbolName,
-                            documentVersion: this._lastContent.documentVersion
+                            documentVersion: this._lastContent.documentVersion,
+                            lineCount: this._lastContent.lineCount
                         });
                     } else {
                         // 缓存不存在或已过期
@@ -1342,7 +1343,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //console.log('No editor');
             // Around line 452, there's likely a return statement like this:
             // It needs to be updated to include the languageId property:
-            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0 };
+            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 };
         }
         // 获取当前光标位置
         const position = editor.selection.active;
@@ -1359,7 +1360,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         if (token.isCancellationRequested || !definitions || definitions.length === 0) {
             //console.log('[definition] No definitions found');
-            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0 };
+            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 };
         }
 
         // 确保关闭之前的面板
@@ -1374,7 +1375,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             const currentPosition = editor.selection.active;
             definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
             if (!definition) {
-                return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0 };
+                return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 };
             }
         } else {
             // 主动隐藏定义列表
@@ -1391,7 +1392,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             jmpUri: '',
             languageId: 'plaintext',
             symbolName: '',
-            documentVersion: 0
+            documentVersion: 0,
+            lineCount: 0
         };
     }
 

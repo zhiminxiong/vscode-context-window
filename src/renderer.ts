@@ -8,6 +8,7 @@ export interface FileContentInfo {
     languageId: string; // 添加语言ID用于Monaco Editor
     symbolName: string; // 添加符号名称字段
     documentVersion: number;
+    lineCount: number;
 }
 
 interface FileCacheEntry {
@@ -71,6 +72,7 @@ export class Renderer {
         // 1. 先检查缓存
         const cached = this._fileCache.get(cacheKey);
         if (cached && cached.documentVersion === currentVersion) {
+            console.log(`[definition] getFileContents Cache hit for ${cacheKey}`);
             // 更新访问时间（LRU）
             cached.lastAccessTime = Date.now();
             return {
@@ -80,7 +82,8 @@ export class Renderer {
                 jmpUri: uri.toString(),
                 languageId: cached.languageId,
                 symbolName: selectedText,
-                documentVersion: currentVersion
+                documentVersion: currentVersion,
+                lineCount: doc.lineCount
             };
         }
 
@@ -92,6 +95,7 @@ export class Renderer {
         let content = this.readFullFileContent(doc);
 
         if (isLargeFile) {
+            console.log(`[definition] getFileContents Caching large file content for ${cacheKey} (lines: ${doc.lineCount})`);
             this.addToCache(cacheKey, {
                 content,
                 languageId: finalLanguageId,
@@ -107,7 +111,8 @@ export class Renderer {
             jmpUri: uri.toString(),
             languageId: finalLanguageId,
             symbolName: selectedText,
-            documentVersion: currentVersion
+            documentVersion: currentVersion,
+            lineCount: doc.lineCount
         };
     }
 
