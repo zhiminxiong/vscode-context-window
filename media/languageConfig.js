@@ -104,7 +104,7 @@ export const languageConfig_js = {
 
             [/\b(var|let|const)\b/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
+            [/([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
 
             [/\=>(?=\s*\b[a-zA-Z_$][\w$]*\b)/, { token: 'operator', next: '@afterArrow' }],
             [/\=>/, 'operator'],
