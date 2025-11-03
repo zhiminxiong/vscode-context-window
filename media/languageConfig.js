@@ -116,6 +116,8 @@ export const languageConfig_js = {
             // : type = value;
             //[/(?<=:)\s*\b([a-zA-Z_$][\w$]*)\b(?=\s*\=)/, 'type'],
             [/:(?=\s*\b([a-zA-Z_$][\w$]*)\b\s*\=)/, { token: 'delimiter', next: '@afterDelimiterType' }],
+
+            [/\.\.\.(?=[a-zA-Z_$])/, 'operator'],
             
             // 函数参数 - 改进的参数识别
             // Match function parameters (exclude keywords)
