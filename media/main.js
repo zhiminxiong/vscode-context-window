@@ -1798,8 +1798,14 @@ function tokenAtPosition(model, editor, pos) {
                                     const lines = text.split('\n');
                                     const lineText = lines[scrollToLine - 1] || '';
                                     
-                                    // 在当前行查找符号名（使用单词边界匹配）
-                                    const symbolRegex = new RegExp(`\\b${symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+                                    // 在当前行查找符号名（使用自定义边界匹配，支持 $ 开头的变量名）
+                                    // 1. 转义正则特殊字符
+                                    const escapedSymbol = symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+                                    // 2. 构建正则：前面不是字母数字下划线或$，后面不是字母数字下划线或$
+                                    // 使用 (?:^|(?<=[^a-zA-Z0-9_$])) 确保前面是边界
+                                    // 使用 (?=[^a-zA-Z0-9_$]|$) 确保后面是边界
+                                    const symbolRegex = new RegExp(`(?:^|(?<=[^a-zA-Z0-9_$]))${escapedSymbol}(?=[^a-zA-Z0-9_$]|$)`);
                                     const symbolMatch = lineText.match(symbolRegex);
                                     const symbolIndex = symbolMatch ? symbolMatch.index : -1;
                                     
