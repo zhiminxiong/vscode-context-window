@@ -98,7 +98,7 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
             [/\b(function)\b\s*([a-zA-Z_$][\w$]*)/, ['keyword.type', 'function.name']],
             
-            [/(\s+[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
 
@@ -246,7 +246,7 @@ export const languageConfig_js = {
         afterExtends: [
             [/\s+/, 'white'],  // 跳过空白
             [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
-            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/[()<>]/, 'delimiter'],
             //[/[a-zA-Z_$][\w$]*(?=\s*>)/, { token: 'type', next: '@pop' }],  // 识别基类
@@ -259,7 +259,7 @@ export const languageConfig_js = {
 
         afterImplements: [
             [/\s+/, 'white'],  // 跳过空白
-            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/[()<>]/, 'delimiter'],
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别接口
