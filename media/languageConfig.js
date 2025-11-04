@@ -98,13 +98,13 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
             [/\b(function)\b\s*([a-zA-Z_$][\w$]*)/, ['keyword.type', 'function.name']],
             
-            [/(\b[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
+            [/(\s+[a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
 
             [/\b(var|let|const)\b(?!\s*enum)/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b(const)\b/, 'keyword'],
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
+            [/\s+([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
 
             [/\=>(?=\s*\b[a-zA-Z_$][\w$]*\b)/, { token: 'operator', next: '@afterArrow' }],
