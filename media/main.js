@@ -1730,8 +1730,7 @@ function tokenAtPosition(model, editor, pos) {
                         
                         // 更新编辑器内容和语言
                         if (editor) {
-                            const models = monaco.editor.getModels();
-                            let model = models.length > 0 ? models[0] : null;
+                            let model = editor.getModel();
                             
                             // 更新全局变量
                             content = newContent;
@@ -1741,6 +1740,7 @@ function tokenAtPosition(model, editor, pos) {
                                 // 创建新模型
                                 model = monaco.editor.createModel(newContent || '', languageId || 'plaintext');
                                 editor.setModel(model);
+                                console.log('[definition] create Model content updated');
                             } else {
                                 // 更新现有模型
                                 // 如果语言变了，更新语言
@@ -2132,15 +2132,20 @@ function tokenAtPosition(model, editor, pos) {
                                     });
 
                                     console.log(`[definition] Cache set for ${cacheUri} size ${fileContentCache.size}`);
+
+                                    // 从配置中获取缓存限制和大文件阈值
+                                    const cacheConfig = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
+                                    const cacheSizeLimit = cacheConfig.cacheSizeLimit || 20;
+                                    const largeFileThreshold = cacheConfig.largeFileThreshold || 2000;
                                     
                                     // 限制前端缓存大小
-                                    if (fileContentCache.size > 20) {
+                                    if (fileContentCache.size > cacheSizeLimit) {
                                         // 将缓存转换为数组以便排序
                                         const cacheEntries = Array.from(fileContentCache.entries());
                                         
                                         // 分类：大文件（>2000行）和小文件（<=2000行）
-                                        const largeFiles = cacheEntries.filter(([_, entry]) => entry.lines > 2000);
-                                        const smallFiles = cacheEntries.filter(([_, entry]) => entry.lines <= 2000);
+                                        const largeFiles = cacheEntries.filter(([_, entry]) => entry.lines > largeFileThreshold);
+                                        const smallFiles = cacheEntries.filter(([_, entry]) => entry.lines <= largeFileThreshold);
                                         
                                         let keyToDelete;
                                         
