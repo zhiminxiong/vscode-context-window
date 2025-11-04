@@ -1255,7 +1255,7 @@ function tokenAtPosition(model, editor, pos) {
                                             });
                                         }
                                     } else {
-                                        console.log(`[definition] start to jump definition: ${word} with uri ${uri}`);
+                                        //console.log(`[definition] start to jump definition: ${word} with uri ${uri}`);
                                         vscode.postMessage({
                                             type: 'jumpDefinition',
                                             uri: uri,
@@ -1740,7 +1740,7 @@ function tokenAtPosition(model, editor, pos) {
                                 // 创建新模型
                                 model = monaco.editor.createModel(newContent || '', languageId || 'plaintext');
                                 editor.setModel(model);
-                                console.log('[definition] create Model content updated');
+                                //console.log('[definition] create Model content updated');
                             } else {
                                 // 更新现有模型
                                 // 如果语言变了，更新语言
@@ -1749,7 +1749,7 @@ function tokenAtPosition(model, editor, pos) {
                                 }
                                 // 更新内容（只有在内容变化时才更新）
                                 if (newContent && model.getValue() !== newContent) {
-                                    console.log('[definition] Model content updated');
+                                    //console.log('[definition] Model content updated');
                                     model.setValue(newContent);
                                 }
                             }
@@ -2091,7 +2091,7 @@ function tokenAtPosition(model, editor, pos) {
                                     // 检查前端缓存
                                     const cached = fileContentCache.get(uri);
                                     if (cached && cached.version === requestVersion) {
-                                        console.log(`[definition] Cache hit for ${uri} with version ${requestVersion}`);
+                                        //console.log(`[definition] Cache hit for ${uri} with version ${requestVersion}`);
                                         // 缓存命中且版本匹配，直接使用
                                         updateEditorContent(cached.content, {
                                             newUri: message.uri,
@@ -2109,7 +2109,7 @@ function tokenAtPosition(model, editor, pos) {
 
                                         const contentHash = `${uri}:${requestVersion}`;
 
-                                        console.log(`[definition] Cache miss for ${uri} with version ${requestVersion}, requesting content`);
+                                        //console.log(`[definition] Cache miss for ${uri} with version ${requestVersion}, requesting content`);
                                         
                                         vscode.postMessage({
                                             type: 'requestContent',
@@ -2131,7 +2131,7 @@ function tokenAtPosition(model, editor, pos) {
                                         }
                                     });
 
-                                    console.log(`[definition] Cache set for ${cacheUri} size ${fileContentCache.size}`);
+                                    //console.log(`[definition] Cache set for ${cacheUri} size ${fileContentCache.size}`);
 
                                     // 从配置中获取缓存限制和大文件阈值
                                     const cacheConfig = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
@@ -2161,11 +2161,11 @@ function tokenAtPosition(model, editor, pos) {
                                         
                                         if (keyToDelete) {
                                             fileContentCache.delete(keyToDelete);
-                                            console.log(`[definition] Cache evicted: ${keyToDelete} (${fileContentCache.size} entries remaining)`);
+                                            //console.log(`[definition] Cache evicted: ${keyToDelete} (${fileContentCache.size} entries remaining)`);
                                         }
                                     }
 
-                                    console.log(`[definition] updateContent content for ${cacheUri} with version ${message.documentVersion}`);
+                                    //console.log(`[definition] updateContent content for ${cacheUri} with version ${message.documentVersion}`);
                                     
                                     updateEditorContent(message.body, {
                                         newUri: message.uri,

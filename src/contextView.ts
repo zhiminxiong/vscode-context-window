@@ -728,7 +728,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 );
 
                                 if (definitions && definitions.length > 0) {
-                                    console.log('[definition] jumpDefinition: ', definitions);
+                                    //console.log('[definition] jumpDefinition: ', definitions);
                                     
                                     // 主动隐藏定义列表（在处理新的跳转前）
                                     if (definitions.length === 1) {
@@ -749,10 +749,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                         const contentInfo = await this._renderer.renderDefinition(editor.document, definition, message.token);
                                         this.updateContent(contentInfo);
                                         this.addToHistory(contentInfo, message.position.line);
-                                        console.log('[definition] jumpDefinition: ', contentInfo);
+                                        //('[definition] jumpDefinition: ', contentInfo);
                                     }
                                 } else {
-                                    console.log('[definition] No symbol found at position:', message.position);
+                                    //console.log('[definition] No symbol found at position:', message.position);
                                     this.postMessageToWebview({
                                             type: 'noSymbolFound',
                                             pos: message.position,
@@ -1204,7 +1204,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //     symbolName: contentInfo.symbolName // 添加符号名称
             // });
 
-            console.log(`[definition] updateContent: Sending metadata for contentHash ${contentHash}`);
+            //console.log(`[definition] updateContent: Sending metadata for contentHash ${contentHash}`);
 
             // 先发送元数据（不包含 body）
             this.postMessageToWebview({

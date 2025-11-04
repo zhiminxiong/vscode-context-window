@@ -72,7 +72,7 @@ export class Renderer {
         // 1. 先检查缓存
         const cached = this._fileCache.get(cacheKey);
         if (cached && cached.documentVersion === currentVersion) {
-            console.log(`[definition] getFileContents Cache hit for ${cacheKey}`);
+            //console.log(`[definition] getFileContents Cache hit for ${cacheKey}`);
             // 更新访问时间（LRU）
             cached.lastAccessTime = Date.now();
             return {
@@ -95,7 +95,7 @@ export class Renderer {
         let content = this.readFullFileContent(doc);
 
         if (isLargeFile) {
-            console.log(`[definition] getFileContents Caching large file content for ${cacheKey} (lines: ${doc.lineCount})`);
+            //console.log(`[definition] getFileContents Caching large file content for ${cacheKey} (lines: ${doc.lineCount})`);
             this.addToCache(cacheKey, {
                 content,
                 languageId: finalLanguageId,
