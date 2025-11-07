@@ -1810,7 +1810,9 @@ function tokenAtPosition(model, editor, pos) {
                                     const symbolIndex = symbolMatch ? symbolMatch.index : -1;
                                     
                                     if (symbolIndex !== -1) {
-                                        column = symbolIndex + 1;
+                                        //column = symbolIndex + 1;
+                                        // 修改：将光标位置设置为符号的末尾
+                                        column = symbolIndex + symbolName.length + 1;
                                         // 添加符号高亮装饰
                                         editor.deltaDecorations([], [{
                                             range: new monaco.Range(
@@ -1960,89 +1962,6 @@ function tokenAtPosition(model, editor, pos) {
                                     // 更新编辑器主题
                                     if (editor && message.theme) {
                                         //monaco.editor.setTheme(message.theme);
-                                    }
-                                    break;
-                                case 'shortJump':
-                                    if (editor) {
-                                        const models = monaco.editor.getModels();
-                                        let model = models.length > 0 ? models[0] : null;
-                                        
-                                        if (!model) {
-                                            //console.log('[definition] no model', models);
-                                            //console.log('[definition] ***********Creating new model with language*************:', message.languageId);
-                                            model = monaco.editor.createModel(content, language || 'plaintext');
-                                            applyIndentationForModel(model);
-                                            editor.setModel(model);
-                                        }
-
-                                        // 清除之前的装饰
-                                        const existingDecorations = editor.getDecorationsInRange(new monaco.Range(
-                                            1, 1,
-                                            model.getLineCount(),
-                                            Number.MAX_SAFE_INTEGER
-                                        ));
-                                        const symbolDecorations = existingDecorations?.filter(d => d.options.inlineClassName === 'highlighted-symbol');
-                                        if (symbolDecorations && symbolDecorations.length > 0) {
-                                            editor.deltaDecorations(symbolDecorations.map(d => d.id), []);
-                                        }
-                                        
-                                        // 滚动到指定行
-                                        if (message.scrollToLine) {
-                                            //console.log('[definition] Scrolling to line:', message.scrollToLine);
-
-                                            // 添加行高亮装饰
-                                            const lineDecorations = editor.deltaDecorations([], [{
-                                                range: new monaco.Range(message.scrollToLine, 1, message.scrollToLine, 1),
-                                                options: {
-                                                    isWholeLine: true,
-                                                    className: 'highlighted-line',
-                                                    glyphMarginClassName: 'highlighted-glyph'
-                                                }
-                                            }]);
-
-                                            let line = message.scrollToLine;
-                                            let column = 1;
-                                            
-                                            // 如果有定义名，高亮它
-                                            if (message.symbolName) {
-                                                const text = model.getValue();
-                                                const lines = text.split('\n');
-                                                const lineText = lines[message.scrollToLine - 1] || '';
-                                                
-                                                // 在当前行查找符号名
-                                                const symbolIndex = lineText.indexOf(message.symbolName);
-                                                //console.log('[definition] Symbol index:', symbolIndex);
-                                                if (symbolIndex !== -1) {
-                                                    column = symbolIndex + 1;
-                                                    // 添加符号高亮装饰
-                                                    editor.deltaDecorations([], [{
-                                                        range: new monaco.Range(
-                                                            message.scrollToLine,
-                                                            symbolIndex + 1,
-                                                            message.scrollToLine,
-                                                            symbolIndex + message.symbolName.length + 1
-                                                        ),
-                                                        options: {
-                                                            inlineClassName: 'highlighted-symbol'
-                                                        }
-                                                    }]);
-                                                } else {
-                                                    //console.log('[definition] Symbol not found in line: ', lineText);
-                                                    //console.log(`[definition] Symbol not found in line: ${message.symbolName}`);
-                                                }
-                                            }
-                                            editor.setSelection({
-                                                            startLineNumber: line,
-                                                            startColumn: column,
-                                                            endLineNumber: line,
-                                                            endColumn: column
-                                                        });
-                                            // force layout before scrolling
-                                            //editor.layout();
-                                            editor.revealLineInCenter(message.scrollToLine);
-                                        }
-                                    } else {
-                                        //console.error('[definition] Editor not initialized');
                                     }
                                     break;
                                 case 'noSymbolFound':
