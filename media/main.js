@@ -4,6 +4,7 @@
 import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfig_go } from './languageConfig.js';
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
+const modelCache = new Map();  // uri -> { version, model, timestamp }
 
 function cssColorToMonaco(color) {
     if (!color) return undefined;
@@ -1730,28 +1731,72 @@ function tokenAtPosition(model, editor, pos) {
                         
                         // 更新编辑器内容和语言
                         if (editor) {
-                            let model = editor.getModel();
+                            let model = null;
+                            let useCache = false;
                             
                             // 更新全局变量
                             content = newContent;
                             language = languageId;
                             
-                            if (!model) {
-                                // 创建新模型
-                                model = monaco.editor.createModel(newContent || '', languageId || 'plaintext');
-                                editor.setModel(model);
-                                //console.log('[definition] create Model content updated');
+                            // 尝试从缓存中获取 model
+                            const cachedModel = modelCache.get(uri);
+                            const fileCache = fileContentCache.get(uri);
+                            
+                            if (cachedModel && fileCache && cachedModel.version === fileCache.version) {
+                                // 缓存命中且版本匹配，直接使用缓存的 model
+                                model = cachedModel.model;
+                                useCache = true;
+                                //console.log('[definition] Model cache hit for', uri);
                             } else {
-                                // 更新现有模型
-                                // 如果语言变了，更新语言
-                                if (model.getLanguageId() !== languageId && languageId) {
-                                    monaco.editor.setModelLanguage(model, languageId);
+                                // 缓存未命中或版本不匹配
+                                if (cachedModel) {
+                                    // 清理旧的 model
+                                    try {
+                                        cachedModel.model.dispose();
+                                    } catch (e) {
+                                        console.warn('[definition] Failed to dispose old model:', e);
+                                    }
+                                    modelCache.delete(uri);
                                 }
-                                // 更新内容（只有在内容变化时才更新）
-                                if (newContent && model.getValue() !== newContent) {
-                                    //console.log('[definition] Model content updated');
-                                    model.setValue(newContent);
+                                
+                                // 创建新的 model
+                                model = monaco.editor.createModel(newContent || '', languageId || 'plaintext');
+                                
+                                // 缓存新的 model
+                                if (fileCache) {
+                                    modelCache.set(uri, {
+                                        version: fileCache.version,
+                                        model: model,
+                                        timestamp: Date.now()
+                                    });
+                                    //console.log('[definition] Model cached for', uri);
                                 }
+                                
+                                // 限制 model 缓存大小
+                                const cacheConfig = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
+                                const modelCacheLimit = cacheConfig.modelCacheLimit || 10;
+                                
+                                if (modelCache.size > modelCacheLimit) {
+                                    // 按时间戳排序，删除最旧的
+                                    const entries = Array.from(modelCache.entries());
+                                    entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+                                    const [oldestUri, oldestEntry] = entries[0];
+                                    
+                                    try {
+                                        oldestEntry.model.dispose();
+                                    } catch (e) {
+                                        console.warn('[definition] Failed to dispose evicted model:', e);
+                                    }
+                                    modelCache.delete(oldestUri);
+                                    //console.log('[definition] Model cache evicted:', oldestUri);
+                                }
+                            }
+                            
+                            // 设置 model 到编辑器
+                            const currentModel = editor.getModel();
+                            if (currentModel !== model) {
+                                editor.setModel(model);
+                                //console.log('[definition] Model set to editor', useCache ? '(from cache)' : '(newly created)');
                             }
                             
                             applyIndentationForModel(model);
@@ -2024,6 +2069,18 @@ function tokenAtPosition(model, editor, pos) {
                                         // 如果版本不匹配，先清除旧缓存
                                         if (cached && cached.version !== requestVersion) {
                                             fileContentCache.delete(uri);
+                                            
+                                            // 同步清理对应的 model 缓存
+                                            const cachedModel = modelCache.get(uri);
+                                            if (cachedModel) {
+                                                try {
+                                                    cachedModel.model.dispose();
+                                                } catch (e) {
+                                                    console.warn('[definition] Failed to dispose model on version mismatch:', e);
+                                                }
+                                                modelCache.delete(uri);
+                                                //console.log(`[definition] Model cache cleared due to version mismatch: ${uri}`);
+                                            }
                                         }
 
                                         const contentHash = `${uri}:${requestVersion}`;
@@ -2081,6 +2138,18 @@ function tokenAtPosition(model, editor, pos) {
                                         if (keyToDelete) {
                                             fileContentCache.delete(keyToDelete);
                                             //console.log(`[definition] Cache evicted: ${keyToDelete} (${fileContentCache.size} entries remaining)`);
+                                            
+                                            // 同步清理对应的 model 缓存
+                                            const cachedModel = modelCache.get(keyToDelete);
+                                            if (cachedModel) {
+                                                try {
+                                                    cachedModel.model.dispose();
+                                                } catch (e) {
+                                                    console.warn('[definition] Failed to dispose model during cache eviction:', e);
+                                                }
+                                                modelCache.delete(keyToDelete);
+                                                //console.log(`[definition] Model cache also evicted: ${keyToDelete}`);
+                                            }
                                         }
                                     }
 
