@@ -697,6 +697,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             uri: this._lastContent.jmpUri.toString(),
                             languageId: this._lastContent.languageId,
                             updateMode: this._updateMode,
+                            range: this._lastContent.range,
                             scrollToLine: this._lastContent.line + 1,
                             symbolName: this._lastContent.symbolName,
                             documentVersion: this._lastContent.documentVersion,
@@ -1213,6 +1214,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 uri: uri,
                 languageId: contentInfo.languageId,
                 updateMode: this._updateMode,
+                range: contentInfo.range,
                 scrollToLine: contentInfo.line + 1,
                 curLine: (curLine !== -1) ? curLine + 1 : -1,
                 symbolName: contentInfo.symbolName,
@@ -1297,6 +1299,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         const updatePromise = (async () => {
             const contentInfo = await this.getHtmlContentForActiveEditor(loadingEntry.cts.token);
+            console.log('[definition] updatePromise', contentInfo);
             if (loadingEntry.cts.token.isCancellationRequested) {
                 return;
             }
@@ -1345,7 +1348,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //console.log('No editor');
             // Around line 452, there's likely a return statement like this:
             // It needs to be updated to include the languageId property:
-            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 };
+            return { 
+                content: '', line: 0, column: 0, 
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 0 }
+                },
+                jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 
+            };
         }
         // 获取当前光标位置
         const position = editor.selection.active;
@@ -1362,7 +1372,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         if (token.isCancellationRequested || !definitions || definitions.length === 0) {
             //console.log('[definition] No definitions found');
-            return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 };
+            return { 
+                content: '', line: 0, column: 0, 
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 0 }
+                },
+                jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 
+            };
         }
 
         // 确保关闭之前的面板
@@ -1377,7 +1394,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             const currentPosition = editor.selection.active;
             definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
             if (!definition) {
-                return { content: '', line: 0, column: 0, jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 };
+                return { 
+                    content: '', line: 0, column: 0, 
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 0 }
+                    },
+                    jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 
+                };
             }
         } else {
             // 主动隐藏定义列表
@@ -1386,16 +1410,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             });
         }
 
-        //console.log(definitions);
-        return definitions.length ? await this._renderer.renderDefinition(editor.document, definition, selectedText) : {
-            content: '',
-            line: 0,
-            column: 0,
-            jmpUri: '',
-            languageId: 'plaintext',
-            symbolName: '',
-            documentVersion: 0,
-            lineCount: 0
+        console.log('[definition] ', definitions);
+        return definitions.length ? await this._renderer.renderDefinition(editor.document, definition, selectedText) : { 
+            content: '', line: 0, column: 0, 
+            range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 0 }
+            },
+            jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 
         };
     }
 

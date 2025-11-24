@@ -4,6 +4,10 @@ export interface FileContentInfo {
     content: string;
     line: number;
     column: number;
+    range: {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+    };
     jmpUri: string;
     languageId: string; // 添加语言ID用于Monaco Editor
     symbolName: string; // 添加符号名称字段
@@ -79,6 +83,10 @@ export class Renderer {
                 content: cached.content,
                 line: firstLine,
                 column: range.start.character,
+                range: {
+                    start: { line: range.start.line, character: range.start.character },
+                    end: { line: range.end.line, character: range.end.character }
+                },
                 jmpUri: uri.toString(),
                 languageId: cached.languageId,
                 symbolName: selectedText,
@@ -108,6 +116,10 @@ export class Renderer {
             content,
             line: firstLine,
             column: range.start.character,
+            range: {
+                start: { line: range.start.line, character: range.start.character },
+                end: { line: range.end.line, character: range.end.character }
+            },
             jmpUri: uri.toString(),
             languageId: finalLanguageId,
             symbolName: selectedText,

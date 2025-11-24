@@ -1712,6 +1712,7 @@ function tokenAtPosition(model, editor, pos) {
                         const {
                             newUri,
                             languageId,
+                            range,
                             scrollToLine,
                             curLine,
                             symbolName
@@ -1720,6 +1721,8 @@ function tokenAtPosition(model, editor, pos) {
                         // 显示编辑器，隐藏原始内容区域
                         document.getElementById('container').style.display = 'block';
                         document.getElementById('main').style.display = 'none';
+
+                        console.log('[definition] Updating editor content with range:', range);
 
                         uri = newUri;
                         
@@ -1774,8 +1777,8 @@ function tokenAtPosition(model, editor, pos) {
                             }
                             
                             // 滚动到指定行
-                            if (scrollToLine) {
-                                let targetLine = scrollToLine;
+                            if (range.start) {
+                                let targetLine = range.start.line+1;
                                 if (curLine && curLine !== -1) {
                                     targetLine = curLine;
                                 }
@@ -1783,7 +1786,7 @@ function tokenAtPosition(model, editor, pos) {
                                 
                                 // 添加行高亮装饰
                                 activeLineDecorations = editor.deltaDecorations(activeLineDecorations, [{
-                                    range: new monaco.Range(scrollToLine, 1, scrollToLine, 1),
+                                    range: new monaco.Range(range.start.line+1, 1, range.end.line+1, 1),
                                     options: { 
                                         isWholeLine: true, 
                                         className: 'highlighted-line', 
@@ -1793,47 +1796,27 @@ function tokenAtPosition(model, editor, pos) {
                                 
                                 let column = 1;
                                 // 如果有定义名，高亮它
-                                if (symbolName) {
-                                    const text = model.getValue();
-                                    const lines = text.split('\n');
-                                    const lineText = lines[scrollToLine - 1] || '';
-                                    
-                                    // 在当前行查找符号名（使用自定义边界匹配，支持 $ 开头的变量名）
-                                    // 1. 转义正则特殊字符
-                                    const escapedSymbol = symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-                                    // 2. 构建正则：前面不是字母数字下划线或$，后面不是字母数字下划线或$
-                                    // 使用 (?:^|(?<=[^a-zA-Z0-9_$])) 确保前面是边界
-                                    // 使用 (?=[^a-zA-Z0-9_$]|$) 确保后面是边界
-                                    const symbolRegex = new RegExp(`(?:^|(?<=[^a-zA-Z0-9_$]))${escapedSymbol}(?=[^a-zA-Z0-9_$]|$)`);
-                                    const symbolMatch = lineText.match(symbolRegex);
-                                    const symbolIndex = symbolMatch ? symbolMatch.index : -1;
-                                    
-                                    if (symbolIndex !== -1) {
-                                        //column = symbolIndex + 1;
-                                        // 修改：将光标位置设置为符号的末尾
-                                        column = symbolIndex + symbolName.length + 1;
-                                        // 添加符号高亮装饰
-                                        editor.deltaDecorations([], [{
-                                            range: new monaco.Range(
-                                                scrollToLine,
-                                                symbolIndex + 1,
-                                                scrollToLine,
-                                                symbolIndex + symbolName.length + 1
-                                            ),
-                                            options: {
-                                                inlineClassName: 'highlighted-symbol'
-                                            }
-                                        }]);
-                                    }
+                                if (range.start.character != range.end.character) {
+                                    // 添加符号高亮装饰
+                                    editor.deltaDecorations([], [{
+                                        range: new monaco.Range(
+                                            range.start.line+1,
+                                            range.start.character+1,
+                                            range.end.line+1,
+                                            range.end.character+1
+                                        ),
+                                        options: {
+                                            inlineClassName: 'highlighted-symbol'
+                                        }
+                                    }]);
                                 }
                                 
                                 // 设置光标位置
                                 editor.setSelection({
                                     startLineNumber: targetLine,
-                                    startColumn: column,
+                                    startColumn: range.end.character+1,
                                     endLineNumber: targetLine,
-                                    endColumn: column
+                                    endColumn: range.end.character+1
                                 });
                             }
                         } else {
@@ -2015,6 +1998,7 @@ function tokenAtPosition(model, editor, pos) {
                                         updateEditorContent(cached.content, {
                                             newUri: message.uri,
                                             languageId: message.languageId,
+                                            range: message.range,
                                             scrollToLine: message.scrollToLine,
                                             curLine: message.curLine,
                                             symbolName: message.symbolName
@@ -2089,6 +2073,7 @@ function tokenAtPosition(model, editor, pos) {
                                     updateEditorContent(message.body, {
                                         newUri: message.uri,
                                         languageId: message.languageId,
+                                        range: message.range,
                                         scrollToLine: message.scrollToLine,
                                         curLine: message.curLine,
                                         symbolName: message.symbolName
