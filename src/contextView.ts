@@ -1334,7 +1334,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // Around line 452, there's likely a return statement like this:
             // It needs to be updated to include the languageId property:
             return { 
-                content: '', column: 0, 
+                content: '',
                 range: {
                     start: { line: 0, character: 0 },
                     end: { line: 0, character: 0 }
@@ -1358,7 +1358,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         if (token.isCancellationRequested || !definitions || definitions.length === 0) {
             //console.log('[definition] No definitions found');
             return { 
-                content: '', column: 0, 
+                content: '',
                 range: {
                     start: { line: 0, character: 0 },
                     end: { line: 0, character: 0 }
@@ -1380,7 +1380,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
             if (!definition) {
                 return { 
-                    content: '', column: 0, 
+                    content: '',
                     range: {
                         start: { line: 0, character: 0 },
                         end: { line: 0, character: 0 }
@@ -1397,7 +1397,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         //console.log('[definition] ', definitions);
         return definitions.length ? await this._renderer.renderDefinition(editor.document, definition, selectedText) : { 
-            content: '', column: 0, 
+            content: '',
             range: {
                 start: { line: 0, character: 0 },
                 end: { line: 0, character: 0 }

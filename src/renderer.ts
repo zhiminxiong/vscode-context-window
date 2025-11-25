@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 
 export interface FileContentInfo {
     content: string;
-    column: number;
     range: {
         start: { line: number; character: number };
         end: { line: number; character: number };
@@ -78,7 +77,6 @@ export class Renderer {
             cached.lastAccessTime = Date.now();
             return {
                 content: cached.content,
-                column: range.start.character,
                 range: {
                     start: { line: range.start.line, character: range.start.character },
                     end: { line: range.end.line, character: range.end.character }
@@ -109,7 +107,6 @@ export class Renderer {
 
         return {
             content,
-            column: range.start.character,
             range: {
                 start: { line: range.start.line, character: range.start.character },
                 end: { line: range.end.line, character: range.end.character }
