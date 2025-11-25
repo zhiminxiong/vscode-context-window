@@ -655,7 +655,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 uri: uri,
                                 languageId: curContext.content.languageId,
                                 updateMode: this._updateMode,
-                                scrollToLine: curContext.content.line + 1,
                                 curLine: curContext.navigateLine + 1,
                                 documentVersion: currentVersion
                             });
@@ -695,7 +694,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             languageId: this._lastContent.languageId,
                             updateMode: this._updateMode,
                             range: this._lastContent.range,
-                            scrollToLine: this._lastContent.line + 1,
                             documentVersion: this._lastContent.documentVersion,
                             lineCount: this._lastContent.lineCount
                         });
@@ -764,7 +762,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     if (message.location === 'bottomArea') {
                         let curContext = this.getCurrentContent();
                         this.currentUri = (curContext && curContext.content)? vscode.Uri.parse(curContext.content.jmpUri) : undefined;
-                        this.currentLine = (curContext && curContext.content)? curContext.content.line : 0;
+                        this.currentLine = (curContext && curContext.content)? curContext.content.range.start.line : 0;
                         if (this.currentUri) {
                             // 打开文件
                             const document = await vscode.workspace.openTextDocument(this.currentUri);
@@ -938,7 +936,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         uri: uri,
                         languageId: curContext.content.languageId,
                         updateMode: this._updateMode,
-                        scrollToLine: curContext.content.line + 1,
                         curLine: curContext.navigateLine + 1,
                         documentVersion: currentVersion
                     });
@@ -981,7 +978,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 uri: uri,
                 languageId: curContext.content.languageId,
                 updateMode: this._updateMode,
-                scrollToLine: curContext.content.line + 1,
                 curLine: curContext.navigateLine + 1,
                 documentVersion: currentVersion
             });
@@ -1192,7 +1188,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //     uri: contentInfo.jmpUri.toString(),
             //     languageId: contentInfo.languageId, // 添加语言ID
             //     updateMode: this._updateMode,
-            //     scrollToLine: contentInfo.line + 1,
             //     curLine: (curLine !== -1) ? curLine + 1 : -1,
             //     symbolName: contentInfo.symbolName // 添加符号名称
             // });
@@ -1207,7 +1202,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 languageId: contentInfo.languageId,
                 updateMode: this._updateMode,
                 range: contentInfo.range,
-                scrollToLine: contentInfo.line + 1,
                 curLine: (curLine !== -1) ? curLine + 1 : -1,
                 documentVersion: currentVersion
             });
@@ -1303,7 +1297,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             
             if (contentInfo.jmpUri) {
                 this.currentUri = vscode.Uri.parse(contentInfo.jmpUri);
-                this.currentLine = contentInfo.line;
+                this.currentLine = contentInfo.range.start.line;
             }
             
             if (this._updateMode === UpdateMode.Live || contentInfo.jmpUri) {
@@ -1340,7 +1334,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // Around line 452, there's likely a return statement like this:
             // It needs to be updated to include the languageId property:
             return { 
-                content: '', line: 0, column: 0, 
+                content: '', column: 0, 
                 range: {
                     start: { line: 0, character: 0 },
                     end: { line: 0, character: 0 }
@@ -1364,7 +1358,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         if (token.isCancellationRequested || !definitions || definitions.length === 0) {
             //console.log('[definition] No definitions found');
             return { 
-                content: '', line: 0, column: 0, 
+                content: '', column: 0, 
                 range: {
                     start: { line: 0, character: 0 },
                     end: { line: 0, character: 0 }
@@ -1386,7 +1380,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
             if (!definition) {
                 return { 
-                    content: '', line: 0, column: 0, 
+                    content: '', column: 0, 
                     range: {
                         start: { line: 0, character: 0 },
                         end: { line: 0, character: 0 }
@@ -1403,7 +1397,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         //console.log('[definition] ', definitions);
         return definitions.length ? await this._renderer.renderDefinition(editor.document, definition, selectedText) : { 
-            content: '', line: 0, column: 0, 
+            content: '', column: 0, 
             range: {
                 start: { line: 0, character: 0 },
                 end: { line: 0, character: 0 }

@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 
 export interface FileContentInfo {
     content: string;
-    line: number;
     column: number;
     range: {
         start: { line: number; character: number };
@@ -63,7 +62,6 @@ export class Renderer {
 
     private async getFileContents(uri: vscode.Uri, range: vscode.Range, languageId: string, selectedText: string): Promise<FileContentInfo> {
         const cacheKey = uri.toString();
-        const firstLine = range.start.line;
 
         // 先打开文档获取版本号（无论如何都需要打开文档）
         //let beginTime = Date.now();
@@ -80,7 +78,6 @@ export class Renderer {
             cached.lastAccessTime = Date.now();
             return {
                 content: cached.content,
-                line: firstLine,
                 column: range.start.character,
                 range: {
                     start: { line: range.start.line, character: range.start.character },
@@ -112,7 +109,6 @@ export class Renderer {
 
         return {
             content,
-            line: firstLine,
             column: range.start.character,
             range: {
                 start: { line: range.start.line, character: range.start.character },

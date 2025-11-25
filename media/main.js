@@ -1712,7 +1712,6 @@ function tokenAtPosition(model, editor, pos) {
                             newUri,
                             languageId,
                             range,
-                            scrollToLine,
                             curLine
                         } = options || {};
                         
@@ -2070,7 +2069,6 @@ function tokenAtPosition(model, editor, pos) {
                                         newUri: message.uri,
                                         languageId: message.languageId,
                                         range: message.range,
-                                        scrollToLine: message.scrollToLine,
                                         curLine: message.curLine
                                     });
                                     break;
