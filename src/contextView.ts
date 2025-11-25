@@ -11,7 +11,7 @@ const maxHistorySize = 50;
 
 interface HistoryInfo {
     content: FileContentInfo | undefined;
-    curLine: number;
+    navigateLine: number;
 }
 
 export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode.WebviewPanelSerializer {
@@ -249,18 +249,21 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     private getCurrentContent() : HistoryInfo {
-        return (this._history && this._history.length > this._historyIndex) ? this._history[this._historyIndex] : { content: undefined, curLine: -1 };
+        return (this._history && this._history.length > this._historyIndex) ? this._history[this._historyIndex] : { content: undefined, navigateLine: -1 };
     }
 
     private addToHistory(contentInfo: FileContentInfo, fromLine: number =-1) {
+        //console.log('[definition] add history from line', fromLine);
         // 清除_historyIndex后的内容
         this._history = this._history.slice(0, this._historyIndex + 1);
-        this._history.push({ content: contentInfo, curLine: -1 });
+        this._history.push({ content: contentInfo, navigateLine: -1 });
         this._historyIndex++;
 
-        this._history[this._historyIndex-1].curLine = fromLine;
+        this._history[this._historyIndex-1].navigateLine = fromLine;
 
-        //console.log('[definition] add history', this._history);
+        // this._history.forEach(element => {
+        //     console.log('[definition] history element', element);
+        // });
 
         if (this._history.length > maxHistorySize) {
             this._history.shift();
@@ -508,7 +511,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 });
             
             const contentInfo = this._history[this._historyIndex];
-            this.updateContent(contentInfo?.content, contentInfo.curLine);
+            this.updateContent(contentInfo?.content, contentInfo.navigateLine);
         }
     }
 
@@ -658,7 +661,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 languageId: curContext.content.languageId,
                                 updateMode: this._updateMode,
                                 scrollToLine: curContext.content.line + 1,
-                                curLine: curContext.curLine + 1,
+                                curLine: curContext.navigateLine + 1,
                                 symbolName: curContext.content.symbolName,
                                 documentVersion: currentVersion
                             });
@@ -746,12 +749,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                         definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
                                     }
                                     //console.log('[definition] jumpDefinition: ', message.token);
-                                    if (definitions && definitions.length > 0) {
-                                        const contentInfo = await this._renderer.renderDefinition(editor.document, definition, message.token);
-                                        this.updateContent(contentInfo);
-                                        this.addToHistory(contentInfo, message.position.line);
-                                        //('[definition] jumpDefinition: ', contentInfo);
-                                    }
+
+                                    const contentInfo = await this._renderer.renderDefinition(editor.document, definition, message.token);
+                                    this.updateContent(contentInfo);
+                                    this.addToHistory(contentInfo, message.position.line);
                                 } else {
                                     //console.log('[definition] No symbol found at position:', message.position);
                                     this.postMessageToWebview({
@@ -945,7 +946,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         languageId: curContext.content.languageId,
                         updateMode: this._updateMode,
                         scrollToLine: curContext.content.line + 1,
-                        curLine: curContext.curLine + 1,
+                        curLine: curContext.navigateLine + 1,
                         symbolName: curContext.content.symbolName,
                         documentVersion: currentVersion
                     });
@@ -989,7 +990,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 languageId: curContext.content.languageId,
                 updateMode: this._updateMode,
                 scrollToLine: curContext.content.line + 1,
-                curLine: curContext.curLine + 1,
+                curLine: curContext.navigateLine + 1,
                 symbolName: curContext.content.symbolName,
                 documentVersion: currentVersion
             });
@@ -1299,7 +1300,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         const updatePromise = (async () => {
             const contentInfo = await this.getHtmlContentForActiveEditor(loadingEntry.cts.token);
-            console.log('[definition] updatePromise', contentInfo);
+            //console.log('[definition] updatePromise', contentInfo);
             if (loadingEntry.cts.token.isCancellationRequested) {
                 return;
             }
@@ -1319,7 +1320,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 this._currentCacheKey = newCacheKey;
                 
                 this._history = [];
-                this._history.push({ content: contentInfo, curLine: this.currentLine });
+                this._history.push({ content: contentInfo, navigateLine: this.currentLine });
                 this._historyIndex = 0;
 
                 this.updateContent(contentInfo);
@@ -1410,7 +1411,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             });
         }
 
-        console.log('[definition] ', definitions);
+        //console.log('[definition] ', definitions);
         return definitions.length ? await this._renderer.renderDefinition(editor.document, definition, selectedText) : { 
             content: '', line: 0, column: 0, 
             range: {

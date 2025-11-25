@@ -1722,7 +1722,7 @@ function tokenAtPosition(model, editor, pos) {
                         document.getElementById('container').style.display = 'block';
                         document.getElementById('main').style.display = 'none';
 
-                        console.log('[definition] Updating editor content with range:', range);
+                        //console.log('[definition] Updating editor content with range:', range);
 
                         uri = newUri;
                         
