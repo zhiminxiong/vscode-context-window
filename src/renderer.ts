@@ -10,7 +10,6 @@ export interface FileContentInfo {
     };
     jmpUri: string;
     languageId: string; // 添加语言ID用于Monaco Editor
-    symbolName: string; // 添加符号名称字段
     documentVersion: number;
     lineCount: number;
 }
@@ -89,7 +88,6 @@ export class Renderer {
                 },
                 jmpUri: uri.toString(),
                 languageId: cached.languageId,
-                symbolName: selectedText,
                 documentVersion: currentVersion,
                 lineCount: doc.lineCount
             };
@@ -122,7 +120,6 @@ export class Renderer {
             },
             jmpUri: uri.toString(),
             languageId: finalLanguageId,
-            symbolName: selectedText,
             documentVersion: currentVersion,
             lineCount: doc.lineCount
         };

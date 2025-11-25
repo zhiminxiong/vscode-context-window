@@ -1596,7 +1596,6 @@ function tokenAtPosition(model, editor, pos) {
                         // 发送消息到扩展
                         vscode.postMessage({
                             type: 'definitionItemSelected',
-                            symbolName: def.title,
                             filePath: def.filePath,
                             lineNumber: def.lineNumber,
                             index: index
@@ -1714,8 +1713,7 @@ function tokenAtPosition(model, editor, pos) {
                             languageId,
                             range,
                             scrollToLine,
-                            curLine,
-                            symbolName
+                            curLine
                         } = options || {};
                         
                         // 显示编辑器，隐藏原始内容区域
@@ -2000,8 +1998,7 @@ function tokenAtPosition(model, editor, pos) {
                                             languageId: message.languageId,
                                             range: message.range,
                                             scrollToLine: message.scrollToLine,
-                                            curLine: message.curLine,
-                                            symbolName: message.symbolName
+                                            curLine: message.curLine
                                         });
                                     } else {
                                         // 缓存未命中或版本不匹配，请求完整内容
@@ -2029,8 +2026,7 @@ function tokenAtPosition(model, editor, pos) {
                                         lines: message.lineCount,  // 添加行数信息
                                         timestamp: Date.now(),  // 添加时间戳
                                         metadata: {
-                                            languageId: message.languageId,
-                                            symbolName: message.symbolName
+                                            languageId: message.languageId
                                         }
                                     });
 
@@ -2075,8 +2071,7 @@ function tokenAtPosition(model, editor, pos) {
                                         languageId: message.languageId,
                                         range: message.range,
                                         scrollToLine: message.scrollToLine,
-                                        curLine: message.curLine,
-                                        symbolName: message.symbolName
+                                        curLine: message.curLine
                                     });
                                     break;
                                 case 'noContent':

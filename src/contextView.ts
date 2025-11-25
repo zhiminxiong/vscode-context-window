@@ -515,11 +515,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
-    private isSameDefinition(uri: string, line: number, token: string): boolean {
-        let curFileContentInfo = (this._historyIndex < this._history.length) ? this._history[this._historyIndex] : undefined;
-        return (curFileContentInfo && curFileContentInfo.content) ? (curFileContentInfo.content.jmpUri === uri && curFileContentInfo.content.line === line && curFileContentInfo.content.symbolName === token) : false;
-    }
-
     private isSameUri(uri: string): boolean {
         let curFileContentInfo = (this._historyIndex < this._history.length) ? this._history[this._historyIndex] : undefined;
         return (curFileContentInfo && curFileContentInfo.content) ? (curFileContentInfo.content.jmpUri === uri) : false;
@@ -662,7 +657,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 updateMode: this._updateMode,
                                 scrollToLine: curContext.content.line + 1,
                                 curLine: curContext.navigateLine + 1,
-                                symbolName: curContext.content.symbolName,
                                 documentVersion: currentVersion
                             });
                         }
@@ -702,7 +696,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             updateMode: this._updateMode,
                             range: this._lastContent.range,
                             scrollToLine: this._lastContent.line + 1,
-                            symbolName: this._lastContent.symbolName,
                             documentVersion: this._lastContent.documentVersion,
                             lineCount: this._lastContent.lineCount
                         });
@@ -947,7 +940,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         updateMode: this._updateMode,
                         scrollToLine: curContext.content.line + 1,
                         curLine: curContext.navigateLine + 1,
-                        symbolName: curContext.content.symbolName,
                         documentVersion: currentVersion
                     });
                     // Hide loading after content is updated
@@ -991,7 +983,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 updateMode: this._updateMode,
                 scrollToLine: curContext.content.line + 1,
                 curLine: curContext.navigateLine + 1,
-                symbolName: curContext.content.symbolName,
                 documentVersion: currentVersion
             });
             // Hide loading after content is updated
@@ -1218,7 +1209,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 range: contentInfo.range,
                 scrollToLine: contentInfo.line + 1,
                 curLine: (curLine !== -1) ? curLine + 1 : -1,
-                symbolName: contentInfo.symbolName,
                 documentVersion: currentVersion
             });
 
@@ -1355,7 +1345,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     start: { line: 0, character: 0 },
                     end: { line: 0, character: 0 }
                 },
-                jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 
+                jmpUri: '', languageId: 'plaintext', documentVersion: 0, lineCount: 0 
             };
         }
         // 获取当前光标位置
@@ -1379,7 +1369,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     start: { line: 0, character: 0 },
                     end: { line: 0, character: 0 }
                 },
-                jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 
+                jmpUri: '', languageId: 'plaintext', documentVersion: 0, lineCount: 0 
             };
         }
 
@@ -1401,7 +1391,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         start: { line: 0, character: 0 },
                         end: { line: 0, character: 0 }
                     },
-                    jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 
+                    jmpUri: '', languageId: 'plaintext', documentVersion: 0, lineCount: 0 
                 };
             }
         } else {
@@ -1418,7 +1408,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 start: { line: 0, character: 0 },
                 end: { line: 0, character: 0 }
             },
-            jmpUri: '', languageId: 'plaintext', symbolName: '', documentVersion: 0, lineCount: 0 
+            jmpUri: '', languageId: 'plaintext', documentVersion: 0, lineCount: 0 
         };
     }
 
