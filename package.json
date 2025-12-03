@@ -29,7 +29,7 @@
     "onView:contextView.context",
     "onCommand:contextView.contextWindow.pin",
     "onCommand:contextView.contextWindow.unpin",
-        "onStartupFinished"
+    "onStartupFinished"
   ],
   "repository": {
     "type": "git",
@@ -74,22 +74,26 @@
         "icon": "$(pinned)",
         "category": "Context View"
       },
-            {
-                "command": "vscode-context-window.showContextWindow",
-                "title": "Show Context Window"
-            },
-            {
-                "command": "vscode-context-window.float",
-                "title": "Display the floating Context Window"
-            }
+      {
+          "command": "vscode-context-window.showContextWindow",
+          "title": "Show Context Window"
+      },
+      {
+          "command": "vscode-context-window.float",
+          "title": "Display the floating Context Window"
+      },
+      {
+          "command": "vscode-context-window.navigateUri",
+          "title": "Navigate to the uri and line"
+      }
     ],
-        "keybindings": [
-            {
-                "command": "vscode-context-window.float",
-                "key": "ctrl+shift+9",
-                "mac": "cmd+shift+9"
-            }
-        ],
+    "keybindings": [
+        {
+            "command": "vscode-context-window.float",
+            "key": "ctrl+shift+9",
+            "mac": "cmd+shift+9"
+        }
+    ],
     "menus": {
       "commandPalette": [
         {
