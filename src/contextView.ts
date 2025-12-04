@@ -536,6 +536,65 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         this._currentPanel?.webview.postMessage(message);
     }
 
+    public async navigateCommand(uri: string, line: number, character: number = 0, token: string = '') {
+        // Validate input parameters
+        if (!uri || typeof uri !== 'string') {
+            vscode.window.showErrorMessage('Invalid URI provided');
+            return;
+        }
+        
+        if (line < 0) {
+            vscode.window.showErrorMessage('Line number must be non-negative');
+            return;
+        }
+        
+        if (character < 0) {
+            vscode.window.showErrorMessage('Character position must be non-negative');
+            return;
+        }
+
+        // Parse and validate URI
+        let targetUri: vscode.Uri;
+        try {
+            targetUri = vscode.Uri.parse(uri);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Invalid URI format: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            return;
+        }
+
+        // Check if file exists and is accessible
+        try {
+            // Use workspace.fs to check if file exists
+            try {
+                const stats = await vscode.workspace.fs.stat(targetUri);
+                if (stats.type !== vscode.FileType.File) {
+                    vscode.window.showErrorMessage('The provided URI does not point to a file');
+                    return;
+                }
+            } catch (statError) {
+                // File doesn't exist or is not accessible
+                vscode.window.showErrorMessage(`File not found or not accessible: ${uri}`);
+                return;
+            }
+        } catch (error) {
+            vscode.window.showWarningMessage(`Unable to verify file accessibility, proceeding anyway: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            // Continue anyway - might be a remote file or special URI scheme
+        }
+
+        const editor = vscode.window.activeTextEditor || this._lastUpdateEditor;
+        const languageId = editor ? editor.document.languageId : 'plaintext';
+        const definition = new vscode.Location(
+            targetUri,
+            new vscode.Range(
+                new vscode.Position(line-1, character-1),
+                new vscode.Position(line-1, character-1)
+            )
+        );
+        const contentInfo = await this._renderer.renderDefinition(languageId, definition, token);
+        this.updateContent(contentInfo);
+        this.addToHistory(contentInfo, line);
+    }
+
     private async handleWebviewMessage(webview: vscode.Webview) {
         webview.onDidReceiveMessage(async message => {
             const editor = vscode.window.activeTextEditor || this._lastUpdateEditor;
@@ -741,7 +800,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                     }
                                     //console.log('[definition] jumpDefinition: ', message.token);
 
-                                    const contentInfo = await this._renderer.renderDefinition(editor.document, definition, message.token);
+                                    const contentInfo = await this._renderer.renderDefinition(editor.document.languageId, definition, message.token);
                                     this.updateContent(contentInfo);
                                     this.addToHistory(contentInfo, message.position.line);
                                 } else {
@@ -802,7 +861,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             const selectedText = this._currentSelectedText;
                             
                             // 渲染选中的定义
-                            // this._renderer.renderDefinition(editor.document, selected.definition, selectedText).then(contentInfo => {
+                            // this._renderer.renderDefinition(editor.document.languageId, selected.definition, selectedText).then(contentInfo => {
                             //     this.updateContent(contentInfo);
                             //     // 更新历史记录的内容，但保持当前行号
                             //     if (this._history.length > this._historyIndex) {
@@ -812,7 +871,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             const updatePromise = (async () => {
                                 try {
                                     const contentInfo = await this._renderer.renderDefinition(
-                                        editor.document, 
+                                        editor.document.languageId, 
                                         selected.definition, 
                                         selectedText
                                     );
@@ -1396,7 +1455,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
 
         //console.log('[definition] ', definitions);
-        return definitions.length ? await this._renderer.renderDefinition(editor.document, definition, selectedText) : { 
+        return definitions.length ? await this._renderer.renderDefinition(editor.document.languageId, definition, selectedText) : { 
             content: '',
             range: {
                 start: { line: 0, character: 0 },

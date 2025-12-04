@@ -84,7 +84,13 @@
       },
       {
           "command": "vscode-context-window.navigateUri",
-          "title": "Navigate to the uri and line"
+          "title": "Navigate to the uri and line",
+          "category": "Context View"
+      },
+      {
+          "command": "vscode-context-window.testNavigate",
+          "title": "Test Navigate: extension.ts:10",
+          "category": "Context View"
       }
     ],
     "keybindings": [

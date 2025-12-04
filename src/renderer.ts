@@ -47,15 +47,15 @@ export class Renderer {
         this._fileCache.clear();
     }
 
-    public async renderDefinition(document: vscode.TextDocument, def: vscode.Location | vscode.LocationLink, 
+    public async renderDefinition(languageId: string, def: vscode.Location | vscode.LocationLink, 
                                 selectedText: string | undefined): Promise<FileContentInfo> {
         if (def instanceof vscode.Location) {
-            return await this.getFileContents(def.uri, def.range, document.languageId, selectedText || '');
+            return await this.getFileContents(def.uri, def.range, languageId, selectedText || '');
         } else {
             if (def.targetSelectionRange)
-                return await this.getFileContents(def.targetUri, def.targetSelectionRange, document.languageId, selectedText || '');
+                return await this.getFileContents(def.targetUri, def.targetSelectionRange, languageId, selectedText || '');
             else
-                return await this.getFileContents(def.targetUri, def.targetRange, document.languageId, selectedText || '');
+                return await this.getFileContents(def.targetUri, def.targetRange, languageId, selectedText || '');
         }
     }
 

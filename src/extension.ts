@@ -35,8 +35,77 @@ export function activate(context: vscode.ExtensionContext) {
         }));
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('vscode-context-window.navigateUri', (uri: string, line: number) => {
-            //provider.navigateCommand(uri, line);
+        vscode.commands.registerCommand('vscode-context-window.navigateUri', async (uri?: string, line?: number, character?: number) => {
+            // 如果没有提供参数，则显示输入框
+            if (!uri || line === undefined || character === undefined) {
+                try {
+                    // 获取 URI
+                    const uriInput = await vscode.window.showInputBox({
+                        prompt: 'Enter file URI',
+                        placeHolder: 'file:///e:/code_proj/vscode-context-window/src/extension.ts',
+                        value: uri || ''
+                    });
+                    
+                    if (!uriInput) {
+                        return; // 用户取消了输入
+                    }
+
+                    // 获取行号
+                    const lineInput = await vscode.window.showInputBox({
+                        prompt: 'Enter line number',
+                        placeHolder: '1',
+                        value: line !== undefined ? line.toString() : ''
+                    });
+                    
+                    if (!lineInput) {
+                        return; // 用户取消了输入
+                    }
+
+                    const lineNumber = parseInt(lineInput);
+                    if (isNaN(lineNumber) || lineNumber < 1) {
+                        vscode.window.showErrorMessage('Invalid line number');
+                        return;
+                    }
+
+                    // 获取字符列号
+                    const characterInput = await vscode.window.showInputBox({
+                        prompt: 'Enter character column (usually 0)',
+                        placeHolder: '1',
+                        value: character !== undefined ? character.toString() : '0'
+                    });
+                    
+                    if (!characterInput) {
+                        return; // 用户取消了输入
+                    }
+
+                    const characterNumber = parseInt(characterInput);
+                    if (isNaN(characterNumber) || characterNumber < 0) {
+                        vscode.window.showErrorMessage('Invalid character number');
+                        return;
+                    }
+
+                    // 执行导航
+                    await provider.navigateCommand(uriInput, lineNumber, characterNumber);
+                    vscode.window.showInformationMessage(`Navigated to ${uriInput}:${lineNumber}:${characterNumber}`);
+                    
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Navigation failed: ${error}`);
+                }
+            } else {
+                // 如果提供了参数，直接执行导航
+                provider.navigateCommand(uri, line, character);
+            }
+        }));
+    
+    context.subscriptions.push(
+        vscode.commands.registerCommand('vscode-context-window.testNavigate', () => {
+            // 测试 extension.ts 第10行
+            vscode.commands.executeCommand(
+                'vscode-context-window.navigateUri',
+                'file:///e:/code_proj/vscode-context-window/src/extension.ts',
+                10,
+                1
+            );
         }));
 
     const contextWindowConfig = vscode.workspace.getConfiguration('contextView.contextWindow');
