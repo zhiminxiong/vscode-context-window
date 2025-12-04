@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.8.1] 2025.12.04
+
+#### Added
+
+- Add a command to jump to a specified file and location.
+
 ## [0.8.0] 2025.11.11
 
 #### Changed
