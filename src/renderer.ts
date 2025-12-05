@@ -47,19 +47,18 @@ export class Renderer {
         this._fileCache.clear();
     }
 
-    public async renderDefinition(languageId: string, def: vscode.Location | vscode.LocationLink, 
-                                selectedText: string | undefined): Promise<FileContentInfo> {
+    public async renderDefinition(languageId: string, def: vscode.Location | vscode.LocationLink): Promise<FileContentInfo> {
         if (def instanceof vscode.Location) {
-            return await this.getFileContents(def.uri, def.range, languageId, selectedText || '');
+            return await this.getFileContents(def.uri, def.range, languageId);
         } else {
             if (def.targetSelectionRange)
-                return await this.getFileContents(def.targetUri, def.targetSelectionRange, languageId, selectedText || '');
+                return await this.getFileContents(def.targetUri, def.targetSelectionRange, languageId);
             else
-                return await this.getFileContents(def.targetUri, def.targetRange, languageId, selectedText || '');
+                return await this.getFileContents(def.targetUri, def.targetRange, languageId);
         }
     }
 
-    private async getFileContents(uri: vscode.Uri, range: vscode.Range, languageId: string, selectedText: string): Promise<FileContentInfo> {
+    private async getFileContents(uri: vscode.Uri, range: vscode.Range, languageId: string): Promise<FileContentInfo> {
         const cacheKey = uri.toString();
 
         // 先打开文档获取版本号（无论如何都需要打开文档）

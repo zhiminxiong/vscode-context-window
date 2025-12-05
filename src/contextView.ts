@@ -46,7 +46,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _pinned = false;
     private _currentPanel?: vscode.WebviewPanel; // 添加成员变量存储当前面板
     private _pickItems: any[] | undefined; // 添加成员变量存储选择项
-    private _currentSelectedText: string = ''; // 添加成员变量存储当前选中的文本
 
     private _themeListener: vscode.Disposable | undefined;
 
@@ -536,20 +535,28 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         this._currentPanel?.webview.postMessage(message);
     }
 
-    public async navigateCommand(uri: string, line: number, character: number = 0, token: string = '') {
+    public async navigateCommand(uri: string, range: { start: { line: number; character: number }; end: { line: number; character: number } }, token: string = '') {
         // Validate input parameters
         if (!uri || typeof uri !== 'string') {
             vscode.window.showErrorMessage('Invalid URI provided');
             return;
         }
-        
-        if (line < 0) {
-            vscode.window.showErrorMessage('Line number must be non-negative');
+
+        if (!range) {
+            vscode.window.showErrorMessage('Range parameter is required');
             return;
         }
-        
-        if (character < 0) {
-            vscode.window.showErrorMessage('Character position must be non-negative');
+
+        // Validate range parameters
+        if (range.start.line < 1 || range.end.line < 1 || 
+            range.start.character < 1 || range.end.character < 1) {
+            vscode.window.showErrorMessage('Invalid range parameters: line numbers must be >= 1 and characters must be >= 1');
+            return;
+        }
+
+        if (range.start.line > range.end.line || 
+            (range.start.line === range.end.line && range.start.character > range.end.character)) {
+            vscode.window.showErrorMessage('Invalid range: start position must be before or equal to end position');
             return;
         }
 
@@ -583,16 +590,21 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         const editor = vscode.window.activeTextEditor || this._lastUpdateEditor;
         const languageId = editor ? editor.document.languageId : 'plaintext';
+
+        // Create location using the range
         const definition = new vscode.Location(
             targetUri,
             new vscode.Range(
-                new vscode.Position(line-1, character-1),
-                new vscode.Position(line-1, character-1)
+                new vscode.Position(range.start.line - 1, range.start.character-1),
+                new vscode.Position(range.end.line - 1, range.end.character-1)
             )
         );
-        const contentInfo = await this._renderer.renderDefinition(languageId, definition, token);
+
+        const contentInfo = await this._renderer.renderDefinition(languageId, definition);
         this.updateContent(contentInfo);
-        this.addToHistory(contentInfo, line);
+        
+        // 使用range的起始位置作为导航行号用于历史记录
+        this.addToHistory(contentInfo, range.start.line);
     }
 
     private async handleWebviewMessage(webview: vscode.Webview) {
@@ -771,9 +783,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             // 不需处理
                             //console.log('[definition] SameDefinition:', message.position);
                         } else  */{
-                            // 缓存点击的token文本
-                            this._currentSelectedText = message.token || '';
-
                             const updatePromise = (async () => {
                                 let definitions = await vscode.commands.executeCommand<vscode.Location[]>(
                                     'vscode.executeDefinitionProvider',
@@ -800,7 +809,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                     }
                                     //console.log('[definition] jumpDefinition: ', message.token);
 
-                                    const contentInfo = await this._renderer.renderDefinition(editor.document.languageId, definition, message.token);
+                                    const contentInfo = await this._renderer.renderDefinition(editor.document.languageId, definition);
                                     this.updateContent(contentInfo);
                                     this.addToHistory(contentInfo, message.position.line);
                                 } else {
@@ -857,11 +866,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     if (this._pickItems && message.index !== undefined) {
                         const selected = this._pickItems[message.index];
                         if (selected && editor) {
-                            // 使用缓存的选中文本，而不是重新获取
-                            const selectedText = this._currentSelectedText;
-                            
                             // 渲染选中的定义
-                            // this._renderer.renderDefinition(editor.document.languageId, selected.definition, selectedText).then(contentInfo => {
+                            // this._renderer.renderDefinition(editor.document.languageId, selected.definition).then(contentInfo => {
                             //     this.updateContent(contentInfo);
                             //     // 更新历史记录的内容，但保持当前行号
                             //     if (this._history.length > this._historyIndex) {
@@ -872,8 +878,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 try {
                                     const contentInfo = await this._renderer.renderDefinition(
                                         editor.document.languageId, 
-                                        selected.definition, 
-                                        selectedText
+                                        selected.definition
                                     );
                                     
                                     this.updateContent(contentInfo);
@@ -1402,14 +1407,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             };
         }
         // 获取当前光标位置
-        const position = editor.selection.active;
+        //const position = editor.selection.active;
         
         // 获取当前光标位置下的单词或标识符的范围
-        const wordRange = editor.document.getWordRangeAtPosition(position);
+        //const wordRange = editor.document.getWordRangeAtPosition(position);
 
         // 获取该范围内的文本内容
-        const selectedText = wordRange ? editor.document.getText(wordRange) : '';
-        this._currentSelectedText = selectedText; // 缓存选中的文本
+        //const selectedText = wordRange ? editor.document.getText(wordRange) : '';
         //vscode.window.showInformationMessage(`Selected text: ${selectedText}`);
 
         let definitions = await this.getDefinitionAtCurrentPositionInEditor(editor);
@@ -1455,7 +1459,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
 
         //console.log('[definition] ', definitions);
-        return definitions.length ? await this._renderer.renderDefinition(editor.document.languageId, definition, selectedText) : { 
+        return definitions.length ? await this._renderer.renderDefinition(editor.document.languageId, definition) : { 
             content: '',
             range: {
                 start: { line: 0, character: 0 },
@@ -1490,20 +1494,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     // 使用全路径
                     const displayPath = uri.fsPath;
 
-                    // 使用传入的符号名称，避免异步文件操作
-                    const symbolName = this._currentSelectedText || `Definition ${index + 1}`;
-                    
                     return {
-                        title: symbolName,
                         location: `${displayPath}:${range.start.line + 1}`,
                         filePath: displayPath, // 使用文件系统路径而不是URI
                         lineNumber: range.start.line,
                         columnNumber: range.start.character + 1, // 添加列号信息（转换为1-based）
                         isActive: index === 0, // 第一个定义默认激活
                         definition: definition,
-                        uri: uri.toString(),
-                        startLine: range.start.line,
-                        startCharacter: range.start.character
+                        uri: uri.toString()
                     };
                 } catch (error) {
                     return null;
@@ -1530,8 +1528,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         const def = validDefinitions[i];
                         if (def && def.uri === currentFileUri) {
                             // 计算位置距离（行数差 * 1000 + 列数差）
-                            const lineDiff = Math.abs(def.startLine - currentPosition.line);
-                            const charDiff = Math.abs(def.startCharacter - currentPosition.character);
+                            const lineDiff = Math.abs(def.lineNumber - currentPosition.line);
+                            const charDiff = Math.abs(def.columnNumber - currentPosition.character);
                             const distance = lineDiff * 1000 + charDiff;
                             
                             if (distance < minDistance) {
