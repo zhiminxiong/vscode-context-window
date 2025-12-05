@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.8.2] 2025.12.05
+
+#### Changed
+
+- Navigate to the URI using a range as the parameter; this allows marking a specific region.
+
 ## [0.8.1] 2025.12.04
 
 #### Added
