@@ -23,7 +23,7 @@
   },
   "categories": [
     "Other",
-        "Programming Languages"
+    "Programming Languages"
   ],
   "activationEvents": [
     "onView:contextView.context",
@@ -75,30 +75,30 @@
         "category": "Context View"
       },
       {
-          "command": "vscode-context-window.showContextWindow",
-          "title": "Show Context Window"
+        "command": "vscode-context-window.showContextWindow",
+        "title": "Show Context Window"
       },
       {
-          "command": "vscode-context-window.float",
-          "title": "Display the floating Context Window"
+        "command": "vscode-context-window.float",
+        "title": "Display the floating Context Window"
       },
       {
-          "command": "vscode-context-window.navigateUri",
-          "title": "Navigate to the uri and line",
-          "category": "Context View"
+        "command": "vscode-context-window.navigateUri",
+        "title": "Navigate to the uri and line",
+        "category": "Context View"
       },
       {
-          "command": "vscode-context-window.testNavigate",
-          "title": "Test Navigate: extension.ts:10",
-          "category": "Context View"
+        "command": "vscode-context-window.testNavigate",
+        "title": "Test Navigate: extension.ts:10",
+        "category": "Context View"
       }
     ],
     "keybindings": [
-        {
-            "command": "vscode-context-window.float",
-            "key": "ctrl+shift+9",
-            "mac": "cmd+shift+9"
-        }
+      {
+        "command": "vscode-context-window.float",
+        "key": "ctrl+shift+9",
+        "mac": "cmd+shift+9"
+      }
     ],
     "menus": {
       "commandPalette": [
@@ -141,49 +141,49 @@
           ]
         },
         "contextView.contextWindow.selectionBackground": {
-            "type": "string",
-            "default": "#07c2db71",
-            "description": "Context Window 选中区域背景色"
+          "type": "string",
+          "default": "#07c2db71",
+          "description": "Context Window 选中区域背景色"
         },
         "contextView.contextWindow.inactiveSelectionBackground": {
-            "type": "string",
-            "default": "#07c2db71",
-            "description": "Context Window 非活动选中区域背景色"
+          "type": "string",
+          "default": "#07c2db71",
+          "description": "Context Window 非活动选中区域背景色"
         },
         "contextView.contextWindow.selectionHighlightBackground": {
-            "type": "string",
-            "default": "#5bdb0771",
-            "description": "Context Window 选中高亮背景色"
+          "type": "string",
+          "default": "#5bdb0771",
+          "description": "Context Window 选中高亮背景色"
         },
         "contextView.contextWindow.selectionHighlightBorder": {
-            "type": "string",
-            "default": "#5bdb0791",
-            "description": "Context Window 选中高亮边框色"
+          "type": "string",
+          "default": "#5bdb0791",
+          "description": "Context Window 选中高亮边框色"
         },
         "contextView.contextWindow.minimap": {
-            "type": "boolean",
-            "default": true,
-            "description": "Controls whether the Context Window minimap is shown."
+          "type": "boolean",
+          "default": true,
+          "description": "Controls whether the Context Window minimap is shown."
         },
         "contextView.contextWindow.fontSize": {
-            "type": "number",
-            "default": 14,
-            "description": "Context Window fontSize"
+          "type": "number",
+          "default": 14,
+          "description": "Context Window fontSize"
         },
         "contextView.contextWindow.fontFamily": {
-            "type": "string",
-            "default": "Consolas, monospace",
-            "description": "Context Window fontFamily"
+          "type": "string",
+          "default": "Consolas, monospace",
+          "description": "Context Window fontFamily"
         },
         "contextView.contextWindow.useDefaultTokenizer": {
-            "type": "boolean",
-            "default": true,
-            "description": "Using the default tokenizer of Monaco Editor.\nTake effect when VSCode starts."
+          "type": "boolean",
+          "default": true,
+          "description": "Using the default tokenizer of Monaco Editor.\nTake effect when VSCode starts."
         },
         "contextView.contextWindow.fixToken": {
-            "type": "boolean",
-            "default": false,
-            "description": "In VSCode, treat #include, #pragma, #region, and #endregion as distinct tokens, separate from #directive.\nTake effect when VSCode starts."
+          "type": "boolean",
+          "default": false,
+          "description": "In VSCode, treat #include, #pragma, #region, and #endregion as distinct tokens, separate from #directive.\nTake effect when VSCode starts."
         },
         "contextView.contextWindow.cacheSizeLimit": {
           "type": "number",
@@ -191,53 +191,171 @@
           "description": "Maximum number of files to cache in the frontend. When exceeded, the cache will use smart eviction strategy."
         },
         "contextView.contextWindow.largeFileThreshold": {
-            "type": "number",
-            "default": 2000,
-            "description": "Line count threshold for large files. Files with more lines than this value will be prioritized in cache eviction."
+          "type": "number",
+          "default": 2000,
+          "description": "Line count threshold for large files. Files with more lines than this value will be prioritized in cache eviction."
         },
         "contextView.contextWindow.lightThemeRules": {
-            "type": "array",
-            "default": [
-                { "token": "keyword", "foreground": "#0000ff", "description": "static|private|protected|public etc." },
-                { "token": "keyword.type", "foreground": "#ff0000", "fontStyle": "bold", "description": "function|class etc." },
-                { "token": "keyword.flow", "foreground": "#ff0000", "fontStyle": "bold", "description": "if|else|for|while etc." },
-                { "token": "keyword.directive", "foreground": "#0000ff", "description": "#include|#pragma|#region|#endregion etc." },
-                { "token": "keyword.directive.control", "foreground": "#ff0000", "fontStyle": "bold", "description": "#define|#undef|#if|#elif|#else|#endif etc." },
-                { "token": "variable.name", "foreground": "#000080", "fontStyle": "bold"},
-                { "token": "variable.parameter", "foreground": "#000080"},
-                { "token": "identifier", "foreground": "#000080"},
-                { "token": "type", "foreground": "#0000ff"},
-                { "token": "class.name", "foreground": "#0000ff", "fontStyle": "bold"},
-                { "token": "function.name", "foreground": "#a00000", "fontStyle": "bold"},
-                { "token": "method.name", "foreground": "#a00000", "fontStyle": "bold"},
-                { "token": "string", "foreground": "#005700"},
-                { "token": "string.escape", "foreground": "#005700"},
-                { "token": "number", "foreground": "#ff0000"},
-                { "token": "boolean", "foreground": "#800080"},
-                { "token": "regexp", "foreground": "#811f3f"},
-                { "token": "null", "foreground": "#0000ff"},
-                { "token": "comment", "foreground": "#005700"},
-                { "token": "property", "foreground": "#000080"},
-                { "token": "operator", "foreground": "#800080"},
-                { "token": "delimiter", "foreground": "#000000"},
-                { "token": "delimiter.bracket", "foreground": "#000000"},
-                { "token": "delimiter.parenthesis", "foreground": "#000000"},
-                { "token": "delimiter.angle", "foreground": "#000000"},
-                { "token": "macro", "foreground": "#A00000", "fontStyle": "italic"}
-            ]
+          "type": "array",
+          "default": [
+            {
+              "token": "keyword",
+              "foreground": "#0000ff",
+              "description": "static|private|protected|public etc."
+            },
+            {
+              "token": "keyword.type",
+              "foreground": "#ff0000",
+              "fontStyle": "bold",
+              "description": "function|class etc."
+            },
+            {
+              "token": "keyword.flow",
+              "foreground": "#ff0000",
+              "fontStyle": "bold",
+              "description": "if|else|for|while etc."
+            },
+            {
+              "token": "keyword.directive",
+              "foreground": "#0000ff",
+              "description": "#include|#pragma|#region|#endregion etc."
+            },
+            {
+              "token": "keyword.directive.control",
+              "foreground": "#ff0000",
+              "fontStyle": "bold",
+              "description": "#define|#undef|#if|#elif|#else|#endif etc."
+            },
+            {
+              "token": "variable.name",
+              "foreground": "#000080",
+              "fontStyle": "bold"
+            },
+            {
+              "token": "variable.parameter",
+              "foreground": "#000080"
+            },
+            {
+              "token": "identifier",
+              "foreground": "#000080"
+            },
+            {
+              "token": "type",
+              "foreground": "#0000ff"
+            },
+            {
+              "token": "class.name",
+              "foreground": "#0000ff",
+              "fontStyle": "bold"
+            },
+            {
+              "token": "function.name",
+              "foreground": "#a00000",
+              "fontStyle": "bold"
+            },
+            {
+              "token": "method.name",
+              "foreground": "#a00000",
+              "fontStyle": "bold"
+            },
+            {
+              "token": "string",
+              "foreground": "#005700"
+            },
+            {
+              "token": "string.escape",
+              "foreground": "#005700"
+            },
+            {
+              "token": "number",
+              "foreground": "#ff0000"
+            },
+            {
+              "token": "boolean",
+              "foreground": "#800080"
+            },
+            {
+              "token": "regexp",
+              "foreground": "#811f3f"
+            },
+            {
+              "token": "null",
+              "foreground": "#0000ff"
+            },
+            {
+              "token": "comment",
+              "foreground": "#005700"
+            },
+            {
+              "token": "property",
+              "foreground": "#000080"
+            },
+            {
+              "token": "operator",
+              "foreground": "#800080"
+            },
+            {
+              "token": "delimiter",
+              "foreground": "#000000"
+            },
+            {
+              "token": "delimiter.bracket",
+              "foreground": "#000000"
+            },
+            {
+              "token": "delimiter.parenthesis",
+              "foreground": "#000000"
+            },
+            {
+              "token": "delimiter.angle",
+              "foreground": "#000000"
+            },
+            {
+              "token": "macro",
+              "foreground": "#A00000",
+              "fontStyle": "italic"
+            }
+          ]
         },
         "contextView.contextWindow.darkThemeRules": {
-            "type": "array",
-            "default": [
-                { "token": "keyword.type", "fontStyle": "bold", "description": "function|class etc." },
-                { "token": "keyword.flow", "fontStyle": "bold", "description": "if|else|for|while etc." },
-                { "token": "keyword.directive.control", "fontStyle": "bold", "description": "#define|#undef|#if|#elif|#else|#endif etc." },
-                { "token": "variable.name", "fontStyle": "bold"},
-                { "token": "class.name", "fontStyle": "bold"},
-                { "token": "function.name", "fontStyle": "bold"},
-                { "token": "method.name", "fontStyle": "bold"},
-                { "token": "macro", "fontStyle": "italic"}
-            ]
+          "type": "array",
+          "default": [
+            {
+              "token": "keyword.type",
+              "fontStyle": "bold",
+              "description": "function|class etc."
+            },
+            {
+              "token": "keyword.flow",
+              "fontStyle": "bold",
+              "description": "if|else|for|while etc."
+            },
+            {
+              "token": "keyword.directive.control",
+              "fontStyle": "bold",
+              "description": "#define|#undef|#if|#elif|#else|#endif etc."
+            },
+            {
+              "token": "variable.name",
+              "fontStyle": "bold"
+            },
+            {
+              "token": "class.name",
+              "fontStyle": "bold"
+            },
+            {
+              "token": "function.name",
+              "fontStyle": "bold"
+            },
+            {
+              "token": "method.name",
+              "fontStyle": "bold"
+            },
+            {
+              "token": "macro",
+              "fontStyle": "italic"
+            }
+          ]
         }
       }
     }
@@ -247,9 +365,6 @@
     "webpack": "webpack --mode development",
     "webpack-dev": "webpack --mode development --watch",
     "lint": "eslint . --ext .ts,.tsx"
-  },
-  "dependencies": {
-    "monaco-editor": "^0.34.0"
   },
   "devDependencies": {
     "@types/node": "^14.11.2",
@@ -261,5 +376,8 @@
     "typescript": "^4.6.4",
     "webpack": "^5.72.0",
     "webpack-cli": "^4.9.0"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.55.1"
   }
 }

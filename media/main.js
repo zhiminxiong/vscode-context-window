@@ -1308,6 +1308,7 @@ function tokenAtPosition(model, editor, pos) {
                     };
 
                     // 完全禁用所有与跳转相关的命令
+                    // 使用Monaco Editor 0.52.0的正确API
                     const disabledCommands = [
                         'editor.action.openLink',
                         'editor.action.openLinkToSide',
@@ -1322,13 +1323,20 @@ function tokenAtPosition(model, editor, pos) {
                         'editor.action.peekReferences'
                     ];
 
-                    disabledCommands.forEach(command => {
-                        editor._standaloneKeybindingService.addDynamicKeybinding(
-                            `-${command}`,
-                            null,
-                            () => {}
-                        );
-                    });
+                    // 使用addDynamicKeybindings批量禁用命令（推荐方式）
+                    if (editor._standaloneKeybindingService && editor._standaloneKeybindingService.addDynamicKeybindings) {
+                        const keybindingRules = disabledCommands.map(command => ({
+                            keybinding: 0,  // 0表示没有键绑定
+                            command: `-${command}`,  // 使用负号前缀禁用命令
+                            when: undefined
+                        }));
+                        
+                        try {
+                            editor._standaloneKeybindingService.addDynamicKeybindings(keybindingRules);
+                        } catch (error) {
+                            console.warn('Failed to disable commands using addDynamicKeybindings:', error);
+                        }
+                    }
 
                     editor.deltaDecorations([], [{ range: new monaco.Range(1, 1, 1, 1 + 5), options: { inlineClassName: 'highlighted-symbol' } }]);
 
