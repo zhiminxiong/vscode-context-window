@@ -1126,8 +1126,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 default-src 'none';
                 style-src ${webview.cspSource} 'unsafe-inline';
                 script-src 'nonce-${nonce}' 'unsafe-eval' ${webview.cspSource};
+                worker-src ${webview.cspSource} blob:;
+                child-src ${webview.cspSource} blob:;
                 img-src data: https: ${webview.cspSource};
-                font-src ${webview.cspSource};
+                font-src ${webview.cspSource} data:;
                 ">
 
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
