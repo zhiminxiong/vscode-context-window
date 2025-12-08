@@ -68,7 +68,7 @@ body {
 
 /* 确保 Monaco 滚动条容器有足够的高度 */
 .monaco-editor .monaco-scrollable-element .scrollbar.horizontal {
-    height: 18px !important; /* 滚动条容器高度 */
+    height: 12px !important; /* 滚动条容器高度 */
     bottom: 0 !important;
 }
 
