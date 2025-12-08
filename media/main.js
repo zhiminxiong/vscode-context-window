@@ -856,6 +856,7 @@ function tokenAtPosition(model, editor, pos) {
                             minimap: minimap || { enabled: false },
                             scrollBeyondLastLine: scrollBeyondLastLine ?? false,
                             lineNumbers: lineNumbers || 'on',
+                            lineNumbersMinChars: 1,
                             renderWhitespace: renderWhitespace || 'all',
                             // 光标选项
                             cursorStyle: 'pointer',
@@ -1765,7 +1766,7 @@ function tokenAtPosition(model, editor, pos) {
                             applyIndentationForModel(model);
                             
                             const lineCount = model.getLineCount();
-                            const requiredChars = Math.max(3, lineCount.toString().length + 1);
+                            const requiredChars = Math.max(1, lineCount.toString().length);
                             
                             editor.updateOptions({ lineNumbersMinChars: requiredChars });
                             editor.layout();
