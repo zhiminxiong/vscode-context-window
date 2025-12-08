@@ -51,16 +51,15 @@ body {
 }
 
 #container {
-    height: 100vh;
+    height: calc(100vh - 24px);
     cursor: default !important; /* 强制容器手型光标 */
     position: absolute;
     top: 0;
     left: 0;
     margin-top: 0 !important;
     padding-top: 0 !important;
-    overflow-x: auto !important; /* 添加横向滚动条 */
-    overflow-y: hidden; /* 保持垂直方向不滚动 */
 }
+
 
 /* 专门针对 Monaco Editor 的滚动条样式 */
 .monaco-editor .monaco-scrollable-element .slider.horizontal {
@@ -73,23 +72,14 @@ body {
     bottom: 0 !important;
 }
 
-/* 确保Monaco编辑器内容可以横向滚动 */
-.monaco-editor {
-    overflow-x: visible !important;
-}
-
-/* 确保编辑器内容区域可以横向滚动 */
-.monaco-editor .monaco-scrollable-element {
-    overflow-x: visible !important;
-}
-
 #main {
+
     display: none;
     padding: 10px;
     cursor: default !important; /* 强制主内容区手型光标 */
     margin-top: 0 !important;
-    overflow-x: auto !important; /* 添加横向滚动条 */
 }
+
 
 /* ========== 左侧列表布局样式 ========== */
 #main-container {
