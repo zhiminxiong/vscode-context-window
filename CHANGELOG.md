@@ -4,6 +4,14 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.8.3] 2025.12.10
+
+#### Changed
+
+- Upgrading the Monaco Editor to version 0.55.1 brings improvements in both functionality and performance.
+- Fixed the accuracy of the scrollbar display area.
+- Fixed the issue where clicking on import files in JS/TS would cause abnormal highlighting.
+
 ## [0.8.2] 2025.12.05
 
 #### Changed
