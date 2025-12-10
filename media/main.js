@@ -1790,9 +1790,9 @@ function tokenAtPosition(model, editor, pos) {
                                 }
                                 editor.revealLineInCenter(targetLine);
                                 
-                                // 添加行高亮装饰
+                                // 添加行高亮装饰，只高亮开始行
                                 activeLineDecorations = editor.deltaDecorations(activeLineDecorations, [{
-                                    range: new monaco.Range(range.start.line+1, 1, range.end.line+1, 1),
+                                    range: new monaco.Range(range.start.line+1, 1, range.start.line+1, 1),
                                     options: { 
                                         isWholeLine: true, 
                                         className: 'highlighted-line', 
@@ -1802,7 +1802,7 @@ function tokenAtPosition(model, editor, pos) {
                                 
                                 let column = 1;
                                 // 如果有定义名，高亮它
-                                if (range.start.character != range.end.character) {
+                                if (range.start.character != range.end.character && range.start.line === range.end.line) {
                                     // 添加符号高亮装饰
                                     editor.deltaDecorations([], [{
                                         range: new monaco.Range(
