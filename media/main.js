@@ -1255,7 +1255,7 @@ function tokenAtPosition(model, editor, pos) {
                                                 endColumn: word.endColumn
                                             });
                                         }
-                                    } else {
+                                    } else if (e.event.leftButton) {
                                         //console.log(`[definition] start to jump definition: ${word} with uri ${uri}`);
                                         vscode.postMessage({
                                             type: 'jumpDefinition',
