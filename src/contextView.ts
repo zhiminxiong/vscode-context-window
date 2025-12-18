@@ -1140,7 +1140,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         </head>
         <body>
             <div class="loading"></div>
-            <article id="main">加载中...</article>
+            <article id="main">ContextView loading...</article>
             
             <!-- 主容器：左侧列表 + 右侧Monaco编辑器 -->
             <div id="main-container">

@@ -628,7 +628,7 @@ function tokenAtPosition(model, editor, pos) {
     
     // 显示加载状态
     document.getElementById('main').style.display = 'block';
-    document.getElementById('main').innerHTML = 'Editor loading...';
+    document.getElementById('main').innerHTML = 'ContextView loading...';
     document.getElementById('container').style.display = 'none';
     
     // 添加错误处理
