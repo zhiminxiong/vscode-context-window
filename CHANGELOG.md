@@ -4,6 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.8.4] 2025.12.19
+
+#### Changed
+
+- Fix the issue where the mouse side buttons also trigger click jumps.
+- Fix the background display issue when the selected text spans multiple tokens.
+
 ## [0.8.3] 2025.12.10
 
 #### Changed
