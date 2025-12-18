@@ -1352,7 +1352,7 @@ function tokenAtPosition(model, editor, pos) {
                         }
                     }
 
-                    editor.deltaDecorations([], [{ range: new monaco.Range(1, 1, 1, 1 + 5), options: { inlineClassName: 'highlighted-symbol' } }]);
+                    editor.deltaDecorations([], [{ range: new monaco.Range(1, 1, 1, 1 + 5), options: { className: 'highlighted-symbol-range', inlineClassName: 'highlighted-symbol-inline' } }]);
 
                     //console.log('[definition] Monaco editor created');
 
@@ -1790,7 +1790,9 @@ function tokenAtPosition(model, editor, pos) {
                                 model.getLineCount(),
                                 Number.MAX_SAFE_INTEGER
                             ));
-                            const symbolDecorations = existingDecorations?.filter(d => d.options.inlineClassName === 'highlighted-symbol');
+                    
+                            const symbolDecorations = existingDecorations?.filter(d => d.options.className === 'highlighted-symbol-range' && d.options.inlineClassName === 'highlighted-symbol-inline');
+
                             if (symbolDecorations && symbolDecorations.length > 0) {
                                 editor.deltaDecorations(symbolDecorations.map(d => d.id), []);
                             }
