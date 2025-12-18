@@ -669,6 +669,20 @@ function tokenAtPosition(model, editor, pos) {
                 padding: 0 2px;
                 text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
             }
+            /* 使用className应用到整个范围 */
+            .highlighted-symbol-range {
+                background-color: #198844!important;
+                border-radius: 2px;
+                border: 1px solid #5bdb0791 !important;
+            }
+            /* 使用inlineClassName应用到每个字符 */
+            .highlighted-symbol-inline {
+                color: #ffffff!important;
+                font-weight: bold!important;
+                text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
+                padding: 0 2px;
+            }
+
             .ctrl-hover-link {
                 text-decoration: underline;
                 text-decoration-color: #0000ff;
@@ -1812,9 +1826,11 @@ function tokenAtPosition(model, editor, pos) {
                                             range.end.character+1
                                         ),
                                         options: {
-                                            inlineClassName: 'highlighted-symbol'
+                                            className: 'highlighted-symbol-range',
+                                            inlineClassName: 'highlighted-symbol-inline'
                                         }
                                     }]);
+
                                 }
                                 
                                 // 设置光标位置
