@@ -673,14 +673,13 @@ function tokenAtPosition(model, editor, pos) {
             .highlighted-symbol-range {
                 background-color: #198844!important;
                 border-radius: 2px;
-                border: 1px solid #5bdb0791 !important;
+                box-shadow: -2px 0 0 #198844, 2px 0 0 #198844;
             }
             /* 使用inlineClassName应用到每个字符 */
             .highlighted-symbol-inline {
                 color: #ffffff!important;
                 font-weight: bold!important;
                 text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
-                padding: 0 2px;
             }
 
             .ctrl-hover-link {
