@@ -556,3 +556,27 @@ ol {
 	padding-left: 20px;
 	margin: 8px;
 }
+
+/* 强制隐藏 Monaco Editor 的 textarea 元素 */
+.monaco-editor textarea.inputarea {
+	display: none !important;
+	visibility: hidden !important;
+	opacity: 0 !important;
+	width: 0 !important;
+	height: 0 !important;
+	position: absolute !important;
+	left: -9999px !important;
+	top: -9999px !important;
+}
+.monaco-editor .inputarea.ime-input {
+	/* 保持 Monaco 自己的定位和尺寸逻辑，只是让它不可见 */
+	opacity: 0 !important;
+	color: transparent !important;
+	background: transparent !important;
+	border: none !important;
+	outline: none !important;
+	box-shadow: none !important;
+	/* 确保不会被选中或交互 */
+	pointer-events: none !important;
+	user-select: none !important;
+}
