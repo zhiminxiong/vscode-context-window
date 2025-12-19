@@ -886,12 +886,14 @@ function tokenAtPosition(model, editor, pos) {
                             },
                             // 启用快速建议
                             quickSuggestions: true,
-                            // 启用导航历史
-                            history: {
-                                undoStopAfter: false,
-                                undoStopBefore: false
-                            },
-                        };
+                        // 启用导航历史
+                        history: {
+                            undoStopAfter: false,
+                            undoStopBefore: false
+                        },
+                        // 禁用辅助功能，避免显示 textarea
+                        accessibilitySupport: 'off',
+                    };
                     };
 
                     function applyIndentationForModel(model) {
@@ -2143,25 +2145,6 @@ function tokenAtPosition(model, editor, pos) {
                                         document.getElementById('main').style.display = 'block';
                                         document.getElementById('main').innerHTML = message.body;
                                     }
-                                    break;
-
-
-
-                                    
-                                case 'startLoading':
-                                    //console.log('[definition] Starting loading animation');
-                                    document.querySelector('.loading').classList.add('active');
-                                    setTimeout(() => {
-                                        document.querySelector('.loading').classList.add('show');
-                                    }, 0);
-                                    break;
-                                    
-                                case 'endLoading':
-                                    //console.log('[definition] Ending loading animation');
-                                    document.querySelector('.loading').classList.remove('show');
-                                    setTimeout(() => {
-                                        document.querySelector('.loading').classList.remove('active');
-                                    }, 200);
                                     break;
                                 //default:
                                     //console.log('[definition] Unknown message type:', message.type);

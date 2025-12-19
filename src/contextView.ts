@@ -987,8 +987,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 //console.log('[definition] onDidChangeVisibility');
                 // If we have cached content, restore it immediately
                 if (curContext?.content) {
-                    // Show loading
-                    //this._view?.webview.postMessage({ type: 'startLoading' });
                     const uri = curContext.content.jmpUri.toString();
                     const currentVersion = curContext.content.documentVersion;
                     
@@ -1003,8 +1001,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         curLine: curContext.navigateLine + 1,
                         documentVersion: currentVersion
                     });
-                    // Hide loading after content is updated
-                    //this._view?.webview.postMessage({ type: 'endLoading' });
                 }
                 else {
                     // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态
@@ -1029,8 +1025,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         // 初始加载时如果有缓存内容就直接使用
         if (curContext?.content) {
             //console.log('[definition] Using cached content for initial load');
-            // Show loading
-            //this._view?.webview.postMessage({ type: 'startLoading' });
             const uri = curContext.content.jmpUri.toString();
             const currentVersion = curContext.content.documentVersion;
             
@@ -1045,8 +1039,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 curLine: curContext.navigateLine + 1,
                 documentVersion: currentVersion
             });
-            // Hide loading after content is updated
-            //this._view?.webview.postMessage({ type: 'endLoading' });
         } else {
             //console.log('[definition] No cached content, keeping Ready for content state');
             // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态，不主动查找定义
@@ -1283,8 +1275,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 this._currentPanel.title = filename ?? "Context Window";
             }
 
-            // Hide loading after content is updated
-            //this._view?.webview.postMessage({ type: 'endLoading' });
             // 等待面板确认渲染完成
             //await this.waitForPanelReady();
         } else {
