@@ -556,11 +556,3 @@ ol {
 	padding-left: 20px;
 	margin: 8px;
 }
-
-/* 优雅解决方案：只移除 textarea 的白色背景，保留所有功能 */
-.monaco-editor textarea.inputarea,
-.monaco-editor .inputarea.ime-input,
-.monaco-editor textarea {
-	background: transparent !important;
-	background-color: transparent !important;
-}
