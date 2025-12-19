@@ -886,14 +886,12 @@ function tokenAtPosition(model, editor, pos) {
                             },
                             // 启用快速建议
                             quickSuggestions: true,
-                        // 启用导航历史
-                        history: {
-                            undoStopAfter: false,
-                            undoStopBefore: false
-                        },
-                        // 禁用辅助功能，避免显示 textarea
-                        accessibilitySupport: 'off',
-                    };
+                            // 启用导航历史
+                            history: {
+                                undoStopAfter: false,
+                                undoStopBefore: false
+                            }
+                        };
                     };
 
                     function applyIndentationForModel(model) {
