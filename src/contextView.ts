@@ -1290,7 +1290,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         } else {
             this.postMessageToWebview({
                 type: 'noContent',
-                body: '&nbsp;&nbsp;No symbol found at current cursor position',
+                body: '&nbsp;&nbsp;No symbol found.',
                 updateMode: this._updateMode,
             });
         }

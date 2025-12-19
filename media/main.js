@@ -1834,12 +1834,13 @@ function tokenAtPosition(model, editor, pos) {
 
                                 }
                                 
-                                // 设置光标位置
+                                // 将光标移动到超大列值，使其不可见，避免影响高亮效果
+                                // 用户点击后Monaco会自动处理光标位置
                                 editor.setSelection({
                                     startLineNumber: targetLine,
-                                    startColumn: range.end.character+1,
+                                    startColumn: 999999,
                                     endLineNumber: targetLine,
-                                    endColumn: range.end.character+1
+                                    endColumn: 999999
                                 });
                             }
                         } else {
@@ -2100,11 +2101,52 @@ function tokenAtPosition(model, editor, pos) {
                                     break;
                                 case 'noContent':
                                     //console.log('[definition] Showing no content message');
-                                    // 显示原始内容区域，隐藏编辑器
-                                    document.getElementById('container').style.display = 'none';
-                                    document.getElementById('main').style.display = 'block';
-                                    document.getElementById('main').innerHTML = message.body;
+                                    // 隐藏左侧定义列表
+                                    clearDefinitionList();
+                                    
+                                    // 检查编辑器是否已创建
+                                    if (typeof editor !== 'undefined' && editor) {
+                                        // 使用Monaco编辑器显示"No symbol found."并高亮"No symbol"
+                                        document.getElementById('container').style.display = 'block';
+                                        document.getElementById('main').style.display = 'none';
+                                        
+                                        // 设置编辑器内容
+                                        const model = editor.getModel();
+                                        if (model) {
+                                            model.setValue('No symbol found.');
+                                            editor.updateOptions({ lineNumbersMinChars: 1 });
+                                            // 高亮"No symbol"（前9个字符）
+                                            editor.deltaDecorations([], [{ 
+                                                range: new monaco.Range(1, 1, 1, 1 + 9), 
+                                                options: { 
+                                                    className: 'highlighted-symbol-range', 
+                                                    inlineClassName: 'highlighted-symbol-inline' 
+                                                } 
+                                            }]);
+                                            
+                                            // 将光标移到超大列值，使其不可见
+                                            editor.setSelection({
+                                                startLineNumber: 1,
+                                                startColumn: 999999,
+                                                endLineNumber: 1,
+                                                endColumn: 999999
+                                            });
+                                            
+                                            // 强制编辑器重新布局以占满整个空间
+                                            setTimeout(() => {
+                                                editor.layout();
+                                            }, 100);
+                                        }
+                                    } else {
+                                        // 编辑器未创建，使用原始HTML显示
+                                        document.getElementById('container').style.display = 'none';
+                                        document.getElementById('main').style.display = 'block';
+                                        document.getElementById('main').innerHTML = message.body;
+                                    }
                                     break;
+
+
+
                                     
                                 case 'startLoading':
                                     //console.log('[definition] Starting loading animation');
