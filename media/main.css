@@ -556,3 +556,13 @@ ol {
 	padding-left: 20px;
 	margin: 8px;
 }
+
+/* 🎯 隐藏Monaco初始化时的临时IME测量textarea（只有ime-text-area单一类名的） */
+.monaco-editor textarea.ime-text-area:not([class*=" "]) {
+	opacity: 0 !important;
+	visibility: hidden !important;
+	position: absolute !important;
+	left: -9999px !important;
+	top: -9999px !important;
+	pointer-events: none !important;
+}
