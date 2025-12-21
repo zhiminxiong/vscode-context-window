@@ -1861,19 +1861,23 @@ function tokenAtPosition(model, editor, pos) {
                                         ),
                                         options: {
                                             className: 'highlighted-symbol-range',
-                                            inlineClassName: 'highlighted-symbol-inline'
+                                            inlineClassName: 'highlighted-symbol-inline',
+                                            // 设置高优先级，覆盖Monaco的自动装饰
+                                            zIndex: 100,
+                                            // 阻止Monaco的自动高亮装饰影响
+                                            overviewRuler: {
+                                                color: '#198844',
+                                                position: monaco.editor.OverviewRulerLane.Full
+                                            }
                                         }
                                     }]);
-
                                 }
                                 
-                                // 将光标移动到超大列值，使其不可见，避免影响高亮效果
-                                // 用户点击后Monaco会自动处理光标位置
                                 editor.setSelection({
-                                    startLineNumber: targetLine,
-                                    startColumn: 999999,
-                                    endLineNumber: targetLine,
-                                    endColumn: 999999
+                                    startLineNumber: range.end.line + 1,
+                                    startColumn: range.end.character + 1,
+                                    endLineNumber: range.end.line + 1,
+                                    endColumn: range.end.character + 1
                                 });
                             }
                         } else {
