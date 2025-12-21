@@ -4,6 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.8.5] 2025.12.21
+
+#### Changed
+
+- Fix the white box flash issue of the textarea on startup.
+- Some UI effect tweaks.
+
 ## [0.8.4] 2025.12.19
 
 #### Changed
