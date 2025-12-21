@@ -1886,7 +1886,7 @@ function tokenAtPosition(model, editor, pos) {
                                         }
                                     }]);
                                 }
-                                
+
                                 editor.setSelection({
                                     startLineNumber: range.end.line + 1,
                                     startColumn: range.end.character + 1,
@@ -1895,7 +1895,9 @@ function tokenAtPosition(model, editor, pos) {
                                 });
 
                                 // 让Monaco Editor失去焦点（使用持久的隐藏元素）
-                                hiddenFocusElement.focus();
+                                if (editor.hasTextFocus()) {
+                                    hiddenFocusElement.focus();
+                                }
                             }
                         } else {
                             console.error('[definition] Editor not initialized');
