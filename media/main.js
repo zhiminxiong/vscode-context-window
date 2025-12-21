@@ -1895,9 +1895,9 @@ function tokenAtPosition(model, editor, pos) {
                                 });
 
                                 // 让Monaco Editor失去焦点（使用持久的隐藏元素）
-                                if (editor.hasTextFocus()) {
-                                    hiddenFocusElement.focus();
-                                }
+                                // if (editor.hasTextFocus()) {
+                                //     hiddenFocusElement.focus();
+                                // }
                             }
                         } else {
                             console.error('[definition] Editor not initialized');
