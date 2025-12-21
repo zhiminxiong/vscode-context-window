@@ -683,10 +683,27 @@ function tokenAtPosition(model, editor, pos) {
             }
 
             .ctrl-hover-link {
-                text-decoration: underline;
-                text-decoration-color: #0000ff;
-                font-weight: bold!important;
+                position: relative;
+                text-decoration: none;
+                font-weight: bold !important;
+                color: #0066cc;
             }
+            .ctrl-hover-link::after {
+                content: '';
+                position: absolute;
+                left: 0;
+                bottom: -2px;
+                width: 100%;
+                height: 2px;
+                background: #0066cc;
+                transform: scaleX(0);
+                transform-origin: left;
+                transition: transform 0.0s ease;
+            }
+            .ctrl-hover-link:hover::after {
+                transform: scaleX(1);
+            }
+            
             .ctrl-hover-link-dark {
                 text-decoration: underline;
                 text-decoration-color: #ffffff;
