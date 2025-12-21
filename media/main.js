@@ -944,6 +944,16 @@ function tokenAtPosition(model, editor, pos) {
                         openerService: openerService
                     });
 
+                    // 创建持久的隐藏元素，用于让Monaco Editor失去焦点
+                    const hiddenFocusElement = document.createElement('input');
+                    hiddenFocusElement.style.position = 'absolute';
+                    hiddenFocusElement.style.opacity = '0';
+                    hiddenFocusElement.style.pointerEvents = 'none';
+                    hiddenFocusElement.style.width = '0';
+                    hiddenFocusElement.style.height = '0';
+                    hiddenFocusElement.setAttribute('tabindex', '-1');
+                    document.body.appendChild(hiddenFocusElement);
+
                     // 添加ResizeObserver来监听容器大小变化（仅用于拖拽分隔条时重新布局）
                     const containerElement = document.getElementById('container');
                     if (containerElement && window.ResizeObserver) {
@@ -958,6 +968,10 @@ function tokenAtPosition(model, editor, pos) {
                         // 确保在编辑器销毁时清理ResizeObserver
                         editor.onDidDispose(() => {
                             resizeObserver.disconnect();
+                            // 清理隐藏的焦点元素
+                            if (hiddenFocusElement && hiddenFocusElement.parentNode) {
+                                hiddenFocusElement.parentNode.removeChild(hiddenFocusElement);
+                            }
                         });
                     }
 
@@ -1879,6 +1893,9 @@ function tokenAtPosition(model, editor, pos) {
                                     endLineNumber: range.end.line + 1,
                                     endColumn: range.end.character + 1
                                 });
+
+                                // 让Monaco Editor失去焦点（使用持久的隐藏元素）
+                                hiddenFocusElement.focus();
                             }
                         } else {
                             console.error('[definition] Editor not initialized');
