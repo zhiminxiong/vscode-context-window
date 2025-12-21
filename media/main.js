@@ -628,14 +628,14 @@ function tokenAtPosition(model, editor, pos) {
     
     // 显示加载状态
     document.getElementById('main').style.display = 'block';
-    document.getElementById('main').innerHTML = 'ContextView loading...';
+    document.getElementById('main').innerHTML = '';
     document.getElementById('container').style.display = 'none';
     
     // 添加错误处理
     window.onerror = function(message, source, lineno, colno, error) {
         console.error('[definition] Global error:', message, 'at', source, lineno, colno, error);
         document.getElementById('main').style.display = 'block';
-        document.getElementById('main').innerHTML = `<div style="color: red; padding: 20px;">load error: ${message}</div>`;
+        document.getElementById('main').innerHTML = `<div style="color: var(--vscode-errorForeground); font-size: var(--vscode-editor-font-size);">load error: ${message}</div>`;
         return true;
     };
     
