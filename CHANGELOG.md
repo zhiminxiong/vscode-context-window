@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.8.6] 2025.12.21
+
+#### Changed
+
+- Fixed the issue causing VS Code to lose focus.
+
 ## [0.8.5] 2025.12.21
 
 #### Changed
