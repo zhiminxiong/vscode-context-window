@@ -138,10 +138,11 @@ export const languageConfig_js = {
                     '@default': 'delimiter'
                 }
             }],
-            [/\.(?=type)/, { token: 'delimiter', next: '@typeFix' }],
+            [/\.(?=type\b)/, { token: 'delimiter', next: '@typeFix' }],
             
             // 分隔符：. , ; ...
             [/[;,.]/, 'delimiter'],
+
             
             // 空格
             [/\s+/, 'white'],
