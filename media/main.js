@@ -697,6 +697,7 @@ function tokenAtPosition(model, editor, pos) {
                 text-decoration: none;
                 font-weight: bold !important;
                 color: #0066cc;
+                z-index: 1000 !important;
             }
             .ctrl-hover-link::after {
                 content: '';
@@ -709,16 +710,19 @@ function tokenAtPosition(model, editor, pos) {
                 transform: scaleX(0);
                 transform-origin: left;
                 transition: transform 0.0s ease;
+                z-index: 1000 !important;
             }
             .ctrl-hover-link:hover::after {
                 transform: scaleX(1);
             }
+
             
             .ctrl-hover-link-dark {
                 position: relative;
                 text-decoration: none;
                 font-weight: bold !important;
                 color: #4fc3f7;
+                z-index: 1000 !important;
             }
             .ctrl-hover-link-dark::after {
                 content: '';
@@ -731,10 +735,12 @@ function tokenAtPosition(model, editor, pos) {
                 transform: scaleX(0);
                 transform-origin: left;
                 transition: transform 0.0s ease;
+                z-index: 1000 !important;
             }
             .ctrl-hover-link-dark:hover::after {
                 transform: scaleX(1);
             }
+
             .monaco-editor {
                 cursor: pointer !important;
                 user-select: none !important;
@@ -1906,9 +1912,9 @@ function tokenAtPosition(model, editor, pos) {
                                 });
 
                                 // 让Monaco Editor失去焦点（使用持久的隐藏元素）
-                                // if (editor.hasTextFocus()) {
-                                //     hiddenFocusElement.focus();
-                                // }
+                                if (editor.hasTextFocus()) {
+                                    hiddenFocusElement.focus();
+                                }
                             }
                         } else {
                             console.error('[definition] Editor not initialized');
