@@ -1088,8 +1088,112 @@ function tokenAtPosition(model, editor, pos) {
                         monaco.languages.setMonarchTokensProvider('go', languageConfig_go);
                     }
 
+                    // 为 C++/C# 注册 Document Symbol Provider，使 Sticky Scroll 能正确识别函数签名
+                    // 这样即使函数签名和 { 换行，Sticky Scroll 也能显示函数名而不是 {
+                    const registerSymbolProvider = (languageId) => {
+                        monaco.languages.registerDocumentSymbolProvider(languageId, {
+                            provideDocumentSymbols: function(model, token) {
+                                const symbols = [];
+                                const text = model.getValue();
+                                const lines = text.split('\n');
+                                
+                                // 匹配函数/类/命名空间声明的正则表达式
+                                const functionPattern = /^[\s]*(?:(?:inline|static|virtual|explicit|constexpr|const|extern|friend)\s+)*(?:[\w:]+(?:<[^>]*>)?(?:\s*\*|\s*&)?)\s+([\w:~]+)\s*\([^)]*\)\s*(?:const|override|final|noexcept|throw\(\))*\s*(?:->[\w\s:*&<>]+)?\s*$/;
+                                const classPattern = /^[\s]*(?:class|struct|namespace|enum)\s+([\w:]+)/;
+                                
+                                const stack = []; // 用于跟踪函数/类声明的栈
+                                
+                                for (let i = 0; i < lines.length; i++) {
+                                    const line = lines[i];
+                                    const trimmedLine = line.trim();
+                                    
+                                    // 检查是否是函数或类声明
+                                    const functionMatch = trimmedLine.match(functionPattern);
+                                    const classMatch = trimmedLine.match(classPattern);
+                                    
+                                    if (functionMatch || classMatch) {
+                                        const name = functionMatch ? functionMatch[1] : classMatch[1];
+                                        const kind = classMatch ? monaco.languages.SymbolKind.Class : monaco.languages.SymbolKind.Function;
+                                        
+                                        // 找到函数/类声明，记录起始行
+                                        // 查找对应的开始大括号
+                                        let braceLineIndex = i;
+                                        let foundBrace = false;
+                                        
+                                        // 在当前行或后续几行中查找 {
+                                        for (let j = i; j < Math.min(i + 5, lines.length); j++) {
+                                            if (lines[j].includes('{')) {
+                                                braceLineIndex = j;
+                                                foundBrace = true;
+                                                break;
+                                            }
+                                        }
+                                        
+                                        if (foundBrace) {
+                                            // 将函数/类声明行压入栈，并初始化大括号计数器
+                                            stack.push({
+                                                name: name,
+                                                kind: kind,
+                                                startLine: i,  // 函数签名行
+                                                braceStartLine: braceLineIndex,  // { 所在行
+                                                braceCount: 0  // 大括号计数器，用于匹配嵌套的 {}
+                                            });
+                                        }
+                                    }
+                                    
+                                    // 如果栈不为空，说明我们在某个函数/类的作用域内
+                                    if (stack.length > 0) {
+                                        const currentSymbol = stack[stack.length - 1];
+                                        
+                                        // 如果当前行在函数开始大括号之后，开始计数大括号
+                                        if (i >= currentSymbol.braceStartLine) {
+                                            // 计算当前行的 { 和 } 数量
+                                            const openBraces = (line.match(/\{/g) || []).length;
+                                            const closeBraces = (line.match(/\}/g) || []).length;
+                                            
+                                            currentSymbol.braceCount += openBraces - closeBraces;
+                                            
+                                            // 当大括号计数器归零时，说明找到了函数/类的结束大括号
+                                            if (currentSymbol.braceCount === 0 && i > currentSymbol.braceStartLine) {
+                                                const symbolInfo = stack.pop();
+                                                // 创建符号：range 是整个函数体，selectionRange 是函数签名行
+                                                symbols.push({
+                                                    name: symbolInfo.name,
+                                                    kind: symbolInfo.kind,
+                                                    range: new monaco.Range(
+                                                        symbolInfo.startLine + 1,  // 函数签名行（1-based）
+                                                        1,
+                                                        i + 1,  // 结束行
+                                                        lines[i].length + 1
+                                                    ),
+                                                    selectionRange: new monaco.Range(
+                                                        symbolInfo.startLine + 1,  // 函数签名行（1-based）
+                                                        1,
+                                                        symbolInfo.startLine + 1,
+                                                        lines[symbolInfo.startLine].length + 1
+                                                    )
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                console.log('[Sticky Scroll] Provided symbols:', symbols.length, 'for language:', languageId);
+                                return symbols;
+                            }
+                        });
+                    };
+
+                    
+                    // 为 C++/C/C# 注册 Document Symbol Provider
+                    registerSymbolProvider('cpp');
+                    registerSymbolProvider('c');
+                    registerSymbolProvider('csharp');
+
+
                     //editor.onDidScrollChange(forcePointerCursor);
                     //editor.onDidChangeConfiguration(forcePointerCursor);
+
 
                     // 检查readOnly设置
                     //console.log('[definition]cursor type:', editor.getOption(monaco.editor.EditorOption.mouseStyle));
