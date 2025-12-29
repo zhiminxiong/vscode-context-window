@@ -681,6 +681,17 @@ function tokenAtPosition(model, editor, pos) {
                 font-weight: bold!important;
                 text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
             }
+            /* 为sticky scroll区域特别添加样式支持 */
+            .monaco-editor .editor-sticky-scroll .highlighted-symbol-inline,
+            .monaco-editor .sticky-line-content .highlighted-symbol-inline,
+            .monaco-scrollable-element .highlighted-symbol-inline {
+                background-color: #198844!important;
+                color: #ffffff!important;
+                font-weight: bold!important;
+                text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
+                border-radius: 2px;
+            }
+
 
             .ctrl-hover-link {
                 position: relative;
@@ -1886,6 +1897,7 @@ function tokenAtPosition(model, editor, pos) {
                                         }
                                     }]);
                                 }
+
 
                                 editor.setSelection({
                                     startLineNumber: range.end.line + 1,
