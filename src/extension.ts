@@ -192,7 +192,7 @@ export function activate(context: vscode.ExtensionContext) {
             // 测试 extension.ts 第10行（单点）
             const singlePointRange = {
                 start: { line: 9, character: 5 },
-                end: { line: 10, character: 94 }
+                end: { line: 9, character: 31 }
             };
             vscode.commands.executeCommand(
                 'vscode-context-window.navigateUri',

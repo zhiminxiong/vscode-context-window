@@ -689,7 +689,6 @@ function tokenAtPosition(model, editor, pos) {
                 color: #ffffff!important;
                 font-weight: bold!important;
                 text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
-                border-radius: 2px;
             }
 
 
