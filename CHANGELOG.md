@@ -4,6 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.8.7] 2026.01.01
+
+#### Changed
+
+- Fix the type parsing exception in TypeScript.
+- Fix the issue where the selected symbol is displayed incorrectly in the sticky-scroll area.
+
 ## [0.8.6] 2025.12.21
 
 #### Changed
