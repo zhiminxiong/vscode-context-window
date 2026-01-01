@@ -672,8 +672,6 @@ function tokenAtPosition(model, editor, pos) {
             /* 使用className应用到整个范围 */
             .highlighted-symbol-range {
                 background-color: #198844!important;
-                border-radius: 2px;
-                box-shadow: -2px 0 0 #198844, 2px 0 0 #198844;
             }
             /* 使用inlineClassName应用到每个字符 */
             .highlighted-symbol-inline {
