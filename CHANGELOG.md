@@ -4,6 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.8.8] 2026.01.02
+
+#### Changed
+
+- Fix support for multi-line highlighting.
+- Optimize cursor display behavior.
+
 ## [0.8.7] 2026.01.01
 
 #### Changed
