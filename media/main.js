@@ -615,6 +615,9 @@ function tokenAtPosition(model, editor, pos) {
     return null;
 }
 
+let activeLineDecorations = [];
+let symboleDecorations = [];
+
 // Monaco Editor 初始化和消息处理
 (function() {
     const vscode = acquireVsCodeApi();
@@ -1412,7 +1415,7 @@ function tokenAtPosition(model, editor, pos) {
                         }
                     }
 
-                    editor.deltaDecorations([], [{ range: new monaco.Range(1, 1, 1, 1 + 5), options: { className: 'highlighted-symbol-range', inlineClassName: 'highlighted-symbol-inline' } }]);
+                    symboleDecorations = editor.deltaDecorations(symboleDecorations, [{ range: new monaco.Range(1, 1, 1, 1 + 5), options: { className: 'highlighted-symbol-range', inlineClassName: 'highlighted-symbol-inline' } }]);
 
                     //console.log('[definition] Monaco editor created');
 
@@ -1786,9 +1789,6 @@ function tokenAtPosition(model, editor, pos) {
                         }
                     }
 
-                    let activeLineDecorations = [];
-                    let symboleDecorations = [];
-
                     function updateEditorContent(newContent, options) {
                         //console.log('[definition] Updating editor content with options:', options);
                         const {
@@ -1819,6 +1819,14 @@ function tokenAtPosition(model, editor, pos) {
                             content = newContent;
                             language = languageId;
                             
+                            // 避免Monaco将旧装饰迁移到新内容的相同位置
+                            if (symboleDecorations.length > 0) {
+                                symboleDecorations = editor.deltaDecorations(symboleDecorations, []);
+                            }
+                            if (activeLineDecorations.length > 0) {
+                                activeLineDecorations = editor.deltaDecorations(activeLineDecorations, []);
+                            }
+                            
                             if (!model) {
                                 // 创建新模型
                                 model = monaco.editor.createModel(newContent || '', languageId || 'plaintext');
@@ -1844,14 +1852,6 @@ function tokenAtPosition(model, editor, pos) {
                             
                             editor.updateOptions({ lineNumbersMinChars: requiredChars });
                             editor.layout();
-                            
-                            // 清除之前的装饰
-                            if (symboleDecorations.length > 0) {
-                                symboleDecorations = editor.deltaDecorations(symboleDecorations, []);
-                            }
-                            if (activeLineDecorations.length > 0) {
-                                activeLineDecorations = editor.deltaDecorations(activeLineDecorations, []);
-                            }
                             
                             // const existingDecorations = editor.getDecorationsInRange(new monaco.Range(
                             //     1, 1,
@@ -2198,7 +2198,8 @@ function tokenAtPosition(model, editor, pos) {
                                             model.setValue('No symbol found.');
                                             editor.updateOptions({ lineNumbersMinChars: 1 });
                                             // 高亮"No symbol"（前9个字符）
-                                            editor.deltaDecorations([], [{ 
+                                            // 保存装饰ID，以便后续清除
+                                            symboleDecorations = editor.deltaDecorations(symboleDecorations, [{ 
                                                 range: new monaco.Range(1, 1, 1, 1 + 9), 
                                                 options: { 
                                                     className: 'highlighted-symbol-range', 
