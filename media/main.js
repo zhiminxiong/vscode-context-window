@@ -1846,17 +1846,24 @@ function tokenAtPosition(model, editor, pos) {
                             editor.layout();
                             
                             // 清除之前的装饰
-                            const existingDecorations = editor.getDecorationsInRange(new monaco.Range(
-                                1, 1,
-                                model.getLineCount(),
-                                Number.MAX_SAFE_INTEGER
-                            ));
-                    
-                            const symbolDecorations = existingDecorations?.filter(d => d.options.className === 'highlighted-symbol-range' && d.options.inlineClassName === 'highlighted-symbol-inline');
-
-                            if (symbolDecorations && symbolDecorations.length > 0) {
-                                editor.deltaDecorations(symbolDecorations.map(d => d.id), []);
+                            if (symboleDecorations.length > 0) {
+                                symboleDecorations = editor.deltaDecorations(symboleDecorations, []);
                             }
+                            if (activeLineDecorations.length > 0) {
+                                activeLineDecorations = editor.deltaDecorations(activeLineDecorations, []);
+                            }
+                            
+                            // const existingDecorations = editor.getDecorationsInRange(new monaco.Range(
+                            //     1, 1,
+                            //     model.getLineCount(),
+                            //     Number.MAX_SAFE_INTEGER
+                            // ));
+                    
+                            // const symbolDecorations = existingDecorations?.filter(d => d.options.className === 'highlighted-symbol-range' && d.options.inlineClassName === 'highlighted-symbol-inline');
+
+                            // if (symbolDecorations && symbolDecorations.length > 0) {
+                            //     editor.deltaDecorations(symbolDecorations.map(d => d.id), []);
+                            // }
                             
                             // 滚动到指定行
                             if (range.start) {
@@ -1902,12 +1909,16 @@ function tokenAtPosition(model, editor, pos) {
                                 }
 
 
-                                editor.setSelection({
-                                    startLineNumber: range.end.line + 1,
-                                    startColumn: range.end.character + 1,
-                                    endLineNumber: range.end.line + 1,
-                                    endColumn: range.end.character + 1
-                                });
+                                // editor.setSelection({
+                                //     startLineNumber: range.end.line + 1,
+                                //     startColumn: range.end.character + 1,
+                                //     endLineNumber: range.end.line + 1,
+                                //     endColumn: range.end.character + 1
+                                // });
+                                editor.setPosition(new monaco.Position(
+                                    range.end.line + 1,
+                                    range.end.character + 1
+                                ));
 
                                 // 让Monaco Editor失去焦点（使用持久的隐藏元素）
                                 if (editor.hasTextFocus()) {
