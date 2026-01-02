@@ -681,8 +681,7 @@ function tokenAtPosition(model, editor, pos) {
             }
             /* 为sticky scroll区域特别添加样式支持 */
             .monaco-editor .editor-sticky-scroll .highlighted-symbol-inline,
-            .monaco-editor .sticky-line-content .highlighted-symbol-inline,
-            .monaco-scrollable-element .highlighted-symbol-inline {
+            .monaco-editor .sticky-line-content .highlighted-symbol-inline {
                 background-color: #198844!important;
                 color: #ffffff!important;
                 font-weight: bold!important;
