@@ -1788,6 +1788,7 @@ function tokenAtPosition(model, editor, pos) {
                     }
 
                     let activeLineDecorations = [];
+                    let symboleDecorations = [];
 
                     function updateEditorContent(newContent, options) {
                         //console.log('[definition] Updating editor content with options:', options);
@@ -1878,9 +1879,9 @@ function tokenAtPosition(model, editor, pos) {
                                 
                                 let column = 1;
                                 // 如果有定义名，高亮它
-                                if (range.start.character != range.end.character && range.start.line === range.end.line) {
+                                if (range.start.character !== range.end.character || range.start.line !== range.end.line) {
                                     // 添加符号高亮装饰
-                                    editor.deltaDecorations([], [{
+                                    symboleDecorations = editor.deltaDecorations(symboleDecorations, [{
                                         range: new monaco.Range(
                                             range.start.line+1,
                                             range.start.character+1,
