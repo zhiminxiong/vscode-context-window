@@ -691,6 +691,25 @@ let symboleDecorations = [];
                 text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
             }
 
+            /* 默认隐藏Monaco Editor的光标 */
+            .monaco-editor .cursor {
+                display: none !important;
+                opacity: 0 !important;
+                visibility: hidden !important;
+            }
+            .monaco-editor .cursors-layer {
+                display: none !important;
+            }
+            
+            /* 当编辑器处于活动状态时显示光标 */
+            .monaco-editor.cursor-active .cursor {
+                display: block !important;
+                opacity: 1 !important;
+                visibility: visible !important;
+            }
+            .monaco-editor.cursor-active .cursors-layer {
+                display: block !important;
+            }
 
             .ctrl-hover-link {
                 position: relative;
@@ -960,16 +979,6 @@ let symboleDecorations = [];
                         openerService: openerService
                     });
 
-                    // 创建持久的隐藏元素，用于让Monaco Editor失去焦点
-                    const hiddenFocusElement = document.createElement('input');
-                    hiddenFocusElement.style.position = 'absolute';
-                    hiddenFocusElement.style.opacity = '0';
-                    hiddenFocusElement.style.pointerEvents = 'none';
-                    hiddenFocusElement.style.width = '0';
-                    hiddenFocusElement.style.height = '0';
-                    hiddenFocusElement.setAttribute('tabindex', '-1');
-                    document.body.appendChild(hiddenFocusElement);
-
                     // 添加ResizeObserver来监听容器大小变化（仅用于拖拽分隔条时重新布局）
                     const containerElement = document.getElementById('container');
                     if (containerElement && window.ResizeObserver) {
@@ -984,10 +993,6 @@ let symboleDecorations = [];
                         // 确保在编辑器销毁时清理ResizeObserver
                         editor.onDidDispose(() => {
                             resizeObserver.disconnect();
-                            // 清理隐藏的焦点元素
-                            if (hiddenFocusElement && hiddenFocusElement.parentNode) {
-                                hiddenFocusElement.parentNode.removeChild(hiddenFocusElement);
-                            }
                         });
                     }
 
@@ -1063,6 +1068,90 @@ let symboleDecorations = [];
 
                     // 初始化时设置为默认光标
                     forcePointerCursor(false);
+
+                    // ========== 动态光标显示/隐藏功能 ==========
+                    let cursorHideTimer = null;
+                    const CURSOR_HIDE_DELAY = 5000; // 5秒后隐藏光标（可调整）
+
+                    // 显示光标
+                    function showCursor() {
+                        const editorDom = editor.getDomNode();
+                        if (editorDom) {
+                            editorDom.classList.add('cursor-active');
+                        }
+                        
+                        // 清除之前的隐藏计时器
+                        if (cursorHideTimer) {
+                            clearTimeout(cursorHideTimer);
+                            cursorHideTimer = null;
+                        }
+                        
+                        // 设置新的隐藏计时器（可选：如果不想自动隐藏，注释掉这部分）
+                        cursorHideTimer = setTimeout(() => {
+                            hideCursor();
+                        }, CURSOR_HIDE_DELAY);
+                    }
+
+                    // 隐藏光标
+                    function hideCursor() {
+                        const editorDom = editor.getDomNode();
+                        if (editorDom) {
+                            editorDom.classList.remove('cursor-active');
+                        }
+                        if (cursorHideTimer) {
+                            clearTimeout(cursorHideTimer);
+                            cursorHideTimer = null;
+                        }
+                    }
+
+                    // 监听键盘输入事件
+                    editor.onKeyDown((e) => {
+                        showCursor();
+                    });
+
+                    editor.onKeyUp((e) => {
+                        showCursor();
+                    });
+
+                    // 监听鼠标点击事件
+                    editor.onMouseDown((e) => {
+                        // 只在点击编辑器内容区域时显示光标
+                        if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT ||
+                            e.target.type === monaco.editor.MouseTargetType.CONTENT_EMPTY) {
+                            showCursor();
+                        }
+                    });
+
+                    // 监听编辑器获得焦点
+                    editor.onDidFocusEditorText(() => {
+                        //showCursor();
+                    });
+
+                    // 监听编辑器失去焦点时隐藏光标
+                    editor.onDidBlurEditorText(() => {
+                        //hideCursor();
+                    });
+
+                    // 监听光标位置变化（用户通过键盘或鼠标移动光标）
+                    editor.onDidChangeCursorPosition((e) => {
+                        // 只有在用户主动操作时才显示光标
+                        // source可能是: 'keyboard', 'mouse', 'api', 'paste', 'undo', 'redo'
+                        if (e.source === 'keyboard' || e.source === 'mouse') {
+                            showCursor();
+                        }
+                    });
+
+                    // 监听内容变化（用户输入）
+                    editor.onDidChangeModelContent((e) => {
+                        // 只有在用户主动输入时才显示光标（排除程序设置内容）
+                        if (!e.isFlush && !e.isRedoing && !e.isUndoing) {
+                            showCursor();
+                        }
+                    });
+
+                    // 初始状态：隐藏光标
+                    hideCursor();
+                    // ========== 动态光标显示/隐藏功能结束 ==========
 
                     if (!contextEditorCfg.useDefaultTokenizer) {
                         // 定义使用JavaScript提供器作为默认的语言列表
@@ -1330,6 +1419,7 @@ let symboleDecorations = [];
                                                 endLineNumber: position.lineNumber,
                                                 endColumn: word.endColumn
                                             });
+                                            hideCursor();
                                         }
                                     } else if (e.event.leftButton) {
                                         //console.log(`[definition] start to jump definition: ${word} with uri ${uri}`);
@@ -1344,6 +1434,11 @@ let symboleDecorations = [];
                                         });
                                     }
                                 }
+                            }
+                        } else {
+                            if (e.event.rightButton) {
+                                editor.focus();
+                                showCursor();
                             }
                         }
                         return true;
@@ -1920,10 +2015,7 @@ let symboleDecorations = [];
                                     range.end.character + 1
                                 ));
 
-                                // 让Monaco Editor失去焦点（使用持久的隐藏元素）
-                                if (editor.hasTextFocus()) {
-                                    hiddenFocusElement.focus();
-                                }
+                                hideCursor();
                             }
                         } else {
                             console.error('[definition] Editor not initialized');
