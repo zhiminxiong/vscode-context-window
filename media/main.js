@@ -1946,6 +1946,19 @@ let symboleDecorations = [];
                             const requiredChars = Math.max(1, lineCount.toString().length);
                             
                             editor.updateOptions({ lineNumbersMinChars: requiredChars });
+                            // 强制刷新 sticky scroll 以更新装饰器显示
+                            // 获取当前 sticky scroll 设置
+                            const currentStickyScroll = editor.getOption(monaco.editor.EditorOption.stickyScroll);
+                            if (currentStickyScroll && currentStickyScroll.enabled) {
+                                // 临时禁用
+                                editor.updateOptions({
+                                    stickyScroll: { enabled: false }
+                                });
+                                // 立即重新启用，触发重新渲染
+                                editor.updateOptions({
+                                    stickyScroll: currentStickyScroll
+                                });
+                            }
                             editor.layout();
                             
                             // const existingDecorations = editor.getDecorationsInRange(new monaco.Range(
