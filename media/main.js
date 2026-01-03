@@ -624,6 +624,7 @@ let symboleDecorations = [];
     window.vscode = vscode;
     window.isPined = false;
     window.pickTokenStyle = false;
+    window.stickyScroll = false;
     //console.log('[definition] WebView script started from main.js');
 
     // 确保 WebView 使用 VS Code 的颜色主题
@@ -978,6 +979,9 @@ let symboleDecorations = [];
                     {
                         openerService: openerService
                     });
+
+                    const currentStickyScroll = editor.getOption(monaco.editor.EditorOption.stickyScroll);
+                    window.stickyScroll = currentStickyScroll?.enabled;
 
                     // 添加ResizeObserver来监听容器大小变化（仅用于拖拽分隔条时重新布局）
                     const containerElement = document.getElementById('container');
@@ -1950,7 +1954,7 @@ let symboleDecorations = [];
                             // 获取当前 sticky scroll 设置
                             const currentStickyScroll = editor.getOption(monaco.editor.EditorOption.stickyScroll);
                             if (currentStickyScroll && currentStickyScroll.enabled) {
-                                // 临时禁用
+                                // 先禁用
                                 editor.updateOptions({
                                     stickyScroll: { enabled: false }
                                 });
@@ -2050,6 +2054,13 @@ let symboleDecorations = [];
                         //console.log('[definition] Received message:', message);
                         try {
                             switch (message.type) {
+                                case 'StickyScroll':
+                                    window.stickyScroll = !window.stickyScroll;
+                                    
+                                    editor.updateOptions({
+                                        stickyScroll: { enabled: window.stickyScroll }
+                                    });
+                                    break;
                                 case 'PickTokenStyle':
                                     if (!contextEditorCfg.useDefaultTokenizer) {
                                         window.pickTokenStyle = !window.pickTokenStyle;

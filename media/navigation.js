@@ -140,6 +140,12 @@
                 label: 'Pick Token Style',
                 checked: window.pickTokenStyle,
                 action: () => window.postMessage({ type: 'PickTokenStyle' })
+            },
+            { type: 'separator' }, // 分割条
+            {
+                label: 'Sticky Scroll',
+                checked: window.stickyScroll,
+                action: () => window.postMessage({ type: 'StickyScroll' })
             }
         ];
 
