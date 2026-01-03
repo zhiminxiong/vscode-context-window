@@ -1319,9 +1319,9 @@ export function createDocumentSymbolProvider(monaco) {
                         kind: monaco.languages.SymbolKind.Class,
                         nameGroup: 1
                     },
-                    // 带类作用域的函数（如 Ball::init, Ball::~Ball）
+                    // 带类作用域的函数（如 Ball::init, Ball::~Ball, EffectBuffer &EffectBuffer::get）
                     { 
-                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend)\s+)*(?:[\w:]+(?:<[^>]*>)?(?:\s*[*&])?\s+)?(\w+::[~\w]+)\s*\(/, 
+                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend)\s+)*(?:[\w:]+(?:<[^>]*>)?\s+[*&]*\s*)?(\w+::[~\w]+)\s*\(/, 
                         kind: monaco.languages.SymbolKind.Function,
                         nameGroup: 1
                     },
