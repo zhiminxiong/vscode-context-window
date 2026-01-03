@@ -1315,7 +1315,7 @@ export function createDocumentSymbolProvider(monaco) {
                     },
                     // 类/结构体/枚举
                     { 
-                        regex: /^\s*(?:template\s*<[^>]*>\s*)?(?:class|struct|union|enum\s+(?:class|struct)?)\s+([\w:]+)(?:\s*:\s*[^{]*)?(?:\{|$)/, 
+                        regex: /^\s*(?:template\s*<[^>]*>\s*)?(?:class|struct|union|interface|enum(?:\s+(?:class|struct))?)\s+([\w:]+)/, 
                         kind: monaco.languages.SymbolKind.Class,
                         nameGroup: 1
                     },
@@ -1355,7 +1355,7 @@ export function createDocumentSymbolProvider(monaco) {
                 c: [
                     // 结构体/枚举/联合体
                     { 
-                        regex: /^\s*(?:typedef\s+)?(?:struct|union|enum)\s+([\w]+)(?:\s*\{|$)/, 
+                        regex: /^\s*(?:typedef\s+)?(?:struct|union|enum|interface)\s+([\w]+)(?:\s*\{|$)/, 
                         kind: monaco.languages.SymbolKind.Struct,
                         nameGroup: 1
                     },
