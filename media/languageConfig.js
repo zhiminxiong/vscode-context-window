@@ -1319,11 +1319,35 @@ export function createDocumentSymbolProvider(monaco) {
                         kind: monaco.languages.SymbolKind.Class,
                         nameGroup: 1
                     },
-                    // 函数（包括构造函数、析构函数、运算符重载等）
+                    // 带类作用域的函数（如 Ball::init, Ball::~Ball）
                     { 
-                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend)\s+)*(?:[\w:]+(?:<[^>]*>)?(?:\s*[*&])?\s+)?([\w:~]+|operator\s*[^\s(]+)\s*\([^)]*\)\s*(?:const|override|final|noexcept|throw\([^)]*\))?\s*(?::\s*[\w\s,().<>*&\[\]{}=+-]+)?(?:\{|$)/, 
+                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend)\s+)*(?:[\w:]+(?:<[^>]*>)?(?:\s*[*&])?\s+)?(\w+::[~\w]+)\s*\(/, 
                         kind: monaco.languages.SymbolKind.Function,
                         nameGroup: 1
+                    },
+                    // 带修饰符的函数（如 virtual void init, static int getValue）
+                    { 
+                        regex: /^\s*(?:virtual|static|inline|explicit|constexpr|friend)\s+(?:[\w:]+(?:<[^>]*>)?(?:\s*[*&])?\s+)?([\w~]+)\s*\(/, 
+                        kind: monaco.languages.SymbolKind.Function,
+                        nameGroup: 1
+                    },
+                    // 带指针/引用返回类型的函数（如 int* getValue, const char& getName）
+                    { 
+                        regex: /^\s*(?:const\s+)?[\w:]+(?:<[^>]*>)?\s*([*&]+)\s*([\w~]+)\s*\(/, 
+                        kind: monaco.languages.SymbolKind.Function,
+                        nameGroup: 2
+                    },
+                    // 带返回类型的函数（返回类型必须是大写开头或包含下划线，如 HRESULT, D3D11_TEXTURE2D）
+                    { 
+                        regex: /^\s*([A-Z][A-Z0-9_]*(?:<[^>]*>)?)\s+([*&]*)\s*([\w~]+)\s*\(/, 
+                        kind: monaco.languages.SymbolKind.Function,
+                        nameGroup: 3
+                    },
+                    // 带常见返回类型的函数（void, int, bool, char, float, double, long, short, auto）
+                    { 
+                        regex: /^\s*(void|int|bool|char|float|double|long|short|auto|size_t|uint|uint32_t|uint64_t|int32_t|int64_t)\s+([*&]*)\s*([\w~]+)\s*\(/, 
+                        kind: monaco.languages.SymbolKind.Function,
+                        nameGroup: 3
                     }
                 ],
                 csharp: [
@@ -1419,6 +1443,12 @@ export function createDocumentSymbolProvider(monaco) {
                             }
                             
                             const hasOpenBrace = line.includes('{');
+                            const hasSemicolon = line.includes(';');
+                            
+                            // 如果有分号但没有花括号，说明是函数声明而不是定义，跳过
+                            if (hasSemicolon && !hasOpenBrace) {
+                                continue;
+                            }
                             
                             if (hasOpenBrace) {
                                 // 同一行有花括号，创建符号并入栈
@@ -1467,8 +1497,11 @@ export function createDocumentSymbolProvider(monaco) {
                         }
                     }
                 } else {
-                    // 检查等待的符号是否找到了开括号
-                    if (line.includes('{')) {
+                    // 检查等待的符号是否找到了开括号或分号
+                    if (line.includes(';')) {
+                        // 遇到分号，说明这是函数声明而不是定义，放弃这个符号
+                        pendingSymbol = null;
+                    } else if (line.includes('{')) {
                         const symbol = {
                             name: pendingSymbol.name,
                             kind: pendingSymbol.kind,
