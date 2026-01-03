@@ -1359,7 +1359,7 @@ export function createDocumentSymbolProvider(monaco) {
                     },
                     // 类/接口/结构体/枚举/记录
                     { 
-                        regex: /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial)\s+)*(?:class|interface|struct|enum|record)\s+([\w<>]+)(?:\s*:\s*[^{]*)?(?:\{|$)/, 
+                        regex: /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial)\s+)*(?:class|interface|struct|enum|record)\s+([\w<>]+)/, 
                         kind: monaco.languages.SymbolKind.Class,
                         nameGroup: 1
                     },
