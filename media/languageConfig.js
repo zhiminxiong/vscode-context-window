@@ -1319,15 +1319,17 @@ export function createDocumentSymbolProvider(monaco) {
                         kind: monaco.languages.SymbolKind.Class,
                         nameGroup: 1
                     },
-                    // 带类作用域的函数（如 Ball::init, Ball::~Ball, EffectBuffer &EffectBuffer::get）
+                    // 带类作用域的函数（如 Ball::init, EffectBuffer &EffectBuffer::get, static void __fastcall Ball::normalize）
+                    // 匹配：[修饰符/调用约定]* [返回类型]? [修饰符/调用约定]* [类::函数名]
                     { 
-                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend)\s+)*(?:[\w:]+(?:<[^>]*>)?\s+[*&]*\s*)?(\w+::[~\w]+)\s*\(/, 
+                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend|__\w+|WINAPI|CALLBACK|APIENTRY|STDCALL|CDECL)\s+)*(?:[\w:]+(?:<[^>]*>)?\s*[*&]*\s*)?(?:(?:__\w+|WINAPI|CALLBACK|APIENTRY|STDCALL|CDECL)\s+)?(\w+::[~\w]+)\s*\(/, 
                         kind: monaco.languages.SymbolKind.Function,
                         nameGroup: 1
                     },
-                    // 带修饰符的函数（如 virtual void init, static int getValue）
+                    // 带修饰符的函数（如 virtual void init, static __forceinline void rotateZ, __forceinline int getValue）
+                    // 匹配：[修饰符/调用约定]+ [返回类型]? [修饰符/调用约定]* [函数名]
                     { 
-                        regex: /^\s*(?:virtual|static|inline|explicit|constexpr|friend)\s+(?:[\w:]+(?:<[^>]*>)?(?:\s*[*&])?\s+)?([\w~]+)\s*\(/, 
+                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend|__\w+|WINAPI|CALLBACK|APIENTRY|STDCALL|CDECL)\s+)+(?:[\w:]+(?:<[^>]*>)?\s*[*&]*\s*)?(?:(?:__\w+|WINAPI|CALLBACK|APIENTRY|STDCALL|CDECL)\s+)?([\w~]+)\s*\(/, 
                         kind: monaco.languages.SymbolKind.Function,
                         nameGroup: 1
                     },
