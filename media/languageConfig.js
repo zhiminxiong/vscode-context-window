@@ -1297,6 +1297,13 @@ export function createDocumentSymbolProvider(monaco) {
             const lines = text.split('\n');
             const languageId = model.getLanguageId();
             
+            // 控制流关键字集合（用于过滤）
+            const controlFlowKeywords = new Set([
+                'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default',
+                'try', 'catch', 'finally', 'throw', 'return', 'break', 'continue',
+                'goto', 'sizeof', 'typeof', 'delete', 'new'
+            ]);
+            
             // 定义不同语言的符号识别模式
             const patterns = {
                 cpp: [
@@ -1399,6 +1406,18 @@ export function createDocumentSymbolProvider(monaco) {
                         const match = line.match(pattern.regex);
                         if (match) {
                             const name = match[pattern.nameGroup];
+                            
+                            // 过滤控制流关键字（仅对函数/方法模式）
+                            if (pattern.kind === monaco.languages.SymbolKind.Function || 
+                                pattern.kind === monaco.languages.SymbolKind.Method) {
+                                // 提取函数名（去掉类作用域前缀，如 Ball::init -> init）
+                                const functionName = name.includes('::') ? name.split('::').pop() : name;
+                                // 如果是控制流关键字，跳过
+                                if (controlFlowKeywords.has(functionName.trim())) {
+                                    continue;
+                                }
+                            }
+                            
                             const hasOpenBrace = line.includes('{');
                             
                             if (hasOpenBrace) {
