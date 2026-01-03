@@ -388,7 +388,7 @@ export const languageConfig_cpp = {
             [/\b(template)\b/, 'keyword.type'],
 
             // 关键字
-            [/\b(extern|const|volatile|static|operator|thread_local|final|mutable|constexpr|noexcept|final|abstract|this|decltype|inline|friend|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|from|as|async|typeof|instanceof|in|of|with|get|set|constructor|private|protected|public)\b/, 'keyword'],
+            [/\b(extern|const|volatile|static|operator|thread_local|final|mutable|constexpr|noexcept|final|abstract|this|decltype|inline|friend|typename|explicit|nullptr|null|override|super|extends|implements|virtual|import|export|sizeof|async|typeid|private|protected|public)\b/, 'keyword'],
 
             [/\b(typedef)\b/, 'keyword.flow'],
 
