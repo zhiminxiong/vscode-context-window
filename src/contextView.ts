@@ -374,6 +374,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
                 cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 20),
                 largeFileThreshold: contextWindowConfig.get('largeFileThreshold', 2000),
+                fixStickyScroll: contextWindowConfig.get('fixStickyScroll', false),
             }
         };
 

@@ -356,6 +356,11 @@
               "fontStyle": "italic"
             }
           ]
+        },
+        "contextView.contextWindow.fixStickyScroll": {
+          "type": "boolean",
+          "default": false,
+          "description": "Extend sticky scroll parsing for C, C++, and C#.\nTake effect when VSCode starts."
         }
       }
     }

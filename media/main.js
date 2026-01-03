@@ -1,7 +1,7 @@
 //@ts-check
 
 // 导入语言配置
-import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfig_go } from './languageConfig.js';
+import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfig_go, createDocumentSymbolProvider } from './languageConfig.js';
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
@@ -1179,6 +1179,13 @@ let symboleDecorations = [];
 
                         monaco.languages.setMonarchTokensProvider('csharp', languageConfig_cs);
                         monaco.languages.setMonarchTokensProvider('go', languageConfig_go);
+                    }
+
+                    // 为 C++, C, C# 注册 Document Symbol Provider（从 languageConfig.js 导入）
+                    if (contextEditorCfg.fixStickyScroll) {
+                        monaco.languages.registerDocumentSymbolProvider('cpp', createDocumentSymbolProvider(monaco));
+                        monaco.languages.registerDocumentSymbolProvider('c', createDocumentSymbolProvider(monaco));
+                        monaco.languages.registerDocumentSymbolProvider('csharp', createDocumentSymbolProvider(monaco));
                     }
 
                     //editor.onDidScrollChange(forcePointerCursor);

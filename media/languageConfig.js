@@ -1286,3 +1286,241 @@ export const languageConfig_go = {
         ],
     }
 }
+
+// Document Symbol Provider 用于支持 Sticky Scroll
+// 正确处理嵌套花括号和换行花括号的情况
+export function createDocumentSymbolProvider(monaco) {
+    return {
+        provideDocumentSymbols: (model) => {
+            const symbols = [];
+            const text = model.getValue();
+            const lines = text.split('\n');
+            const languageId = model.getLanguageId();
+            
+            // 定义不同语言的符号识别模式
+            const patterns = {
+                cpp: [
+                    // 命名空间
+                    { 
+                        regex: /^\s*namespace\s+([\w:]+)\s*(?:\{|$)/, 
+                        kind: monaco.languages.SymbolKind.Namespace,
+                        nameGroup: 1
+                    },
+                    // 类/结构体/枚举
+                    { 
+                        regex: /^\s*(?:template\s*<[^>]*>\s*)?(?:class|struct|union|enum\s+(?:class|struct)?)\s+([\w:]+)(?:\s*:\s*[^{]*)?(?:\{|$)/, 
+                        kind: monaco.languages.SymbolKind.Class,
+                        nameGroup: 1
+                    },
+                    // 函数（包括构造函数、析构函数、运算符重载等）
+                    { 
+                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend)\s+)*(?:[\w:]+(?:<[^>]*>)?(?:\s*[*&])?\s+)?([\w:~]+|operator\s*[^\s(]+)\s*\([^)]*\)\s*(?:const|override|final|noexcept|throw\([^)]*\))?\s*(?:\{|$)/, 
+                        kind: monaco.languages.SymbolKind.Function,
+                        nameGroup: 1
+                    }
+                ],
+                csharp: [
+                    // 命名空间
+                    { 
+                        regex: /^\s*namespace\s+([\w.]+)\s*(?:\{|$)/, 
+                        kind: monaco.languages.SymbolKind.Namespace,
+                        nameGroup: 1
+                    },
+                    // 类/接口/结构体/枚举/记录
+                    { 
+                        regex: /^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial)\s+)*(?:class|interface|struct|enum|record)\s+([\w<>]+)(?:\s*:\s*[^{]*)?(?:\{|$)/, 
+                        kind: monaco.languages.SymbolKind.Class,
+                        nameGroup: 1
+                    },
+                    // 方法
+                    { 
+                        regex: /^\s*(?:(?:public|private|protected|internal|static|virtual|override|abstract|sealed|async|extern|unsafe|new)\s+)*(?:[\w<>[\]?]+\s+)?([\w]+)\s*(?:<[^>]*>)?\s*\([^)]*\)\s*(?:\{|$)/, 
+                        kind: monaco.languages.SymbolKind.Method,
+                        nameGroup: 1
+                    },
+                    // 属性
+                    { 
+                        regex: /^\s*(?:(?:public|private|protected|internal|static|virtual|override|abstract)\s+)*(?:[\w<>[\]?]+\s+)([\w]+)\s*\{\s*(?:get|set)/, 
+                        kind: monaco.languages.SymbolKind.Property,
+                        nameGroup: 1
+                    }
+                ],
+                c: [
+                    // 结构体/枚举/联合体
+                    { 
+                        regex: /^\s*(?:typedef\s+)?(?:struct|union|enum)\s+([\w]+)(?:\s*\{|$)/, 
+                        kind: monaco.languages.SymbolKind.Struct,
+                        nameGroup: 1
+                    },
+                    // 函数
+                    { 
+                        regex: /^\s*(?:static|inline|extern)?\s*(?:[\w]+(?:\s*\*)*\s+)?([\w]+)\s*\([^)]*\)\s*(?:\{|$)/, 
+                        kind: monaco.languages.SymbolKind.Function,
+                        nameGroup: 1
+                    }
+                ]
+            };
+            
+            // 获取当前语言的模式
+            let activePatterns = [];
+            if (languageId === 'cpp') {
+                activePatterns = patterns.cpp;
+            } else if (languageId === 'csharp') {
+                activePatterns = patterns.csharp;
+            } else if (languageId === 'c') {
+                activePatterns = patterns.c;
+            }
+            
+            if (activePatterns.length === 0) {
+                return symbols;
+            }
+            
+            // 符号栈：用于跟踪嵌套的符号
+            const symbolStack = [];
+            // 等待花括号的符号
+            let pendingSymbol = null;
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const lineNumber = i + 1;
+                const trimmedLine = line.trim();
+                
+                // 跳过注释行
+                if (trimmedLine.startsWith('//') || trimmedLine.startsWith('/*') || trimmedLine.startsWith('*')) {
+                    continue;
+                }
+                
+                // 标记：这一行是否创建了新符号（避免重复计数花括号）
+                let symbolCreatedOnThisLine = false;
+                
+                // 如果没有等待的符号，尝试匹配新符号
+                if (!pendingSymbol) {
+                    for (const pattern of activePatterns) {
+                        const match = line.match(pattern.regex);
+                        if (match) {
+                            const name = match[pattern.nameGroup];
+                            const hasOpenBrace = line.includes('{');
+                            
+                            if (hasOpenBrace) {
+                                // 同一行有花括号，创建符号并入栈
+                                const symbol = {
+                                    name: name,
+                                    kind: pattern.kind,
+                                    range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+                                    selectionRange: new monaco.Range(lineNumber, 1, lineNumber, line.length + 1),
+                                    children: []
+                                };
+                                
+                                // 添加到父符号或根列表
+                                if (symbolStack.length > 0) {
+                                    symbolStack[symbolStack.length - 1].symbol.children.push(symbol);
+                                } else {
+                                    symbols.push(symbol);
+                                }
+                                
+                                // 计算这行的花括号数量
+                                const openCount = (line.match(/\{/g) || []).length;
+                                const closeCount = (line.match(/\}/g) || []).length;
+                                const netBraces = openCount - closeCount;
+                                
+                                // 只有当净增加花括号时才入栈
+                                if (netBraces > 0) {
+                                    symbolStack.push({
+                                        symbol: symbol,
+                                        startLine: lineNumber,
+                                        braceLevel: netBraces  // 直接使用净花括号数
+                                    });
+                                } else if (netBraces === 0) {
+                                    // 单行函数/类，直接设置结束位置
+                                    symbol.range = new monaco.Range(lineNumber, 1, lineNumber, line.length + 1);
+                                }
+                                
+                                symbolCreatedOnThisLine = true;
+                            } else {
+                                // 没有花括号，等待下一行
+                                pendingSymbol = {
+                                    name: name,
+                                    kind: pattern.kind,
+                                    startLine: lineNumber
+                                };
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    // 检查等待的符号是否找到了开括号
+                    if (line.includes('{')) {
+                        const symbol = {
+                            name: pendingSymbol.name,
+                            kind: pendingSymbol.kind,
+                            range: new monaco.Range(pendingSymbol.startLine, 1, lineNumber, 1),
+                            selectionRange: new monaco.Range(pendingSymbol.startLine, 1, pendingSymbol.startLine, lines[pendingSymbol.startLine - 1].length + 1),
+                            children: []
+                        };
+                        
+                        // 添加到父符号或根列表
+                        if (symbolStack.length > 0) {
+                            symbolStack[symbolStack.length - 1].symbol.children.push(symbol);
+                        } else {
+                            symbols.push(symbol);
+                        }
+                        
+                        // 计算这行的花括号数量
+                        const openCount = (line.match(/\{/g) || []).length;
+                        const closeCount = (line.match(/\}/g) || []).length;
+                        const netBraces = openCount - closeCount;
+                        
+                        // 只有当净增加花括号时才入栈
+                        if (netBraces > 0) {
+                            symbolStack.push({
+                                symbol: symbol,
+                                startLine: pendingSymbol.startLine,
+                                braceLevel: netBraces  // 直接使用净花括号数
+                            });
+                        } else if (netBraces === 0) {
+                            // 单行函数/类
+                            symbol.range = new monaco.Range(pendingSymbol.startLine, 1, lineNumber, line.length + 1);
+                        }
+                        
+                        pendingSymbol = null;
+                        symbolCreatedOnThisLine = true;
+                    }
+                }
+                
+                // 处理花括号以更新符号范围（但跳过刚创建符号的行，避免重复计数）
+                if (symbolStack.length > 0 && !symbolCreatedOnThisLine) {
+                    const openCount = (line.match(/\{/g) || []).length;
+                    const closeCount = (line.match(/\}/g) || []).length;
+                    
+                    // 更新栈顶符号的花括号层级
+                    symbolStack[symbolStack.length - 1].braceLevel += openCount;
+                    symbolStack[symbolStack.length - 1].braceLevel -= closeCount;
+                    
+                    // 处理闭括号 - 可能需要弹出多个符号
+                    while (symbolStack.length > 0 && symbolStack[symbolStack.length - 1].braceLevel === 0) {
+                        const item = symbolStack.pop();
+                        item.symbol.range = new monaco.Range(
+                            item.startLine,
+                            1,
+                            lineNumber,
+                            line.length + 1
+                        );
+                    }
+                }
+            }
+            
+            // 处理未闭合的符号（设置到文件末尾）
+            while (symbolStack.length > 0) {
+                const item = symbolStack.pop();
+                item.symbol.range = new monaco.Range(
+                    item.startLine,
+                    1,
+                    lines.length,
+                    lines[lines.length - 1].length + 1
+                );
+            }
+            
+            return symbols;
+        }
+    };
+}
