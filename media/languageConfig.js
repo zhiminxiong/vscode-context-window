@@ -1365,7 +1365,7 @@ export function createDocumentSymbolProvider(monaco) {
                     },
                     // 方法
                     { 
-                        regex: /^\s*(?:(?:public|private|protected|internal|static|virtual|override|abstract|sealed|async|extern|unsafe|new)\s+)*(?:[\w<>[\]?]+\s+)?([\w]+)\s*(?:<[^>]*>)?\s*\([^)]*\)\s*(?:\{|$)/, 
+                        regex: /^\s*(?:(?:public|private|protected|internal|static|virtual|override|abstract|sealed|async|extern|unsafe|new)\s+)*(?:[\w<>[\]?]+\s+)?([\w]+)\s*(?:<[^>]*>)?\s*\(/, 
                         kind: monaco.languages.SymbolKind.Method,
                         nameGroup: 1
                     },
