@@ -1321,7 +1321,7 @@ export function createDocumentSymbolProvider(monaco) {
                     },
                     // 函数（包括构造函数、析构函数、运算符重载等）
                     { 
-                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend)\s+)*(?:[\w:]+(?:<[^>]*>)?(?:\s*[*&])?\s+)?([\w:~]+|operator\s*[^\s(]+)\s*\([^)]*\)\s*(?:const|override|final|noexcept|throw\([^)]*\))?\s*(?:\{|$)/, 
+                        regex: /^\s*(?:(?:virtual|static|inline|explicit|constexpr|friend)\s+)*(?:[\w:]+(?:<[^>]*>)?(?:\s*[*&])?\s+)?([\w:~]+|operator\s*[^\s(]+)\s*\([^)]*\)\s*(?:const|override|final|noexcept|throw\([^)]*\))?\s*(?::\s*[\w\s,().<>*&\[\]{}=+-]+)?(?:\{|$)/, 
                         kind: monaco.languages.SymbolKind.Function,
                         nameGroup: 1
                     }
