@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.9.0] 2026.01.04
+
+#### Changed
+
+- Display optimization for the sticky scroll region.
+
 ## [0.8.8] 2026.01.02
 
 #### Changed
