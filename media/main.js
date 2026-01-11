@@ -2028,9 +2028,10 @@ let symboleDecorations = [];
                                 }
 
                                 if (curLine && curLine > 0) {
+                                    const lineMaxColumn = editor.getModel().getLineMaxColumn(curLine);
                                     editor.setPosition(new monaco.Position(
                                         curLine,
-                                        999999
+                                        lineMaxColumn
                                     ));
                                 } else {
                                     // editor.setSelection({
