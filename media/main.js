@@ -1987,7 +1987,7 @@ let symboleDecorations = [];
                             // 滚动到指定行
                             if (range.start) {
                                 let targetLine = range.start.line+1;
-                                if (curLine && curLine !== -1) {
+                                if (curLine && curLine > 0) {
                                     targetLine = curLine;
                                 }
                                 editor.revealLineInCenter(targetLine);
@@ -2027,17 +2027,23 @@ let symboleDecorations = [];
                                     }]);
                                 }
 
-
-                                // editor.setSelection({
-                                //     startLineNumber: range.end.line + 1,
-                                //     startColumn: range.end.character + 1,
-                                //     endLineNumber: range.end.line + 1,
-                                //     endColumn: range.end.character + 1
-                                // });
-                                editor.setPosition(new monaco.Position(
-                                    range.end.line + 1,
-                                    range.end.character + 1
-                                ));
+                                if (curLine && curLine > 0) {
+                                    editor.setPosition(new monaco.Position(
+                                        curLine,
+                                        999999
+                                    ));
+                                } else {
+                                    // editor.setSelection({
+                                    //     startLineNumber: range.end.line + 1,
+                                    //     startColumn: range.end.character + 1,
+                                    //     endLineNumber: range.end.line + 1,
+                                    //     endColumn: range.end.character + 1
+                                    // });
+                                    editor.setPosition(new monaco.Position(
+                                        range.end.line + 1,
+                                        range.end.character + 1
+                                    ));
+                                }
 
                                 hideCursor();
                             }
