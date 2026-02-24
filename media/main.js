@@ -2087,7 +2087,7 @@ let symboleDecorations = [];
                                         if (isPinned) {
                                             doubleClickArea.style.backgroundColor = 'rgba(255, 0, 0, 0.08)'; // 淡红色
                                         } else {
-                                            doubleClickArea.style.backgroundColor = 'rgba(89, 255, 0, 0.11)'; // 你现在的默认色
+                                            doubleClickArea.style.backgroundColor = 'transparent'; // 你现在的默认色
                                         }
                                     }
                                     break;
