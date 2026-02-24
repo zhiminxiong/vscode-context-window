@@ -287,7 +287,7 @@ body {
     left: 0;
     right: 0;
     height: 24px;
-    background-color: #efefef;/* var(--vscode-editor-background); */
+    background-color: var(--vscode-editor-background);
     border-top: 1px solid var(--vscode-editorWidget-border);
     display: flex;
     align-items: center;
@@ -299,7 +299,7 @@ body {
 
 .nav-button {
     background-color: transparent;
-    color: #000000;/* var(--vscode-editor-foreground); */
+    color: var(--vscode-editor-foreground);
     border: none;
     padding: 0;
     cursor: default;
@@ -312,7 +312,7 @@ body {
 }
 
 .nav-button:hover {
-    background-color: #e0e0e0;/* var(--vscode-editorWidget-background); */
+    background-color: var(--vscode-editorWidget-background);
     opacity: 1;
 }
 
@@ -323,7 +323,7 @@ body {
     left: 50%;
     width: 8px;
     height: 8px;
-    border: 2px solid #000000;/* var(--vscode-editor-foreground); */
+    border: 2px solid var(--vscode-editor-foreground);
     border-top: none;
     border-right: none;
     transform: translate(-50%, -50%) rotate(45deg);
@@ -341,7 +341,7 @@ body {
 
 .nav-jump {
     background-color: transparent;
-    color: #000000;/* var(--vscode-editor-foreground); */
+    color: var(--vscode-editor-foreground);
     border: none;
     padding: 0;
     cursor: default;
@@ -354,7 +354,7 @@ body {
 }
 
 .nav-jump:hover {
-    background-color: #e0e0e0;/* var(--vscode-editorWidget-background); */
+    background-color: var(--vscode-editorWidget-background);
     opacity: 1;
 }
 .nav-jump::before {
@@ -364,7 +364,7 @@ body {
     left: 50%;
     width: 8px;
     height: 8px;
-    border: 2px solid #000000;/* var(--vscode-editor-foreground); */;
+    border: 2px solid var(--vscode-editor-foreground);
     border-bottom: none;
     border-right: none;
     transform: translate(-50%, -50%) rotate(45deg);
