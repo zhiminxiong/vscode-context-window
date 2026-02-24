@@ -383,11 +383,11 @@ body {
     height: 24px;
     z-index: 1001;
     cursor: default;
-    background-color: rgba(89, 255, 0, 0.11); /* 调试用，可移除 */
+    background-color: transparent; /* 使用透明背景，与导航栏一致 */
     display: flex;
     align-items: left;
     justify-content: left;
-    color: rgba(128, 128, 128, 0.8);
+    color: var(--vscode-descriptionForeground);
     font-size: 14px;
     font-style: italic;
     padding-left: 10px;
@@ -397,7 +397,7 @@ body {
     display: flex;
     align-items: center;          /* 垂直居中 */
     justify-content: flex-start;  /* 左对齐 */
-    color: rgba(128, 128, 128, 0.8);
+    color: var(--vscode-descriptionForeground);
     font-size: 14px;
     font-weight: normal;
     font-style: normal;
@@ -410,16 +410,17 @@ body {
 }
 .filename-text {
     /*font-weight: bold;*/
-    color: rgba(128, 128, 128, 1.0);
+    color: var(--vscode-descriptionForeground);
     white-space: nowrap;
     text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 200px;
 }
+
 .filename-path {
     display: flex;
-    color: rgba(128, 128, 128, 0.8);
+    color: var(--vscode-descriptionForeground);
     font-size: 13px;
     margin-left: 12px;
     white-space: nowrap;
@@ -431,6 +432,7 @@ body {
     flex: 1;
     gap: 0
 }
+
 .filename-icon {
     font-size: 16px;
     margin: 0;
