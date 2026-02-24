@@ -118,6 +118,9 @@ export const languageConfig_js = {
             //[/(?<=:)\s*\b([a-zA-Z_$][\w$]*)\b(?=\s*\=)/, 'type'],
             [/:(?=\s*\b([a-zA-Z_$][\w$]*)\b\s*\=)/, { token: 'delimiter', next: '@afterDelimiterType' }],
 
+            [/\?\s*:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
+            [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
+
             [/\.\.\.(?=[a-zA-Z_$])/, 'operator'],
             
             // 函数参数 - 改进的参数识别
@@ -183,6 +186,35 @@ export const languageConfig_js = {
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
+
+        afterDelimiterTypeEx: [
+            [/\s+/, 'white'],  // 跳过空白（包括换行符，支持多行类型）
+            [/\|/, 'operator'],  // 联合类型操作符，继续保持在当前状态
+            [/&/, 'operator'],  // 交叉类型操作符，继续保持在当前状态
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型开始
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],  // 命名空间类型（如 React.FC）
+            [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],  // 识别类型名，但不退出（可能后面还有 | 或 &）
+            [/\./, 'delimiter'],  // 命名空间分隔符
+            [/[{;,=)\]]/, { token: 'delimiter.bracket', next: '@pop' }],  // 遇到这些终止符才退出
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+        
+        // 处理泛型参数中的类型
+        typeGeneric: [
+            [/\s+/, 'white'],
+            [/\|/, 'operator'],  // 泛型中的联合类型
+            [/&/, 'operator'],  // 泛型中的交叉类型
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 嵌套泛型
+            [/>/, { token: 'delimiter.bracket', next: '@pop' }],  // 泛型结束
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
+            [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],
+            [/\./, 'delimiter'],
+            [/,/, 'delimiter'],  // 泛型参数分隔符
+            [/\[/, 'delimiter.bracket'],  // 数组类型
+            [/\]/, 'delimiter.bracket'],
+            [/./, { token: '@rematch', next: '@pop' }]
+        ],
+
         
         // 多行注释 - 确保注释中的关键字不被识别
         comment: [
