@@ -714,51 +714,22 @@ let symboleDecorations = [];
 
             .ctrl-hover-link {
                 position: relative;
-                text-decoration: none;
+                text-decoration: underline !important;
+                text-decoration-color: #0066cc !important;
+                text-decoration-thickness: 2px !important;
+                text-underline-offset: 4px !important;
                 font-weight: bold !important;
-                color: #0066cc;
                 z-index: 1000 !important;
             }
-            .ctrl-hover-link::after {
-                content: '';
-                position: absolute;
-                left: 0;
-                bottom: -2px;
-                width: 100%;
-                height: 2px;
-                background: #0066cc;
-                transform: scaleX(0);
-                transform-origin: left;
-                transition: transform 0.0s ease;
-                z-index: 1000 !important;
-            }
-            .ctrl-hover-link:hover::after {
-                transform: scaleX(1);
-            }
-
             
             .ctrl-hover-link-dark {
                 position: relative;
-                text-decoration: none;
+                text-decoration: underline !important;
+                text-decoration-color: #4fc3f7 !important;
+                text-decoration-thickness: 2px !important;
+                text-underline-offset: 4px !important;
                 font-weight: bold !important;
-                color: #4fc3f7;
                 z-index: 1000 !important;
-            }
-            .ctrl-hover-link-dark::after {
-                content: '';
-                position: absolute;
-                left: 0;
-                bottom: -2px;
-                width: 100%;
-                height: 2px;
-                background: #4fc3f7;
-                transform: scaleX(0);
-                transform-origin: left;
-                transition: transform 0.0s ease;
-                z-index: 1000 !important;
-            }
-            .ctrl-hover-link-dark:hover::after {
-                transform: scaleX(1);
             }
 
             .monaco-editor {
