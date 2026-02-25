@@ -77,7 +77,7 @@ export const languageConfig_js = {
             //[/(?<!int)\s*(dddata)/, { token: 'keyword.flow', log: console.log('[definition] 1')}],
             //[/int2/, { token: 'keyword.flow', log: console.log('[definition] 2')}],
 
-            [/(\bget|set\b)(?=\s*\()/, 'method.name'],
+            [/(\bget|set\b)(?=\s*(?:<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*)?\()/, 'method.name'],
 
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             
@@ -161,6 +161,7 @@ export const languageConfig_js = {
 
         template: [
             [/>/, { token: 'delimiter.angle', next: '@pop' }],
+            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*[>,])/, 'type'],
             { include: 'root' }
         ],
 
