@@ -105,6 +105,9 @@ export const languageConfig_js = {
             [/\b(var|let|const)\b(?!\s*enum)/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b(const)\b/, 'keyword'],
             [/\s+([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
+            // ternary: ? expr : — enter state to prevent misidentifying value as variable.name
+            // exclude ?: (optional property) and ?. (optional chain)
+            [/\?(?!\s*[.:]|\s*\?\s*:)/, { token: 'operator', next: '@ternaryTrue' }],
             [/([a-zA-Z_$][\w$]*)\b\s*(?=:|\?\s*:)/, 'variable.name'],
 
             [/\=>(?=\s*\b[a-zA-Z_$][\w$]*\b)/, { token: 'operator', next: '@afterArrow' }],
@@ -171,6 +174,13 @@ export const languageConfig_js = {
             [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
             [/\./, 'delimiter'],
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        // ternary true-branch: after ?, treat "identifier :" as plain identifier (not variable.name)
+        ternaryTrue: [
+            [/\s+/, 'white'],
+            [/([a-zA-Z_$][\w$]*)\b\s*(?=\s*:)/, { token: 'identifier', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]
         ],
 
         afterArrow: [
