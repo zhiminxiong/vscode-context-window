@@ -126,8 +126,8 @@ export const languageConfig_js = {
             //[/(?<=:)\s*\b([a-zA-Z_$][\w$]*)\b(?=\s*\=)/, 'type'],
             [/:(?=\s*\b([a-zA-Z_$][\w$]*)\b\s*\=)/, { token: 'delimiter', next: '@afterDelimiterType' }],
 
-            [/\?\s*:(?=\s*[a-zA-Z_$][\w$]*\s*[|&])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
-            [/:(?=\s*[a-zA-Z_$][\w$]*\s*[|&])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
+            [/\?\s*:(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*[|&])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
+            [/:(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*[|&])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             // 处理冒号后跟类型名（可能包含命名空间）+ 泛型或数组的情况
             // 例如: Map<T>, CS.UnityEngine.Material[], Array<string>
             [/:(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*[<\[])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
