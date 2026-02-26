@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.9.2] 2026.02.26
+
+#### Changed
+
+- Fixed underline display issues and some symbol resolution problems in TS.
+
 ## [0.9.1] 2026.02.24
 
 #### Changed
