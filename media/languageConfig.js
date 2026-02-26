@@ -184,7 +184,10 @@ export const languageConfig_js = {
         // ternary true-branch: after ?, treat "identifier :" as plain identifier (not variable.name)
         ternaryTrue: [
             [/\s+/, 'white'],
-            [/([a-zA-Z_$][\w$]*)\b\s*(?=\s*:)/, { token: 'identifier', next: '@pop' }],
+            [/\b(this|super)\b/, 'keyword'],
+            [/([a-zA-Z_$][\w$]*)\b\s*(?=\s*:)/, { token: 'identifier', next: '@pop' }],  // 找到 identifier : 退出
+            [/[a-zA-Z_$][\w$]*(?=\s*\.)/, 'identifier'],                                  // 跳过 aaa. / this. 前缀
+            [/\./, 'delimiter'],                                                            // 跳过点号
             [/./, { token: '@rematch', next: '@pop' }]
         ],
 
