@@ -81,8 +81,13 @@ export const languageConfig_js = {
 
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             
+            // 类成员变量声明 - private/public/protected + 变量名 + =
+            [/\b(private|public|protected)\b(?=\s+[a-zA-Z_$][\w$]*\s*=)/, { token: 'keyword', next: '@afterAccessModifier' }],
+            
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+
+
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
@@ -322,11 +327,18 @@ export const languageConfig_js = {
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
+        afterAccessModifier: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*(?=\s*=)/, { token: 'variable.name', next: '@pop' }],  // 识别变量名（后面跟 =）
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
         afterFunction: [
             [/\s+/, 'white'],  // 跳过空白
             [/[a-zA-Z_$][\w$]*/, { token: 'function.name', next: '@pop' }],//, log: '[definition] Entering function return value processing' }],  // 识别函数名
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
+
     }
 }
 
