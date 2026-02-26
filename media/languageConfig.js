@@ -89,7 +89,8 @@ export const languageConfig_js = {
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
-            [/\b(function|class|struct|interface|enum|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\b(function|class|struct|interface|enum)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\bnamespace\b/, { token: 'keyword.type', next: '@afterNamespace' }],
             [/\b(type)\b(?!\s*:)/, { token: 'keyword.type', next: '@afterClass' }],
 
             [/\bas\b/, { token: 'keyword', next: '@afterAs' }],
@@ -276,6 +277,14 @@ export const languageConfig_js = {
         ],
         
         // 类名识别状态
+        afterNamespace: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, 'class.name'],  // 识别命名空间名称片段
+            [/\./, 'delimiter'],  // 支持 aaa.bbb.ccc 链式
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 遇到 { 等返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
         afterClass: [
             [/\s+/, 'white'],  // 跳过空白
             [/extends\b/, { token: 'keyword', next: '@afterExtends' }], // extends
