@@ -95,7 +95,8 @@ export const languageConfig_js = {
             [/\bas\b/, { token: 'keyword', next: '@afterAs' }],
 
             // 流程控制关键字 - if, else 等
-            [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|new|delete|await|yield)\b/, 'keyword.flow'],
+            [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|new|await|yield)\b/, 'keyword.flow'],
+            [/\bdelete\b(?!\s*\()/, 'keyword.flow'],
 
             // 函数定义 - 改进的函数名识别
             [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
