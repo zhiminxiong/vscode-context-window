@@ -85,7 +85,7 @@ export const languageConfig_js = {
             [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*=)/, { token: 'keyword', next: '@afterAccessModifier' }],
             
             // 关键字
-            [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
