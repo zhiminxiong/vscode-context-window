@@ -324,7 +324,15 @@ export const languageConfig_js = {
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 识别变量名
             [/\s+/, 'white'],  // 跳过空白
             [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
-            [/:\s*([a-zA-Z_$][\w$]*)/, { token: 'type', next: '@pop' }],
+            [/:/, { token: 'delimiter', next: '@afterColonType' }],  // 冒号后进入类型识别状态
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        afterColonType: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*(?=\s*\.)/, 'type'],  // 识别命名空间前缀（后面跟点号）
+            [/\./, 'delimiter'],  // 点号
+            [/[a-zA-Z_$][\w$]*/, { token: 'type', next: '@pop' }],  // 最后的类型名，识别后返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
