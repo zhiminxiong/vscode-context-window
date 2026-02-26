@@ -87,8 +87,6 @@ export const languageConfig_js = {
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
-
-
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
             [/\b(function|class|struct|interface|enum|namespace)\b/, { token: 'keyword.type', next: '@afterClass' }],
@@ -128,6 +126,9 @@ export const languageConfig_js = {
 
             [/\?\s*:(?=\s*[a-zA-Z_$][\w$]*\s*[|&])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             [/:(?=\s*[a-zA-Z_$][\w$]*\s*[|&])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
+            // 处理冒号后跟类型名（可能包含命名空间）+ 泛型或数组的情况
+            // 例如: Map<T>, CS.UnityEngine.Material[], Array<string>
+            [/:(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*[<\[])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
 
             [/\.\.\.(?=[a-zA-Z_$])/, 'operator'],
             
