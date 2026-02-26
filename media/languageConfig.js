@@ -170,7 +170,6 @@ export const languageConfig_js = {
 
         template: [
             [/>/, { token: 'delimiter.angle', next: '@pop' }],
-            [/\b([a-zA-Z_$][\w$]*)\b(?=\s*[>,])/, 'type'],
             { include: 'root' }
         ],
 
