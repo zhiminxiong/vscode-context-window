@@ -85,7 +85,7 @@ export const languageConfig_js = {
             [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
             
             // 关键字
-            [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
@@ -215,6 +215,7 @@ export const languageConfig_js = {
             [/&/, 'operator'],  // 交叉类型操作符，继续保持在当前状态
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型开始
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // 对象类型开始
+            [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 箭头函数类型开始
             // 字符串字面量类型：'xxx' 或 "xxx"
             [/"([^"\\]|\\.)*"/, 'string'],
             [/'([^'\\]|\\.)*'/, 'string'],
@@ -259,6 +260,7 @@ export const languageConfig_js = {
             [/&/, 'operator'],  // 泛型中的交叉类型
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 嵌套泛型
             [/>/, { token: 'delimiter.bracket', next: '@pop' }],  // 泛型结束
+            [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 箭头函数类型
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
             [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],
             [/\./, 'delimiter'],
@@ -266,6 +268,43 @@ export const languageConfig_js = {
             [/\[/, 'delimiter.bracket'],  // 数组类型
             [/\]/, 'delimiter.bracket'],
             [/./, { token: '@rematch', next: '@pop' }]
+        ],
+
+        // 箭头函数类型：(param: type, ...) => returnType
+        typeFunctionType: [
+            [/\s+/, 'white'],
+            [/\)/, { token: 'delimiter.bracket', switchTo: '@typeFunctionTypeArrow' }],  // 参数列表结束，替换自身不新增栈帧
+            [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 嵌套括号
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 参数中的泛型
+            [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // 参数中的对象类型
+            [/[a-zA-Z_$][\w$]*\s*\??(?=\s*:)/, 'variable.parameter'],  // 参数名
+            [/:/, 'delimiter'],  // 参数类型冒号
+            [/,/, 'delimiter'],  // 参数分隔符
+            [/\.\.\./, 'operator'],  // rest 参数
+            [/\b[a-zA-Z_$][\w$]*\b/, 'type'],  // 参数类型
+            [/\[\]/, 'delimiter.bracket'],
+            [/\|/, 'operator'],
+            [/&/, 'operator'],
+            [/./, 'delimiter'],
+        ],
+
+        // 消费 ) 之后的 => 和返回类型
+        typeFunctionTypeArrow: [
+            [/\s+/, 'white'],
+            [/=>/, { token: 'operator', switchTo: '@typeFunctionTypeReturn' }],  // 箭头：替换当前状态，不新增栈帧
+            [/./, { token: '@rematch', next: '@pop' }],  // 没有 => 则退出
+        ],
+
+        // 箭头函数返回类型（识别完后 @pop 直接回到 typeFunctionType 的调用方）
+        typeFunctionTypeReturn: [
+            [/\s+/, 'white'],
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
+            [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],
+            [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
+            [/\b[a-zA-Z_$][\w$]*\b\s*(?=\.)/, 'type'],
+            [/\b[a-zA-Z_$][\w$]*\b/, { token: 'type', next: '@pop' }],  // 返回类型后退出
+            [/\[\]/, 'delimiter.bracket'],
+            [/./, { token: '@rematch', next: '@pop' }],
         ],
 
         
