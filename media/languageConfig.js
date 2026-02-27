@@ -210,6 +210,7 @@ export const languageConfig_js = {
         ],
 
         afterDelimiterTypeEx: [
+            [/\b(private|public|protected|static|readonly|abstract|override|constructor|class|interface|type|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
             [/\s+/, 'white'],  // 跳过空白（包括换行符，支持多行类型）
             [/\|/, 'operator'],  // 联合类型操作符，继续保持在当前状态
             [/&/, 'operator'],  // 交叉类型操作符，继续保持在当前状态
@@ -420,6 +421,7 @@ export const languageConfig_js = {
         ],
 
         afterAccessModifier: [
+            [/\b(private|public|protected|static|readonly|abstract|override|constructor|class|interface|type|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
             [/\s+/, 'white'],  // 跳过空白
             [/\b(static|readonly|abstract|override)\b/, 'keyword'],  // 跳过修饰词（如 static readonly）
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 识别变量名
