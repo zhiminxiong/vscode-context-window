@@ -217,6 +217,7 @@ export const languageConfig_js = {
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],  // 命名空间类型（如 React.FC）
             [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],  // 识别类型名，但不退出（可能后面还有 | 或 &）
             [/\./, 'delimiter'],  // 命名空间分隔符
+            [/\[\]/, 'delimiter.bracket'],  // 数组类型后缀，继续保持在当前状态
             [/[{;,=)\]]/, { token: '@rematch', next: '@pop' }],  // 遇到这些终止符才退出
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
