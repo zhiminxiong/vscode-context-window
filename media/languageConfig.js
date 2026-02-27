@@ -214,14 +214,44 @@ export const languageConfig_js = {
             [/\|/, 'operator'],  // 联合类型操作符，继续保持在当前状态
             [/&/, 'operator'],  // 交叉类型操作符，继续保持在当前状态
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型开始
+            [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // 对象类型开始
+            // 字符串字面量类型：'xxx' 或 "xxx"
+            [/"([^"\\]|\\.)*"/, 'string'],
+            [/'([^'\\]|\\.)*'/, 'string'],
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],  // 命名空间类型（如 React.FC）
             [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],  // 识别类型名，但不退出（可能后面还有 | 或 &）
             [/\./, 'delimiter'],  // 命名空间分隔符
             [/\[\]/, 'delimiter.bracket'],  // 数组类型后缀，继续保持在当前状态
-            [/[{;,=)\]]/, { token: '@rematch', next: '@pop' }],  // 遇到这些终止符才退出
+            [/[;,=)\]]/, { token: '@rematch', next: '@pop' }],  // 遇到这些终止符才退出（移除了{）
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
-        
+
+        // 对象结构体类型：{ a: string, b: boolean }
+        typeObject: [
+            [/\s+/, 'white'],
+            [/}/, { token: 'delimiter.bracket', next: '@pop' }],  // 对象类型结束
+            [/,/, 'delimiter'],  // 属性分隔符
+            [/;/, 'delimiter'],  // 属性分隔符（分号形式）
+            [/\?/, 'operator'],  // 可选属性标记
+            // 属性名后跟 : —— 进入类型解析
+            [/([a-zA-Z_$][\w$]*)\s*(?=\s*\??\s*:)/, { token: 'variable.name', next: '@typeObjectColon' }],
+            [/[a-zA-Z_$][\w$]*/, 'variable.name'],
+            // 字符串字面量属性名
+            [/"([^"\\]|\\.)*"/, 'string'],
+            [/'([^'\\]|\\.)*'/, 'string'],
+            // 嵌套对象类型
+            [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],
+            [/./, 'delimiter'],
+        ],
+
+        // 消费属性名后的 ?: 或 : 然后进入类型解析
+        typeObjectColon: [
+            [/\s+/, 'white'],
+            [/\?/, 'operator'],  // 可选标记
+            [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],  // 消费冒号，进入类型解析
+            [/./, { token: '@rematch', next: '@pop' }],  // 没有冒号则退出
+        ],
+
         // 处理泛型参数中的类型
         typeGeneric: [
             [/\s+/, 'white'],
