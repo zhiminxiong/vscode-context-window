@@ -231,6 +231,7 @@ export const languageConfig_js = {
         // 对象结构体类型：{ a: string, b: boolean }
         typeObject: [
             [/\s+/, 'white'],
+            [/\bnew\b/, 'keyword.flow'],
             [/}/, { token: 'delimiter.bracket', next: '@pop' }],  // 对象类型结束
             [/,/, 'delimiter'],  // 属性分隔符
             [/;/, 'delimiter'],  // 属性分隔符（分号形式）
