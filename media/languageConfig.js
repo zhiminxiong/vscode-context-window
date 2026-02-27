@@ -82,7 +82,7 @@ export const languageConfig_js = {
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             
             // 类成员变量声明 - private/public/protected + 变量名 + =
-            [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
+            [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*\??[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
             
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
@@ -107,7 +107,7 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
 
-            [/\b(var|let|const)\b(?!\s*enum)(?=\s+[a-zA-Z_$][\w$]*\s*[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
+            [/\b(var|let|const)\b(?!\s*enum)(?=\s+[a-zA-Z_$][\w$]*\s*\??[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
             [/\b(var|let|const)\b(?!\s*enum)/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b(const)\b/, 'keyword'],
             [/\s+([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
@@ -210,7 +210,7 @@ export const languageConfig_js = {
         ],
 
         afterDelimiterTypeEx: [
-            [/\b(private|public|protected|static|readonly|abstract|override|constructor|class|interface|type|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
+            [/\b(private|public|protected)\b/, { token: '@rematch', next: '@pop' }],
             [/\s+/, 'white'],  // 跳过空白（包括换行符，支持多行类型）
             [/\|/, 'operator'],  // 联合类型操作符，继续保持在当前状态
             [/&/, 'operator'],  // 交叉类型操作符，继续保持在当前状态
@@ -421,12 +421,12 @@ export const languageConfig_js = {
         ],
 
         afterAccessModifier: [
-            [/\b(private|public|protected|static|readonly|abstract|override|constructor|class|interface|type|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
+            [/\b(private|public|protected)\b/, { token: '@rematch', next: '@pop' }],
             [/\s+/, 'white'],  // 跳过空白
             [/\b(static|readonly|abstract|override)\b/, 'keyword'],  // 跳过修饰词（如 static readonly）
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 识别变量名
             [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
-            [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],  // 冒号后进入类型识别状态
+            [/\??:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],  // 冒号后进入类型识别状态（支持 ?: 可选属性）
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
