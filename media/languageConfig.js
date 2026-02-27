@@ -107,6 +107,7 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
 
+            [/\b(var|let|const)\b(?!\s*enum)(?=\s+[a-zA-Z_$][\w$]*\s*[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
             [/\b(var|let|const)\b(?!\s*enum)/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b(const)\b/, 'keyword'],
             [/\s+([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
