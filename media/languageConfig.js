@@ -82,7 +82,7 @@ export const languageConfig_js = {
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             
             // 类成员变量声明 - private/public/protected + 变量名 + =
-            [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*=)/, { token: 'keyword', next: '@afterAccessModifier' }],
+            [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
             
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
@@ -216,7 +216,7 @@ export const languageConfig_js = {
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],  // 命名空间类型（如 React.FC）
             [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],  // 识别类型名，但不退出（可能后面还有 | 或 &）
             [/\./, 'delimiter'],  // 命名空间分隔符
-            [/[{;,=)\]]/, { token: 'delimiter.bracket', next: '@pop' }],  // 遇到这些终止符才退出
+            [/[{;,=)\]]/, { token: '@rematch', next: '@pop' }],  // 遇到这些终止符才退出
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
         
@@ -335,7 +335,6 @@ export const languageConfig_js = {
         afterVariableDeclaration: [
             [/\s+/, 'white'],  // 跳过空白
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 识别变量名
-            [/\s+/, 'white'],  // 跳过空白
             [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/:/, { token: 'delimiter', next: '@afterColonType' }],  // 冒号后进入类型识别状态
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
@@ -352,7 +351,9 @@ export const languageConfig_js = {
         afterAccessModifier: [
             [/\s+/, 'white'],  // 跳过空白
             [/\b(static|readonly|abstract|override)\b/, 'keyword'],  // 跳过修饰词（如 static readonly）
-            [/[a-zA-Z_$][\w$]*(?=\s*=)/, { token: 'variable.name', next: '@pop' }],  // 识别变量名（后面跟 =）
+            [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 识别变量名
+            [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
+            [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],  // 冒号后进入类型识别状态
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
