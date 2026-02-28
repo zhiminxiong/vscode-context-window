@@ -104,7 +104,7 @@ export const languageConfig_js = {
             [/\b(function)\b\s*([a-zA-Z_$][\w$]*)/, ['keyword.type', 'function.name']],
             
             [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@typeGeneric' }],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@methodGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
 
             [/\b(var|let|const)\b(?!\s*enum)(?=\s+[a-zA-Z_$][\w$]*\s*\??[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
@@ -266,6 +266,12 @@ export const languageConfig_js = {
             [/\?/, 'operator'],  // 可选标记
             [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],  // 消费冒号，进入类型解析
             [/./, { token: '@rematch', next: '@pop' }],  // 没有冒号则退出
+        ],
+
+        methodGeneric: [
+            [/\s+/, 'white'],
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
+            [/./, { token: '@rematch', next: '@pop' }]
         ],
 
         // 处理泛型参数中的类型
