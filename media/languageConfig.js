@@ -395,10 +395,9 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
             [/[()]/, 'delimiter'],
-            [/>/, { token: '@rematch', next: '@pop' }],  // 遇到 > 时 pop 回上层（如 afterClass 或 template）
-            //[/[a-zA-Z_$][\w$]*(?=\s*>)/, { token: 'type', next: '@pop' }],  // 识别基类
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型参数
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别基类
-            [/[\.|]/, 'delimiter'],
+            [/[.,|]/, 'delimiter'],
             [/\s*,/, 'delimiter.bracket'],
             [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
@@ -408,9 +407,10 @@ export const languageConfig_js = {
             [/\s+/, 'white'],  // 跳过空白
             [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
-            [/[()<>]/, 'delimiter'],
+            [/[()]/, 'delimiter'],
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型参数
             [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别接口
-            [/[\.|]/, 'delimiter'],
+            [/[.,|]/, 'delimiter'],
             [/\s*,/, 'delimiter.bracket'], // 不用显式next: '@afterImplements'
             [/[{;=]/, { token: 'delimiter.bracket', next: '@root' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
