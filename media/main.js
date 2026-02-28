@@ -595,20 +595,27 @@ async function pickTokenStyle(options = {
 
 function tokenAtPosition(model, editor, pos) {
     const lang = model.getLanguageId();
-    const line = model.getLineContent(pos.lineNumber);
-    const row = monaco.editor.tokenize(line, lang)[0] || [];
-    // row: [{ offset: number, scopes?: string, type?: string }]
+    // Tokenize from line 1 up to the target line together, so cross-line
+    // state (open parens, template strings, etc.) is correctly maintained.
+    const CONTEXT_LINES = 100;
+    const startLine = Math.max(1, pos.lineNumber - CONTEXT_LINES);
+    const lines = [];
+    for (let ln = startLine; ln <= pos.lineNumber; ln++) {
+        lines.push(model.getLineContent(ln));
+    }
+    const allRows = monaco.editor.tokenize(lines.join('\n'), lang);
+    const targetRow = allRows[pos.lineNumber - startLine] || [];
+    const line = lines[lines.length - 1];
     const col0 = pos.column - 1;
-    let i = 0;
-    for (; i < row.length; i++) {
-        const start = row[i].offset;
-        const end = (i + 1 < row.length ? row[i + 1].offset : line.length);
+    for (let i = 0; i < targetRow.length; i++) {
+        const start = targetRow[i].offset;
+        const end = (i + 1 < targetRow.length ? targetRow[i + 1].offset : line.length);
         if (col0 >= start && col0 < end) {
             return {
                 startColumn: start + 1,
                 endColumn: end + 1,
                 text: line.slice(start, end),
-                token: row[i].scopes || row[i].type || ''
+                token: targetRow[i].type || ''
             };
         }
     }
