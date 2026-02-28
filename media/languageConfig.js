@@ -419,9 +419,17 @@ export const languageConfig_js = {
             [/./, { token: '@rematch', next: '@root' }]  // 其他情况返回并重新匹配
         ],
 
+        arrayDeclaration: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\]/, { token: 'delimiter.bracket', next: '@pop' }],
+            [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 识别变量名
+            [/,/, 'delimiter.bracket'],
+        ],
+
         afterVariableDeclaration: [
             [/\s+/, 'white'],  // 跳过空白
             [/of/, { token: 'keyword', next: '@pop' }],
+            [/\[/, { token: 'delimiter.bracket', next: '@arrayDeclaration' }],
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 识别变量名
             [/[({;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],  // 冒号后进入类型识别状态
