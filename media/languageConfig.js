@@ -122,6 +122,7 @@ export const languageConfig_js = {
             // ?<= may not supported
             // get() : type
             //[/(?<=\)\s*:)\s*\b([a-zA-Z_$][\w$]*)\b/, 'type'],
+            [/\)\s*:(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*[<\[])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             [/\)\s*:(?=\s*\b([a-zA-Z_$][\w$]*)\b)/, { token: 'delimiter', next: '@afterDelimiterType' }],
             // : type = value;
             //[/(?<=:)\s*\b([a-zA-Z_$][\w$]*)\b(?=\s*\=)/, 'type'],
@@ -209,23 +210,33 @@ export const languageConfig_js = {
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
+        // 入口状态：刚进入或刚过 | & 后，允许 { 进入对象类型
         afterDelimiterTypeEx: [
             [/\b(private|public|protected|constructor|class|interface|type|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
-            [/\s+/, 'white'],  // 跳过空白（包括换行符，支持多行类型）
-            [/\|/, 'operator'],  // 联合类型操作符，继续保持在当前状态
-            [/&/, 'operator'],  // 交叉类型操作符，继续保持在当前状态
-            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型开始
-            [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // 对象类型开始
-            [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 箭头函数类型开始
-            // 字符串字面量类型：'xxx' 或 "xxx"
-            [/"([^"\\]|\\.)*"/, 'string'],
-            [/'([^'\\]|\\.)*'/, 'string'],
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],  // 命名空间类型（如 React.FC）
-            [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],  // 识别类型名，但不退出（可能后面还有 | 或 &）
-            [/\./, 'delimiter'],  // 命名空间分隔符
-            [/\[\]/, 'delimiter.bracket'],  // 数组类型后缀，继续保持在当前状态
-            [/[;,=)\]]/, { token: '@rematch', next: '@pop' }],  // 遇到这些终止符才退出（移除了{）
-            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+            [/\s+/, 'white'],
+            [/\|/, 'operator'],  // 联合类型，继续留在入口（后面可能还有 {）
+            [/&/, 'operator'],   // 交叉类型，继续留在入口
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
+            [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // : { 或 | { 进入对象类型
+            [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
+            [/"([^"\\]|\\.)*"/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
+            [/'([^'\\]|\\.)*'/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 命名空间类型
+            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 类型名，解析完后切换到尾部状态
+            [/[;,=)\]]/, { token: '@rematch', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]
+        ],
+
+        // 尾部状态：已解析完一个类型名，只允许 | & [] < .，遇到 { 退出（函数体）
+        afterDelimiterTypeExTail: [
+            [/\b(private|public|protected|constructor|class|interface|type|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
+            [/\s+/, 'white'],
+            [/\|/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],  // | 后回到入口（允许 {）
+            [/&/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
+            [/\./, 'delimiter'],       // 命名空间分隔符（如 React.FC）
+            [/\[\]/, 'delimiter.bracket'],  // 数组类型后缀
+            [/./, { token: '@rematch', next: '@pop' }]  // { ; , ) 等都退出
         ],
 
         // 对象结构体类型：{ a: string, b: boolean }
