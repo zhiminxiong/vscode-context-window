@@ -483,9 +483,10 @@ export const languageConfig_js = {
         ],
 
         memberFunctionGeneric: [
-            [/\b(private|public|protected|constructor|class|interface|type|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
+            [/\b(private|public|protected|class|interface|type|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
             [/\s+/, 'white'],  // 跳过空白
             [/\b(static|readonly|abstract|override|async|set|get)\b/, 'keyword'],  // 跳过修饰词（如 static readonly）
+            [/constructor/, 'keyword'],  // 识别方法名
             [/[a-zA-Z_$][\w$]*/, 'method.name'],  // 识别方法名
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/\(/, { token: 'delimiter.bracket', next: '@memberFunctionParameter' }],
