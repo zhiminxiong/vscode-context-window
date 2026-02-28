@@ -104,7 +104,7 @@ export const languageConfig_js = {
             [/\b(function)\b\s*([a-zA-Z_$][\w$]*)/, ['keyword.type', 'function.name']],
             
             [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@typeGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
 
             [/\b(var|let|const)\b(?!\s*enum)(?=\s+[a-zA-Z_$][\w$]*\s*\??[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
@@ -276,6 +276,10 @@ export const languageConfig_js = {
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 嵌套泛型
             [/>/, { token: 'delimiter.bracket', next: '@pop' }],  // 泛型结束
             [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 箭头函数类型
+            [/"([^"\\]|\\.)*"/, 'string'],  // 字符串字面量
+            [/'([^'\\]|\\.)*'/, 'string'],  // 字符串字面量
+            [/`([^`\\]|\\.)*`/, 'string'],  // 模板字符串字面量
+            [/-?\d+(\.\d+)?/, 'number'],  // 数字字面量
             [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
             [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],
             [/\./, 'delimiter'],
