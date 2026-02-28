@@ -125,10 +125,10 @@ export const languageConfig_js = {
             // get() : type
             //[/(?<=\)\s*:)\s*\b([a-zA-Z_$][\w$]*)\b/, 'type'],
             [/\)\s*:(?=\s*[a-zA-Z_$][\w$]*)/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
-            [/\)\s*:(?=\s*\b([a-zA-Z_$][\w$]*)\b)/, { token: 'delimiter', next: '@afterDelimiterType' }],
+            [/\)\s*:(?=\s*([a-zA-Z_$][\w$]*))/, { token: 'delimiter', next: '@afterDelimiterType' }],
             // : type = value;
             //[/(?<=:)\s*\b([a-zA-Z_$][\w$]*)\b(?=\s*\=)/, 'type'],
-            [/:(?=\s*\b([a-zA-Z_$][\w$]*)\b\s*\=)/, { token: 'delimiter', next: '@afterDelimiterType' }],
+            [/:(?=\s*([a-zA-Z_$][\w$]*)\s*\=)/, { token: 'delimiter', next: '@afterDelimiterType' }],
 
             [/\?\s*:(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*[|&])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             [/:(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*[|&])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
@@ -181,8 +181,8 @@ export const languageConfig_js = {
 
         afterAs: [
             [/\s+/, 'white'],  // 跳过空白
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
-            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],
+            [/([a-zA-Z_$][\w$]*)/, { token: 'type', next: '@pop' }],
             [/\./, 'delimiter'],
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
@@ -199,14 +199,14 @@ export const languageConfig_js = {
 
         afterArrow: [
             [/\s+/, 'white'],  // 跳过空白
-            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/([a-zA-Z_$][\w$]*)/, { token: 'type', next: '@pop' }],
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
         afterDelimiterType: [
             [/\s+/, 'white'],  // 跳过空白
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
-            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', next: '@pop' }],
+            [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],
+            [/([a-zA-Z_$][\w$]*)/, { token: 'type', next: '@pop' }],
             [/\./, 'delimiter'],
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
@@ -223,8 +223,8 @@ export const languageConfig_js = {
             [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
             [/"([^"\\]|\\.)*"/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
             [/'([^'\\]|\\.)*'/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 命名空间类型
-            [/\b([a-zA-Z_$][\w$]*)\b/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 类型名，解析完后切换到尾部状态
+            [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 命名空间类型
+            [/([a-zA-Z_$][\w$]*)/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 类型名，解析完后切换到尾部状态
             [/[;,=)\]]/, { token: '@rematch', next: '@pop' }],
             [/./, { token: '@rematch', next: '@pop' }]
         ],
@@ -236,8 +236,8 @@ export const languageConfig_js = {
             [/\|/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],  // | 后回到入口（允许 {）
             [/&/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],  // 命名空间类型
-            [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],  // 类型名
+            [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],  // 命名空间类型
+            [/([a-zA-Z_$][\w$]*)/, 'type'],  // 类型名
             [/\./, 'delimiter'],       // 命名空间分隔符（如 React.FC）
             [/\[\]/, 'delimiter.bracket'],  // 数组类型后缀
             [/./, { token: '@rematch', next: '@pop' }]  // { ; , ) 等都退出
@@ -288,8 +288,8 @@ export const languageConfig_js = {
             [/'([^'\\]|\\.)*'/, 'string'],  // 字符串字面量
             [/`([^`\\]|\\.)*`/, 'string'],  // 模板字符串字面量
             [/-?\d+(\.\d+)?/, 'number'],  // 数字字面量
-            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],
-            [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],
+            [/([a-zA-Z_$][\w$]*)/, 'type'],
             [/\./, 'delimiter'],
             [/,/, 'delimiter'],  // 泛型参数分隔符
             [/\[/, 'delimiter.bracket'],  // 数组类型
