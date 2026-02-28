@@ -122,7 +122,7 @@ export const languageConfig_js = {
             // ?<= may not supported
             // get() : type
             //[/(?<=\)\s*:)\s*\b([a-zA-Z_$][\w$]*)\b/, 'type'],
-            [/\)\s*:(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*[<\[])/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
+            [/\)\s*:(?=\s*[a-zA-Z_$][\w$]*)/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             [/\)\s*:(?=\s*\b([a-zA-Z_$][\w$]*)\b)/, { token: 'delimiter', next: '@afterDelimiterType' }],
             // : type = value;
             //[/(?<=:)\s*\b([a-zA-Z_$][\w$]*)\b(?=\s*\=)/, 'type'],
@@ -234,6 +234,8 @@ export const languageConfig_js = {
             [/\|/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],  // | 后回到入口（允许 {）
             [/&/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
+            [/\b([a-zA-Z_$][\w$]*)\b\s*(?=\.)/, 'type'],  // 命名空间类型
+            [/\b([a-zA-Z_$][\w$]*)\b/, 'type'],  // 类型名
             [/\./, 'delimiter'],       // 命名空间分隔符（如 React.FC）
             [/\[\]/, 'delimiter.bracket'],  // 数组类型后缀
             [/./, { token: '@rematch', next: '@pop' }]  // { ; , ) 等都退出
