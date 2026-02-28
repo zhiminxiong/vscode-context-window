@@ -374,6 +374,7 @@ export const languageConfig_js = {
             [/extends\b/, { token: 'keyword', next: '@afterExtends' }], // extends
             [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
             [/[a-zA-Z_$][\w$]*/, 'class.name'],  // 识别类名
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型参数 class Foo<T>
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
