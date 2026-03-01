@@ -86,6 +86,8 @@ export const languageConfig_js = {
             [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override|async|set|get)\s+)*[a-zA-Z_$][\w$]*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
             [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override|async|set|get)\s+)*[a-zA-Z_$][\w$]*\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
             
+            [/\bconstructor\b(?=\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
+
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
@@ -461,6 +463,7 @@ export const languageConfig_js = {
 
         memberFunctionParameter: [
             [/\s+/, 'white'],  // 跳过空白
+            [/\b(static|readonly|abstract|override|async|set|get|private|public|protected)\b/, 'keyword'],  // 跳过修饰词（如 static readonly）
             [/[a-zA-Z_$][\w$]*\s*(?=\?\s*:|:)/, 'variable.name'],  // 参数名
             [/\?\s*:|:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             [/=/, { token: 'delimiter.bracket', next: '@paramDefault' }],  // 默认值
