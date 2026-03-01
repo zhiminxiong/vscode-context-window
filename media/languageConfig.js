@@ -328,7 +328,7 @@ export const languageConfig_js = {
             [/\?\s*:|:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             [/,/, 'delimiter'],  // 参数分隔符
             [/\.\.\./, 'operator'],  // rest 参数
-            [/\b[a-zA-Z_$][\w$]*\b/, 'type'],  // 参数类型
+            [/\b[a-zA-Z_$][\w$]*\b/, 'tvariable.namee'],  // 参数类型
             [/\[\]/, 'delimiter.bracket'],
             [/\|/, 'operator'],
             [/&/, 'operator'],
@@ -471,7 +471,7 @@ export const languageConfig_js = {
             [/\?\s*:|:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             [/=/, { token: 'delimiter.bracket', next: '@paramDefault' }],  // 默认值
             [/,/, 'delimiter.bracket'],
-            [/[a-zA-Z_$][\w$]*/, 'variable.parameter'],
+            [/[a-zA-Z_$][\w$]*/, 'variable.name'],
             [/\)/, { token: '@rematch', next: '@pop' }],
             [/./, { token: '@rematch', next: '@pop' }]
         ],
@@ -515,7 +515,10 @@ export const languageConfig_js = {
 
         afterFunction: [
             [/\s+/, 'white'],  // 跳过空白
-            [/[a-zA-Z_$][\w$]*/, { token: 'function.name', next: '@pop' }],//, log: '[definition] Entering function return value processing' }],  // 识别函数名
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
+            [/\(/, { token: 'delimiter.bracket', next: '@memberFunctionParameter' }],
+            [/[a-zA-Z_$][\w$]*/, 'method.name'],  // 识别方法名
+            [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
