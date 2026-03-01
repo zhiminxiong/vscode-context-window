@@ -91,6 +91,9 @@ export const languageConfig_js = {
             
             [/\bconstructor\b(?=\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
 
+            // 箭头函数：(param: Type, ...) => 形式，进入 typeFunctionType 解析参数和返回类型
+            [/\((?=\s*(?:[a-zA-Z_$][\w$]*\s*(?:\??\s*:|,|\))|\.\.\.|\)))/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
+
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
@@ -328,7 +331,7 @@ export const languageConfig_js = {
             [/\?\s*:|:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             [/,/, 'delimiter'],  // 参数分隔符
             [/\.\.\./, 'operator'],  // rest 参数
-            [/\b[a-zA-Z_$][\w$]*\b/, 'tvariable.namee'],  // 参数类型
+            [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 参数类型
             [/\[\]/, 'delimiter.bracket'],
             [/\|/, 'operator'],
             [/&/, 'operator'],
@@ -338,7 +341,16 @@ export const languageConfig_js = {
         // 消费 ) 之后的 => 和返回类型
         typeFunctionTypeArrow: [
             [/\s+/, 'white'],
-            [/=>/, { token: 'operator', next: '@afterDelimiterTypeEx' }],  // 箭头：替换当前状态，不新增栈帧
+            // 箭头后跟 { 或 (，是函数体/表达式，只识别箭头然后 pop
+            [/=>(?=\s*[{(])/, { token: 'operator', next: '@pop' }],
+            // 箭头后跟标识符，且链式末尾带 (，是函数调用/泛型调用，pop
+            // 覆盖：func()  a.b.func()  func<T>()  a.b.func<T>()
+            [/=>(?=\s*[a-zA-Z_$][\w$]*(?:\s*\.\s*[a-zA-Z_$][\w$]*)*\s*(?:<[^>]*>\s*)?\()/, { token: 'operator', next: '@pop' }],
+            // 箭头后跟标识符且后面是二元运算符，是表达式，pop
+            // 覆盖：a+b  a&&b  a||b 等
+            [/=>(?=\s*[a-zA-Z_$][\w$]*\s*[+\-*/%&|^!~?])/, { token: 'operator', next: '@pop' }],
+            // 箭头后跟类型（字母、数字字面量类型、字符串字面量类型等），进入返回类型解析
+            [/=>/, { token: 'operator', next: '@afterDelimiterTypeEx' }],
             [/\)/, { token: 'delimiter.bracket', next: '@pop' }],
             [/./, { token: '@rematch', next: '@pop' }],  // 没有 => 则退出
         ],
