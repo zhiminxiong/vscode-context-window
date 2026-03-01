@@ -97,6 +97,8 @@ export const languageConfig_js = {
 
             [/\bas\b/, { token: 'keyword', next: '@afterAs' }],
 
+            [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],
+
             // 流程控制关键字 - if, else 等
             [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|new|await|yield)\b/, 'keyword.flow'],
             [/\bdelete\b(?!\s*\()/, 'keyword.flow'],
@@ -212,7 +214,7 @@ export const languageConfig_js = {
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
-        // 入口状态：刚进入或刚过 | & 后，允许 { 进入对象类型
+        // :后入口状态：刚进入或刚过 | & 后，允许 { 进入对象类型
         afterDelimiterTypeEx: [
             [/\b(private|public|protected|constructor|class|interface|type|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
             [/\s+/, 'white'],
@@ -236,6 +238,9 @@ export const languageConfig_js = {
             [/\|/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],  // | 后回到入口（允许 {）
             [/&/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
+            [/([a-zA-Z_$][\w$]*)(?=\s*\()/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
+            [/([a-zA-Z_$][\w$]*)\s*(?=\?\s*:|:)/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
             [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],  // 命名空间类型
             [/([a-zA-Z_$][\w$]*)/, 'type'],  // 类型名
             [/\./, 'delimiter'],       // 命名空间分隔符（如 React.FC）
@@ -246,7 +251,8 @@ export const languageConfig_js = {
         // 对象结构体类型：{ a: string, b: boolean }
         typeObject: [
             [/\s+/, 'white'],
-            [/\bnew\b/, 'keyword.flow'],
+            [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],  // new(...): ReturnType 构造签名
+            [/\bnew\b/, 'keyword.flow'],  // 单独的 new 关键字
             [/}/, { token: 'delimiter.bracket', next: '@pop' }],  // 对象类型结束
             [/,/, 'delimiter'],  // 属性分隔符
             [/;/, 'delimiter'],  // 属性分隔符（分号形式）
@@ -254,6 +260,7 @@ export const languageConfig_js = {
             // 属性名后跟 : —— 进入类型解析
             [/([a-zA-Z_$][\w$]*)\s*(?=\?\s*:|:)/, { token: 'variable.name', next: '@typeObjectColon' }],
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],
+            [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }], // 处理new(...): ReturnType中冒号后直接跟类型的情况
             // 字符串字面量属性名
             [/"([^"\\]|\\.)*"/, 'string'],
             [/'([^'\\]|\\.)*'/, 'string'],
@@ -263,6 +270,14 @@ export const languageConfig_js = {
         ],
 
         // 消费属性名后的 ?: 或 : 然后进入类型解析
+        // new(...): ReturnType 构造签名 —— 消费 ( 后进入参数解析
+        typeNewSignature: [
+            [/\s+/, 'white'],
+            [/\(/, { token: 'delimiter.bracket', switchTo: '@memberFunctionParameter' }],  // 消费 (，切换到参数解析
+            [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],  // 消费冒号，进入类型解析
+            [/./, { token: '@rematch', next: '@pop' }],  // 兜底退出
+        ],
+
         typeObjectColon: [
             [/\s+/, 'white'],
             [/\?/, 'operator'],  // 可选标记
@@ -304,8 +319,8 @@ export const languageConfig_js = {
             [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 嵌套括号
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 参数中的泛型
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // 参数中的对象类型
-            [/[a-zA-Z_$][\w$]*\s*\??(?=\s*:)/, 'variable.parameter'],  // 参数名
-            [/:/, 'delimiter'],  // 参数类型冒号
+            [/[a-zA-Z_$][\w$]*\s*(?=\?\s*:|:)/, 'variable.name'],  // 参数名
+            [/\?\s*:|:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
             [/,/, 'delimiter'],  // 参数分隔符
             [/\.\.\./, 'operator'],  // rest 参数
             [/\b[a-zA-Z_$][\w$]*\b/, 'type'],  // 参数类型
@@ -318,23 +333,11 @@ export const languageConfig_js = {
         // 消费 ) 之后的 => 和返回类型
         typeFunctionTypeArrow: [
             [/\s+/, 'white'],
-            [/=>/, { token: 'operator', switchTo: '@typeFunctionTypeReturn' }],  // 箭头：替换当前状态，不新增栈帧
+            [/=>/, { token: 'operator', next: '@afterDelimiterTypeEx' }],  // 箭头：替换当前状态，不新增栈帧
+            [/\)/, { token: 'delimiter.bracket', next: '@pop' }],
             [/./, { token: '@rematch', next: '@pop' }],  // 没有 => 则退出
         ],
 
-        // 箭头函数返回类型（识别完后 @pop 直接回到 typeFunctionType 的调用方）
-        typeFunctionTypeReturn: [
-            [/\s+/, 'white'],
-            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
-            [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],
-            [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
-            [/\b[a-zA-Z_$][\w$]*\b\s*(?=\.)/, 'type'],
-            [/\b[a-zA-Z_$][\w$]*\b/, { token: 'type', next: '@pop' }],  // 返回类型后退出
-            [/\[\]/, 'delimiter.bracket'],
-            [/./, { token: '@rematch', next: '@pop' }],
-        ],
-
-        
         // 多行注释 - 确保注释中的关键字不被识别
         comment: [
             [/[^\/*]+/, 'comment'],
