@@ -91,8 +91,9 @@ export const languageConfig_js = {
             
             [/\bconstructor\b(?=\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
 
-            // 箭头函数：(param: Type, ...) => 形式，进入 typeFunctionType 解析参数和返回类型
-            [/\((?=\s*(?:[a-zA-Z_$][\w$]*\s*(?:\??\s*:|,|\))|\.\.\.|\)))/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
+            // 箭头函数：(...) => 形式，进入 typeFunctionType 解析参数和返回类型（支持2层嵌套括号）
+            [/\((?=[^()]*(?:\([^()]*(?:\([^()]*\)[^()]*)*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
+            [/([a-zA-Z_$][\w$]*)(?=\s*=>)/, { token: 'variable.name', next: '@typeFunctionTypeArrow' }],
 
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
@@ -329,6 +330,7 @@ export const languageConfig_js = {
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // 参数中的对象类型
             [/[a-zA-Z_$][\w$]*\s*(?=\?\s*:|:)/, 'variable.name'],  // 参数名
             [/\?\s*:|:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],
+            [/=/, { token: 'delimiter.bracket', next: '@paramDefault' }],  // 默认值
             [/,/, 'delimiter'],  // 参数分隔符
             [/\.\.\./, 'operator'],  // rest 参数
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 参数类型
