@@ -116,7 +116,6 @@ export const languageConfig_js = {
 
             // 函数定义 - 改进的函数名识别
             [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
-            [/\b(function)\b\s*([a-zA-Z_$][\w$]*)/, ['keyword.type', 'function.name']],
             
             [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@methodGeneric' }],
@@ -239,7 +238,8 @@ export const languageConfig_js = {
             [/&/, 'operator'],   // 交叉类型，继续留在入口
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // : { 或 | { 进入对象类型
-            [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
+            [/\((?=[^()]*(?:\([^()]*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 前瞻到 => 才是箭头函数参数
+            [/\(/, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/"([^"\\]|\\.)*"/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
             [/'([^'\\]|\\.)*'/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 命名空间类型
