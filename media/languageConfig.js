@@ -129,7 +129,7 @@ export const languageConfig_js = {
             // ternary: ? expr : — enter state to prevent misidentifying value as variable.name
             // exclude ?: (optional property) and ?. (optional chain)
             [/\?(?!\s*[.:]|\s*\?\s*:)/, { token: 'operator', next: '@ternaryTrue' }],
-            [/([a-zA-Z_$][\w$]*)\b\s*(?=:\s*\S|\?\s*:\s*\S)/, 'variable.name'],
+            [/([a-zA-Z_$][\w$]*)\b\s*(?=:\s*[^/\s]|\?\s*:\s*[^/\s])/, 'variable.name'],
 
             [/\=>(?=\s*\b[a-zA-Z_$][\w$]*\b)/, { token: 'operator', next: '@afterArrow' }],
             [/\=>/, 'operator'],
