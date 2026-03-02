@@ -107,6 +107,8 @@ export const languageConfig_js = {
             [/\bas\b/, { token: 'keyword', next: '@afterAs' }],
 
             [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],
+            [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
+            [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
 
             // 流程控制关键字 - if, else 等
             [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|new|await|yield)\b/, 'keyword.flow'],
@@ -503,6 +505,13 @@ export const languageConfig_js = {
             [/-?\d+(\.\d+)?/, { token: 'number', next: '@pop' }],  // 数字
             [/[,)]/, { token: '@rematch', next: '@pop' }],  // 遇到逗号或右括号，退出
             [/./, { token: '@rematch', next: '@pop' }]
+        ],
+
+        constructorFunction: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别方法名
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
         memberFunctionGeneric: [
