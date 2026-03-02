@@ -107,8 +107,8 @@ export const languageConfig_js = {
             [/\bas\b/, { token: 'keyword', next: '@afterAs' }],
 
             [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],
-            [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
-            [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
+            [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
+            [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
 
             // 流程控制关键字 - if, else 等
             [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|new|await|yield)\b/, 'keyword.flow'],
@@ -509,7 +509,9 @@ export const languageConfig_js = {
 
         constructorFunction: [
             [/\s+/, 'white'],  // 跳过空白
-            [/[a-zA-Z_$][\w$]*/, 'type'],  // 识别方法名
+            [/[a-zA-Z_$][\w$]*(?=\s*\()/, 'type'],  // 最后一段（紧跟括号）识别为 type
+            [/[a-zA-Z_$][\w$]*/, 'type'],  // 链式中间段识别为 type
+            [/\./, 'delimiter'],  // 点号
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
