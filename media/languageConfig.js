@@ -307,6 +307,8 @@ export const languageConfig_js = {
             [/\s+/, 'white'],
             [/\|/, 'operator'],  // 泛型中的联合类型
             [/&/, 'operator'],  // 泛型中的交叉类型
+            [/\bextends\b/, 'keyword'],  // 泛型约束 <T extends Foo>
+            [/=(?!>)/, 'operator'],  // 泛型默认值 <T = Foo>，排除 =>
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 嵌套泛型
             [/>/, { token: 'delimiter.bracket', next: '@pop' }],  // 泛型结束
             [/\(/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 箭头函数类型
