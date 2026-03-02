@@ -95,6 +95,8 @@ export const languageConfig_js = {
             [/\((?=[^()]*(?:\([^()]*(?:\([^()]*\)[^()]*)*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
             [/([a-zA-Z_$][\w$]*)(?=\s*=>)/, { token: 'variable.name', next: '@typeFunctionTypeArrow' }],
 
+            [/\bas|instanceof\b/, { token: 'keyword', next: '@afterAs' }],
+
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
@@ -103,8 +105,6 @@ export const languageConfig_js = {
             [/\b(function|class|struct|interface|enum)\b/, { token: 'keyword.type', next: '@afterClass' }],
             [/\bnamespace\b/, { token: 'keyword.type', next: '@afterNamespace' }],
             [/\b(type)\b(?!\s*:)/, { token: 'keyword.type', next: '@afterClass' }],
-
-            [/\bas\b/, { token: 'keyword', next: '@afterAs' }],
 
             [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],
             [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
