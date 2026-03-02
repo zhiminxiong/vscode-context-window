@@ -4,6 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.9.3] 2026.03.02
+
+#### Changed
+
+- Fixed inaccurate token parsing when picking token style.
+- Optimized token highlight parsing for TypeScript.
+
 ## [0.9.2] 2026.02.26
 
 #### Changed
