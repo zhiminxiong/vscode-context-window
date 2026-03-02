@@ -46,8 +46,8 @@ export const languageConfig_js = {
             [/\/\*/, 'comment', '@comment'],
             [/\/\/.*$/, 'comment'],
 
-            // 正则表达式 - 优先处理
-            [/\/(?:[^\/\\]|\\.)*\/[gimuy]*/, 'regexp'],
+            // 正则表达式
+            [/[=(:,;!&|?\[]\s*(?=\/(?:[^\/\\]|\\.)+\/[gimuy]*(?!\w))/, { token: 'delimiter', next: '@preRegexp' }],
             
             // 字符串
             [/"([^"\\]|\\.)*$/, 'string.invalid'],
@@ -177,6 +177,12 @@ export const languageConfig_js = {
             
             // 空格
             [/\s+/, 'white'],
+        ],
+
+        preRegexp: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\/(?:[^\/\\]|\\.)*\/[gimuy]*/, 'regexp'],
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
         importType: [
@@ -1306,7 +1312,7 @@ export const languageConfig_go = {
             [/\/\/.*$/, 'comment'],
 
             // 正则表达式 - 优先处理
-            [/\/(?:[^\/\\]|\\.)*\/[gimuy]*/, 'regexp'],
+            [/[=(:,;!&|?\[]\s*(?=\/(?:[^\/\\]|\\.)+\/[gimuy]*(?!\w))/, { token: 'delimiter', next: '@preRegexp' }],
             
             // 字符串
             [/"([^"\\]|\\.)*$/, 'string.invalid'],
@@ -1404,6 +1410,12 @@ export const languageConfig_go = {
             
             // 空格
             [/\s+/, 'white'],
+        ],
+
+        preRegexp: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/\/(?:[^\/\\]|\\.)*\/[gimuy]*/, 'regexp'],
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
         typeFix: [
