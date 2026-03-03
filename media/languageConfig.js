@@ -132,7 +132,7 @@ export const languageConfig_js = {
             [/\?(?!\s*[.:]|\s*\?\s*:)/, { token: 'operator', next: '@ternaryTrue' }],
             [/([a-zA-Z_$][\w$]*)\b\s*(?=:\s*[^/\s]|\?\s*:\s*[^/\s])/, 'variable.name'],
 
-            [/\=>(?=\s*\b[a-zA-Z_$][\w$]*\b)/, { token: 'operator', next: '@afterArrow' }],
+            [/\=>(?=\s*\b[a-zA-Z_$][\w$]*\b)/, { token: 'operator', next: '@afterDelimiterTypeEx' }],
             [/\=>/, 'operator'],
 
             // ?<= may not supported
