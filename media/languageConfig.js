@@ -122,6 +122,7 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@methodGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
 
+            [/\b(var|let|const)\b(?!\s*enum)(?=\s*\{)/, { token: 'keyword', next: '@afterDestructuring' }],
             [/\b(var|let|const)\b(?!\s*enum)(?=\s+[a-zA-Z_$][\w$]*\s*(?:\??\s*:|[=;]))/, { token: 'keyword', next: '@afterAccessModifier' }],
             [/\b(var|let|const)\b(?!\s*enum)/, { token: 'keyword', next: '@afterVariableDeclaration' }],
             [/\b(const)\b/, 'keyword'],
@@ -476,6 +477,38 @@ export const languageConfig_js = {
             [/\]/, { token: 'delimiter.bracket', next: '@pop' }],
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 识别变量名
             [/,/, 'delimiter.bracket'],
+        ],
+
+        // 解构赋值：const { a, b }: Type = ...  或  const { a, b } = ...
+        afterDestructuring: [
+            [/\s+/, 'white'],
+            [/\{/, { token: 'delimiter.bracket', next: '@destructuringBody' }],
+            [/./, { token: '@rematch', next: '@pop' }]
+        ],
+
+        // 解构体内部：{ name, workTask }
+        destructuringBody: [
+            [/\s+/, 'white'],
+            [/[a-zA-Z_$][\w$]*/, 'variable.name'],
+            [/,/, 'delimiter'],
+            [/\}/, { token: 'delimiter.bracket', next: '@afterDestructuringClose' }],
+            [/./, { token: '@rematch', next: '@pop' }]
+        ],
+
+        // } 之后：可选的 : Type，然后 =
+        afterDestructuringClose: [
+            [/\s+/, 'white'],
+            [/:/, { token: 'delimiter', switchTo: '@afterDestructuringType' }],
+            [/=/, { token: '@rematch', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]
+        ],
+
+        // : 之后的类型注解（支持 { name: string; workTask: WorkTask }）
+        afterDestructuringType: [
+            [/\s+/, 'white'],
+            [/\{/, { token: 'delimiter.bracket', next: '@typeObject' }],
+            [/[a-zA-Z_$][\w$]*/, { token: 'type', next: '@pop' }],
+            [/./, { token: '@rematch', next: '@pop' }]
         ],
 
         afterVariableDeclaration: [
