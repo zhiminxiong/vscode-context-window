@@ -371,7 +371,7 @@ export const languageConfig_js = {
             [/=>(?=\s*[a-zA-Z_$][\w$]*\s*[+\-*/%&|^!~?])/, { token: 'operator', next: '@pop' }],
             // 箭头后跟类型（字母、数字字面量类型、字符串字面量类型等），进入返回类型解析
             [/=>/, { token: 'operator', next: '@afterDelimiterTypeEx' }],
-            [/\)/, { token: 'delimiter.bracket', next: '@pop' }],
+            [/\)/, { token: '@rematch', next: '@pop' }],
             [/./, { token: '@rematch', next: '@pop' }],  // 没有 => 则退出
         ],
 
