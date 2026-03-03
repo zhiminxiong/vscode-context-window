@@ -95,7 +95,7 @@ export const languageConfig_js = {
             [/\((?=[^()]*(?:\([^()]*(?:\([^()]*\)[^()]*)*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
             [/([a-zA-Z_$][\w$]*)(?=\s*=>)/, { token: 'variable.name', next: '@typeFunctionTypeArrow' }],
 
-            [/\bas|instanceof\b/, { token: 'keyword', next: '@afterAs' }],
+            [/\b(as|instanceof)\b/, { token: 'keyword', next: '@afterAs' }],
 
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
