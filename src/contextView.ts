@@ -731,6 +731,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 documentVersion: currentVersion
                             });
                         }
+                        this.postMessageToWebview({
+                            type: 'pinState',
+                            pinned: this._pinned
+                        });
                     }
                     break;
                 case 'pin':

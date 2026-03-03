@@ -629,7 +629,7 @@ let symboleDecorations = [];
 (function() {
     const vscode = acquireVsCodeApi();
     window.vscode = vscode;
-    window.isPined = false;
+    window.isPinned = false;
     window.pickTokenStyle = false;
     window.stickyScroll = false;
     //console.log('[definition] WebView script started from main.js');
@@ -2062,7 +2062,7 @@ let symboleDecorations = [];
                                 case 'pinState':
                                     window.isPinned = message.pinned;
                                     if (doubleClickArea) {
-                                        if (isPinned) {
+                                        if (window.isPinned) {
                                             doubleClickArea.style.backgroundColor = 'rgba(255, 0, 0, 0.08)'; // 淡红色
                                         } else {
                                             doubleClickArea.style.backgroundColor = 'transparent'; // 你现在的默认色
