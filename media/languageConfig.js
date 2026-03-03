@@ -210,6 +210,13 @@ export const languageConfig_js = {
         ternaryTrue: [
             [/\s+/, 'white'],
             [/\b(this|super)\b/, 'keyword'],
+            [/\b(true|false)\b/, { token: 'boolean', next: '@pop' }],                     // 布尔字面量
+            [/\b(null|undefined|NaN|Infinity)\b/, { token: 'keyword', next: '@pop' }],    // 关键字字面量
+            [/"([^"\\]|\\.)*"/, { token: 'string', next: '@pop' }],                       // 双引号字符串
+            [/'([^'\\]|\\.)*'/, { token: 'string', next: '@pop' }],                       // 单引号字符串
+            [/`([^`\\]|\\.)*`/, { token: 'string', next: '@pop' }],                       // 模板字符串
+            [/-?\d+(\.\d+)?/, { token: 'number', next: '@pop' }],                         // 数字（含负数）
+            [/[a-zA-Z_$][\w$]*\s*(?=\()/, { token: 'method.name', next: '@pop' }],       // 函数调用
             [/([a-zA-Z_$][\w$]*)\b\s*(?=\s*:)/, { token: 'identifier', next: '@pop' }],  // 找到 identifier : 退出
             [/[a-zA-Z_$][\w$]*(?=\s*\.)/, 'identifier'],                                  // 跳过 aaa. / this. 前缀
             [/\./, 'delimiter'],                                                            // 跳过点号
