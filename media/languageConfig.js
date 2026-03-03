@@ -104,6 +104,7 @@ export const languageConfig_js = {
             // 类型关键字 - function, class, struct 等
             [/\b(function|class|struct|interface|enum)\b/, { token: 'keyword.type', next: '@afterClass' }],
             [/\bnamespace\b/, { token: 'keyword.type', next: '@afterNamespace' }],
+            [/\b(type)\b(?=\s*[=!<>+\-*/%&|^~,;)\].])/, 'identifier'],
             [/\b(type)\b(?!\s*:)/, { token: 'keyword.type', next: '@afterClass' }],
 
             [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],
