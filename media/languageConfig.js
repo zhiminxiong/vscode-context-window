@@ -108,6 +108,7 @@ export const languageConfig_js = {
             [/\b(type)\b(?=\s*[=!<>+\-*/%&|^~,;)\].])/, 'identifier'],
             [/\b(type)\b(?!\s*:)/, { token: 'keyword.type', next: '@afterClass' }],
 
+            [/\bnew\b(?=\s*<)/, { token: 'keyword.flow', next: '@typeNewSignature' }],
             [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],
             [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
             [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
@@ -278,6 +279,7 @@ export const languageConfig_js = {
         // 对象结构体类型：{ a: string, b: boolean }
         typeObject: [
             [/\s+/, 'white'],
+            [/\bnew\b(?=\s*<)/, { token: 'keyword.flow', next: '@typeNewSignature' }],  // new <T>(...): ReturnType 泛型构造签名
             [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],  // new(...): ReturnType 构造签名
             [/\bnew\b/, 'keyword.flow'],  // 单独的 new 关键字
             [/}/, { token: 'delimiter.bracket', next: '@pop' }],  // 对象类型结束
@@ -300,6 +302,7 @@ export const languageConfig_js = {
         // new(...): ReturnType 构造签名 —— 消费 ( 后进入参数解析
         typeNewSignature: [
             [/\s+/, 'white'],
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 消费泛型参数 <T>
             [/\(/, { token: 'delimiter.bracket', switchTo: '@memberFunctionParameter' }],  // 消费 (，切换到参数解析
             [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],  // 消费冒号，进入类型解析
             [/./, { token: '@rematch', next: '@pop' }],  // 兜底退出
