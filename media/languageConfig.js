@@ -396,8 +396,8 @@ export const languageConfig_js = {
             // 覆盖：func()  a.b.func()  func<T>()  a.b.func<T>()
             [/=>(?=\s*[a-zA-Z_$][\w$]*(?:\s*\.\s*[a-zA-Z_$][\w$]*)*\s*(?:<[^>]*>\s*)?\()/, { token: 'operator', next: '@pop' }],
             // 箭头后跟标识符且后面是二元运算符，是表达式，pop
-            // 覆盖：a+b  a&&b  a||b 等
-            [/=>(?=\s*[a-zA-Z_$][\w$]*\s*[+\-*/%&|^!~?])/, { token: 'operator', next: '@pop' }],
+            // 覆盖：a+b  a^b 等（排除 & 和 |，因为它们在类型上下文是交叉/联合类型）
+            [/=>(?=\s*[a-zA-Z_$][\w$]*\s*[+\-*/%^!~?])/, { token: 'operator', next: '@pop' }],
             // 箭头后跟类型（字母、数字字面量类型、字符串字面量类型等），进入返回类型解析
             [/=>/, { token: 'operator', next: '@afterDelimiterTypeEx' }],
             [/\)/, { token: '@rematch', next: '@pop' }],
