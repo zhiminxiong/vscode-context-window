@@ -98,7 +98,7 @@ export const languageConfig_js = {
 
             [/\b(as|instanceof)\b/, { token: 'keyword', next: '@afterAs' }],
             [/\b(catch|of|from)\b(?=\s*\()/, 'method.name'],
-            [/\b(catch|of|from)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@methodGeneric' }],
+            [/\b(catch|of|from)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@preGeneric' }],
 
             // 关键字
             [/\b(this|readonly|undefined|intrinsic|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
@@ -123,8 +123,8 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
             
             [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@methodGeneric' }],
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, 'type'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@preGeneric' }],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, { token: 'type', next: '@preGeneric' }],
 
             [/\b(var|let|const)\b(?!\s*enum)(?=\s*\{)/, { token: 'keyword', next: '@afterDestructuring' }],
             [/\b(var|let|const)\b(?!\s*enum)(?=\s+[a-zA-Z_$][\w$]*\s*(?:\??\s*:|[=;]))/, { token: 'keyword', next: '@afterAccessModifier' }],
@@ -338,7 +338,7 @@ export const languageConfig_js = {
             [/./, { token: '@rematch', next: '@pop' }],  // 没有冒号则退出
         ],
 
-        methodGeneric: [
+        preGeneric: [
             [/\s+/, 'white'],
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/./, { token: '@rematch', next: '@pop' }]
