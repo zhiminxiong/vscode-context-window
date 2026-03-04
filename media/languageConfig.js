@@ -78,6 +78,7 @@ export const languageConfig_js = {
             //[/int2/, { token: 'keyword.flow', log: console.log('[definition] 2')}],
 
             [/(\bget|set\b)(?=\s*(?:<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*)?\()/, 'method.name'],
+            [/(\bget|set\b)\s*(?=\?\s*:|:)/, 'variable.name'],
 
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             
