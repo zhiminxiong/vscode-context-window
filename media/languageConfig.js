@@ -96,12 +96,12 @@ export const languageConfig_js = {
             [/\((?=[^()]*(?:\([^()]*(?:\([^()]*\)[^()]*)*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],
             [/([a-zA-Z_$][\w$]*)(?=\s*=>)/, { token: 'variable.name', next: '@typeFunctionTypeArrow' }],
 
-            [/\b(as|instanceof)\b/, { token: 'keyword', next: '@afterAs' }],
+            [/\b(as|instanceof|keyof)\b/, { token: 'keyword', next: '@afterDelimiterTypeEx' }],
             [/\b(catch|of|from)\b(?=\s*\()/, 'method.name'],
             [/\b(catch|of|from)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@preGeneric' }],
 
             // 关键字
-            [/\b(this|readonly|undefined|intrinsic|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
+            [/\b(this|readonly|undefined|intrinsic|unknown|keyof|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
             // 类型关键字 - function, class, struct 等
@@ -208,6 +208,7 @@ export const languageConfig_js = {
 
         afterAs: [
             [/\s+/, 'white'],  // 跳过空白
+            [/\(/, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],
             [/([a-zA-Z_$][\w$]*)/, { token: 'type', next: '@pop' }],
             [/\./, 'delimiter'],
@@ -252,6 +253,7 @@ export const languageConfig_js = {
             [/\s+/, 'white'],
             [/\|/, 'operator'],  // 联合类型，继续留在入口（后面可能还有 {）
             [/&/, 'operator'],   // 交叉类型，继续留在入口
+            [/\b(as|instanceof|keyof)\b/, { token: 'keyword', next: '@afterDelimiterTypeEx' }],
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // : { 或 | { 进入对象类型
             [/\((?=[^()]*(?:\([^()]*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 前瞻到 => 才是箭头函数参数
@@ -270,6 +272,7 @@ export const languageConfig_js = {
             [/\s+/, 'white'],
             [/\|/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],  // | 后回到入口（允许 {）
             [/&/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
+            [/\b(as|instanceof|keyof)\b/, { token: 'keyword', next: '@afterDelimiterTypeEx' }],
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
             [/([a-zA-Z_$][\w$]*)(?=\s*\()/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
