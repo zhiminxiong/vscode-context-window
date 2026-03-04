@@ -165,6 +165,9 @@ export const languageConfig_js = {
             // 标识符 - 捕获所有其他标识符
             [/\b[a-zA-Z_$][\w$]*\b(?=\s*extends)/, { token: 'type', next: '@afterClass' }],
             [/[a-zA-Z_$][\w$]*/, 'identifier'],
+
+            // 映射类型 [P in keyof T]
+            [/\[(?=[a-zA-Z_$][\w$]*\s+in\b)/, { token: 'delimiter.bracket', next: '@mappedTypeKey' }],
             
             // 分隔符和括号
             [/[{}()\[\]]/, 'delimiter.bracket'],
@@ -288,7 +291,9 @@ export const languageConfig_js = {
             [/}/, { token: 'delimiter.bracket', next: '@pop' }],  // 对象类型结束
             [/,/, 'delimiter'],  // 属性分隔符
             [/;/, 'delimiter'],  // 属性分隔符（分号形式）
+            [/[+-]\s*\?/, 'operator'],  // 映射类型移除可选修饰符 -?
             [/\?/, 'operator'],  // 可选属性标记
+            [/\[(?=[a-zA-Z_$][\w$]*\s+in\b)/, { token: 'delimiter.bracket', next: '@mappedTypeKey' }],  // 映射类型 [P in keyof T]
             // 属性名后跟 : —— 进入类型解析
             [/([a-zA-Z_$][\w$]*)\s*(?=\?\s*:|:)/, { token: 'variable.name', next: '@typeObjectColon' }],
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],
@@ -299,6 +304,22 @@ export const languageConfig_js = {
             // 嵌套对象类型
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],
             [/./, 'delimiter'],
+        ],
+
+        // 映射类型键 [P in keyof T] —— in 之前
+        mappedTypeKey: [
+            [/\s+/, 'white'],
+            [/\bin\b/, { token: 'keyword', next: '@mappedTypeKeyAfterIn' }],  // in 关键字，切换到 in 之后的状态
+            [/\]/, { token: 'delimiter.bracket', next: '@pop' }],  // ] 兜底退出
+            [/[a-zA-Z_$][\w$]*/, 'class.name'],  // P（类型参数名）
+        ],
+
+        // 映射类型 in 之后：keyof T ]
+        mappedTypeKeyAfterIn: [
+            [/\s+/, 'white'],
+            [/\bkeyof\b/, 'keyword'],       // keyof 关键字
+            [/\]/, { token: '@rematch', next: '@pop' }],  // ] 先 pop 回 mappedTypeKey，再由 mappedTypeKey 消费 ]
+            [/[a-zA-Z_$][\w$]*/, 'type'],   // T（类型名）
         ],
 
         // 消费属性名后的 ?: 或 : 然后进入类型解析
