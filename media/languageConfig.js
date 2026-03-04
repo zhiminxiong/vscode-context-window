@@ -47,7 +47,7 @@ export const languageConfig_js = {
             [/\/\/.*$/, 'comment'],
 
             // 正则表达式
-            [/[=(:,;!&|?\[]\s*(?=\/(?:[^\/\\]|\\.)+\/[gimuy]*(?!\w))/, { token: 'delimiter', next: '@preRegexp' }],
+            [/[=(:,;!&|?\[]\s*(?=\/(?!\*)(?:[^\/\\]|\\.)+\/[gimuy]*(?!\w))/, { token: 'delimiter', next: '@preRegexp' }],
             
             // 字符串
             [/"([^"\\]|\\.)*$/, 'string.invalid'],
