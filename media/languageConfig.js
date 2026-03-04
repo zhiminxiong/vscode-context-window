@@ -77,8 +77,8 @@ export const languageConfig_js = {
             //[/(?<!int)\s*(dddata)/, { token: 'keyword.flow', log: console.log('[definition] 1')}],
             //[/int2/, { token: 'keyword.flow', log: console.log('[definition] 2')}],
 
-            [/(\bget|set\b)(?=\s*(?:<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*)?\()/, 'method.name'],
-            [/(\bget|set\b)\s*(?=\?\s*:|:)/, 'variable.name'],
+            [/\b(get|set)\b(?=\s*(?:<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*)?\()/, 'method.name'],
+            [/\b(get|set)\b\s*(?=\?\s*:|:)/, 'variable.name'],
 
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             
@@ -97,6 +97,8 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*=>)/, { token: 'variable.name', next: '@typeFunctionTypeArrow' }],
 
             [/\b(as|instanceof)\b/, { token: 'keyword', next: '@afterAs' }],
+            [/\b(catch|of|from)\b(?=\s*\()/, 'method.name'],
+            [/\b(catch|of|from)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@methodGeneric' }],
 
             // 关键字
             [/\b(this|readonly|undefined|unknown|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
@@ -112,9 +114,6 @@ export const languageConfig_js = {
             [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],
             [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
             [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
-
-            [/\bcatch\b(?=\s*\()/, 'method.name'],
-            [/(\bcatch\b)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@methodGeneric' }],
 
             // 流程控制关键字 - if, else 等
             [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|new|await|yield)\b/, 'keyword.flow'],
