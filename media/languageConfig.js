@@ -136,8 +136,8 @@ export const languageConfig_js = {
             [/\?(?!\s*[.:]|\s*\?\s*:)/, { token: 'operator', next: '@ternaryTrue' }],
             [/([a-zA-Z_$][\w$]*)\b\s*(?=:\s*[^/\s]|\?\s*:\s*[^/\s])/, 'variable.name'],
 
-            [/\=>(?=\s*\b[a-zA-Z_$][\w$]*\b)/, { token: 'operator', next: '@afterDelimiterTypeEx' }],
-            [/\=>/, 'operator'],
+            [/=>(?=\s*\b[a-zA-Z_$][\w$]*\b(?!\s*[),]))/, { token: 'operator', next: '@afterDelimiterTypeEx' }],
+            [/=>/, 'operator'],
 
             // ?<= may not supported
             // get() : type
@@ -391,6 +391,7 @@ export const languageConfig_js = {
             [/\s+/, 'white'],
             // 箭头后跟 { 或 (，是函数体/表达式，只识别箭头然后 pop
             [/=>(?=\s*[{(])/, { token: 'operator', next: '@pop' }],
+            [/=>(?=\s*[a-zA-Z_$][\w$]*[,)])/, { token: 'operator', next: '@pop' }],
             // 箭头后跟标识符，且链式末尾带 (，是函数调用/泛型调用，pop
             // 覆盖：func()  a.b.func()  func<T>()  a.b.func<T>()
             [/=>(?=\s*[a-zA-Z_$][\w$]*(?:\s*\.\s*[a-zA-Z_$][\w$]*)*\s*(?:<[^>]*>\s*)?\()/, { token: 'operator', next: '@pop' }],
