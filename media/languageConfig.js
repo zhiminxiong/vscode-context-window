@@ -113,6 +113,9 @@ export const languageConfig_js = {
             [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
             [/\bnew\b(?=\s*[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'keyword.flow', next: '@constructorFunction' }],
 
+            [/\bcatch\b(?=\s*\()/, 'method.name'],
+            [/(\bcatch\b)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@methodGeneric' }],
+
             // 流程控制关键字 - if, else 等
             [/\b(if|else|for|while|do|switch|case|default|break|continue|return|throw|try|catch|finally|new|await|yield)\b/, 'keyword.flow'],
             [/\bdelete\b(?!\s*\()/, 'keyword.flow'],
