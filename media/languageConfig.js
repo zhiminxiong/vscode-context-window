@@ -87,10 +87,10 @@ export const languageConfig_js = {
             // 类成员变量声明 - private/public/protected + 变量名 + =
             [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*\??[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
             [/\b(static|readonly|abstract|override)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*\??[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
-            [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override|async|set|get)\s+)*[a-zA-Z_$][\w$]*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
-            [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override|async|set|get)\s+)*[a-zA-Z_$][\w$]*\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
-            [/\b(static|readonly|abstract|override|async|set|get)\b(?=(?:\s+(?:static|readonly|abstract|override|async|set|get))*\s+[a-zA-Z_$][\w$]*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
-            [/\b(static|readonly|abstract|override|async|set|get)\b(?=(?:\s+(?:static|readonly|abstract|override|async|set|get))*\s+[a-zA-Z_$][\w$]*\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
+            [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override|async|set|get)\s+)*[a-zA-Z_$][\w$]*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
+            [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override|async|set|get)\s+)*[a-zA-Z_$][\w$]*\s*\??\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
+            [/\b(static|readonly|abstract|override|async|set|get)\b(?=(?:\s+(?:static|readonly|abstract|override|async|set|get))*\s+[a-zA-Z_$][\w$]*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
+            [/\b(static|readonly|abstract|override|async|set|get)\b(?=(?:\s+(?:static|readonly|abstract|override|async|set|get))*\s+[a-zA-Z_$][\w$]*\s*\??\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
             
             [/\bconstructor\b(?=\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
 
@@ -608,6 +608,7 @@ export const languageConfig_js = {
             [/\b(static|readonly|abstract|override|async|set|get)\b/, 'keyword'],  // 跳过修饰词（如 static readonly）
             [/constructor/, 'keyword'],  // 识别方法名
             [/[a-zA-Z_$][\w$]*/, 'method.name'],  // 识别方法名
+            [/\?(?=\s*\()/, 'operator'],
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/\(/, { token: 'delimiter.bracket', next: '@memberFunctionParameter' }],
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 如果直接遇到 { 则返回
