@@ -295,6 +295,7 @@ export const languageConfig_js = {
             [/;/, 'delimiter'],  // 属性分隔符（分号形式）
             [/[+-]\s*\?/, 'operator'],  // 映射类型移除可选修饰符 -?
             [/\?/, 'operator'],  // 可选属性标记
+            [/\b(readonly)\b/, 'keyword'],  //readonly
             [/\[(?=[a-zA-Z_$][\w$]*\s+in\b)/, { token: 'delimiter.bracket', next: '@mappedTypeKey' }],  // 映射类型 [P in keyof T]
             // 属性名后跟 : —— 进入类型解析
             [/([a-zA-Z_$][\w$]*)\s*(?=\?\s*:|:)/, { token: 'variable.name', next: '@typeObjectColon' }],
