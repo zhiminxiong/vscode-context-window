@@ -77,8 +77,10 @@ export const languageConfig_js = {
             //[/(?<!int)\s*(dddata)/, { token: 'keyword.flow', log: console.log('[definition] 1')}],
             //[/int2/, { token: 'keyword.flow', log: console.log('[definition] 2')}],
 
-            [/\b(get|set)\b(?=\s*(?:<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*)?\()/, 'method.name'],
             [/\b(get|set)\b\s*(?=\?\s*:|:)/, 'variable.name'],
+
+            [/\b(catch|of|from|get|set)\b(?=\s*\(|\s*\?\s*\()/, 'method.name'],
+            [/\b(catch|of|from|get|set)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@preGeneric' }],
 
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             
@@ -97,8 +99,6 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*=>)/, { token: 'variable.name', next: '@typeFunctionTypeArrow' }],
 
             [/\b(as|instanceof|keyof)\b/, { token: 'keyword', next: '@afterDelimiterTypeEx' }],
-            [/\b(catch|of|from)\b(?=\s*\()/, 'method.name'],
-            [/\b(catch|of|from)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@preGeneric' }],
 
             // 关键字
             [/\b(this|readonly|undefined|intrinsic|unknown|keyof|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
@@ -122,8 +122,8 @@ export const languageConfig_js = {
             // 函数定义 - 改进的函数名识别
             [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
             
-            [/([a-zA-Z_$][\w$]*)(?=\s*\()/, 'method.name'],
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: 'method.name', next: '@preGeneric' }],
+            [/([a-zA-Z_$][\w$]*)(?=\s*\(|\s*\?\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@preGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, { token: 'type', next: '@preGeneric' }],
 
             [/\b(var|let|const)\b(?!\s*enum)(?=\s*\{)/, { token: 'keyword', next: '@afterDestructuring' }],
