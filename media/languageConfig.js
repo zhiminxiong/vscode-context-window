@@ -254,6 +254,7 @@ export const languageConfig_js = {
             [/\|/, 'operator'],  // 联合类型，继续留在入口（后面可能还有 {）
             [/&/, 'operator'],   // 交叉类型，继续留在入口
             [/\b(as|instanceof|keyof)\b/, { token: 'keyword', next: '@afterDelimiterTypeEx' }],
+            [/\b(readonly)\b/, 'keyword'],  //readonly
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // : { 或 | { 进入对象类型
             [/\[/, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 元组类型 [string, number]
@@ -274,6 +275,7 @@ export const languageConfig_js = {
             [/\|/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],  // | 后回到入口（允许 {）
             [/&/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
             [/\b(as|instanceof|keyof)\b/, { token: 'keyword', next: '@afterDelimiterTypeEx' }],
+            [/\b(readonly)\b/, 'keyword'],  //readonly
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
             [/([a-zA-Z_$][\w$]*)(?=\s*\()/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
