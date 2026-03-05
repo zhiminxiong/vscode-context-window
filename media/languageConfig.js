@@ -287,6 +287,8 @@ export const languageConfig_js = {
         // 对象结构体类型：{ a: string, b: boolean }
         typeObject: [
             [/\s+/, 'white'],
+            [/\/\*/, 'comment', '@comment'],
+            [/\/\/.*$/, 'comment'],
             [/\bnew\b(?=\s*<)/, { token: 'keyword.flow', next: '@typeNewSignature' }],  // new <T>(...): ReturnType 泛型构造签名
             [/\bnew\b(?=\s*\()/, { token: 'keyword.flow', next: '@typeNewSignature' }],  // new(...): ReturnType 构造签名
             [/\bnew\b/, 'keyword.flow'],  // 单独的 new 关键字
