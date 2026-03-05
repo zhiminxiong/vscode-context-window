@@ -83,6 +83,7 @@ export const languageConfig_js = {
             [/\b(catch|of|from|get|set)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@preGeneric' }],
 
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
+            [/([:=])(\s*)(\breadonly\b)/, ['operator', 'white', 'keyword']],
             
             // 类成员变量声明 - private/public/protected + 变量名 + =
             [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*\??[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
