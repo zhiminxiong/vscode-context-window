@@ -256,6 +256,7 @@ export const languageConfig_js = {
             [/\b(as|instanceof|keyof)\b/, { token: 'keyword', next: '@afterDelimiterTypeEx' }],
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // : { 或 | { 进入对象类型
+            [/\[/, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 元组类型 [string, number]
             [/\((?=[^()]*(?:\([^()]*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 前瞻到 => 才是箭头函数参数
             [/\(/, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/"([^"\\]|\\.)*"/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
@@ -280,7 +281,9 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],  // 命名空间类型
             [/([a-zA-Z_$][\w$]*)/, 'type'],  // 类型名
             [/\./, 'delimiter'],       // 命名空间分隔符（如 React.FC）
+            [/\[(?=\])/,'delimiter.bracket'],  // [] 数组后缀前瞻，避免误匹配元组
             [/\[\]/, 'delimiter.bracket'],  // 数组类型后缀
+            [/\[/, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 元组类型 [string, number]
             [/./, { token: '@rematch', next: '@pop' }]  // { ; , ) 等都退出
         ],
 
@@ -366,7 +369,7 @@ export const languageConfig_js = {
             [/-?\d+(\.\d+)?/, 'number'],  // 数字字面量
             [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],
             [/([a-zA-Z_$][\w$]*)/, 'type'],
-            [/\./, 'delimiter'],
+            [/[:\.]/, 'delimiter'],
             [/,/, 'delimiter'],  // 泛型参数分隔符
             [/\[/, 'delimiter.bracket'],  // 数组类型
             [/\]/, 'delimiter.bracket'],
