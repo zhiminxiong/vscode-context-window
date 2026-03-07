@@ -310,7 +310,7 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*\(|\s*\?\s*\()/, { token: 'method.name', next: '@memberFunctionGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@memberFunctionGeneric' }],
             [/\[(?=[a-zA-Z_$][\w$]*\s+in\b)/, { token: 'delimiter.bracket', next: '@mappedTypeKey' }],  // 映射类型 [P in keyof T]
-            [/\[(?=[a-zA-Z_$][\w$]*\s*:)/, { token: 'delimiter.bracket', next: '@typeIndexSignature' }],  // 索引签名 [key: string]
+            [/\[(?=[a-zA-Z_$][\w$]*\s*\?:)/, { token: 'delimiter.bracket', next: '@typeIndexSignature' }],  // 索引签名 [key: string]
             // 属性名后跟 : —— 进入类型解析
             [/([a-zA-Z_$][\w$]*)\s*(?=\?\s*:|:)/, { token: 'variable.name', next: '@typeObjectColon' }],
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],
