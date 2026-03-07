@@ -87,7 +87,7 @@ export const languageConfig_js = {
             
             // 类成员变量声明 - private/public/protected + 变量名 + =
             [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*\??\s*[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
-            [/\b(static|readonly|abstract|override)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*\??\s*[=:;])/, { token: 'keyword.flow', next: '@afterAccessModifier' }],
+            [/\b(static|readonly|abstract|override)\b(?=\s+(?:(?:static|readonly|abstract|override)\s+)*[a-zA-Z_$][\w$]*\s*\??\s*[=:;])/, { token: 'keyword', next: '@afterAccessModifier' }],
             [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override|async|set|get)\s+)*[a-zA-Z_$][\w$]*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
             [/\b(private|public|protected)\b(?=\s+(?:(?:static|readonly|abstract|override|async|set|get)\s+)*[a-zA-Z_$][\w$]*\s*\??\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
             [/\b(static|readonly|abstract|override|async|set|get)\b(?=(?:\s+(?:static|readonly|abstract|override|async|set|get))*\s+[a-zA-Z_$][\w$]*\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'keyword', next: '@memberFunctionGeneric' }],
@@ -105,8 +105,9 @@ export const languageConfig_js = {
             [/\b(this|readonly|undefined|intrinsic|unknown|keyof|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
+            [/\b(interface)\b(?=\s*[a-zA-Z_$][\w$]*\s*{)/, { token: 'keyword.type', next: '@beforeTypeLiteral' }],
             // 类型关键字 - function, class, struct 等
-            [/\b(function|class|struct|interface|enum)\b/, { token: 'keyword.type', next: '@afterClass' }],
+            [/\b(function|class|struct|enum)\b/, { token: 'keyword.type', next: '@afterClass' }],
             [/\bnamespace\b/, { token: 'keyword.type', next: '@afterNamespace' }],
             [/\b(type)\b(?=\s*[=!<>+\-*/%&|^~,;)\].])/, 'identifier'],
             // type Foo = {}
@@ -309,6 +310,7 @@ export const languageConfig_js = {
             [/([a-zA-Z_$][\w$]*)(?=\s*\(|\s*\?\s*\()/, { token: 'method.name', next: '@memberFunctionGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@memberFunctionGeneric' }],
             [/\[(?=[a-zA-Z_$][\w$]*\s+in\b)/, { token: 'delimiter.bracket', next: '@mappedTypeKey' }],  // 映射类型 [P in keyof T]
+            [/\[(?=[a-zA-Z_$][\w$]*\s*:)/, { token: 'delimiter.bracket', next: '@typeIndexSignature' }],  // 索引签名 [key: string]
             // 属性名后跟 : —— 进入类型解析
             [/([a-zA-Z_$][\w$]*)\s*(?=\?\s*:|:)/, { token: 'variable.name', next: '@typeObjectColon' }],
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],
@@ -322,6 +324,15 @@ export const languageConfig_js = {
         ],
 
         // 映射类型键 [P in keyof T] —— in 之前
+        // 索引签名 [key: string]: any
+        typeIndexSignature: [
+            [/\s+/, 'white'],
+            [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // key（参数名）
+            [/:/, { token: 'delimiter', next: '@afterDelimiterTypeEx' }],  // 消费冒号，进入键类型解析
+            [/,/, 'delimiter'],  // 属性分隔符
+            [/\]/, { token: 'delimiter.bracket', next: '@pop' }],  // 兜底退出
+        ],
+
         mappedTypeKey: [
             [/\s+/, 'white'],
             [/\bin\b/, { token: 'keyword', next: '@mappedTypeKeyAfterIn' }],  // in 关键字，切换到 in 之后的状态
@@ -472,8 +483,13 @@ export const languageConfig_js = {
             [/\s+/, 'white'],  // 跳过空白
             [/[a-zA-Z_$][\w$]*/, 'class.name'],  // type 后的类型名
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型参数 class Foo<T>
-            [/\{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // type Foo = { 进入对象类型
             [/=/, 'delimiter.bracket'],
+            [/\{/, { token: 'rematch', switchTo: '@TypeLiteral' }],  // type Foo = { 进入对象类型
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        TypeLiteral: [
+            [/\{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // type Foo = { 进入对象类型
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
