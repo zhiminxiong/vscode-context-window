@@ -109,6 +109,8 @@ export const languageConfig_js = {
             [/\b(function|class|struct|interface|enum)\b/, { token: 'keyword.type', next: '@afterClass' }],
             [/\bnamespace\b/, { token: 'keyword.type', next: '@afterNamespace' }],
             [/\b(type)\b(?=\s*[=!<>+\-*/%&|^~,;)\].])/, 'identifier'],
+            // type Foo = {}
+            [/\b(type)\b(?=\s*[a-zA-Z_$][\w$]*\s*=\s*{)/, { token: 'keyword.type', next: '@beforeTypeLiteral' }],
             [/\b(type)\b(?!\s*:)/, { token: 'keyword.type', next: '@afterClass' }],
 
             [/\bnew\b(?=\s*<)/, { token: 'keyword.flow', next: '@typeNewSignature' }],
@@ -463,6 +465,15 @@ export const languageConfig_js = {
             [/[a-zA-Z_$][\w$]*/, 'class.name'],  // 识别命名空间名称片段
             [/\./, 'delimiter'],  // 支持 aaa.bbb.ccc 链式
             [/[{;,=]/, { token: 'delimiter.bracket', next: '@pop' }],  // 遇到 { 等返回
+            [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
+        ],
+
+        beforeTypeLiteral: [
+            [/\s+/, 'white'],  // 跳过空白
+            [/[a-zA-Z_$][\w$]*/, 'class.name'],  // type 后的类型名
+            [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型参数 class Foo<T>
+            [/\{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // type Foo = { 进入对象类型
+            [/=/, 'delimiter.bracket'],
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
