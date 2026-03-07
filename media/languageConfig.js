@@ -255,8 +255,8 @@ export const languageConfig_js = {
         afterDelimiterTypeEx: [
             //[/\b(private|public|protected|constructor|class|interface|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
             [/\s+/, 'white'],
-            [/\|/, 'operator'],  // 联合类型，继续留在入口（后面可能还有 {）
-            [/&/, 'operator'],   // 交叉类型，继续留在入口
+            [/\|(?!\|)/, 'operator'],  // 联合类型，继续留在入口（后面可能还有 {）
+            [/&(?!&)/, 'operator'],   // 交叉类型，继续留在入口
             [/\b(as|instanceof|keyof)\b/, { token: 'keyword', next: '@afterDelimiterTypeEx' }],
             [/\b(readonly)\b/, 'keyword'],  //readonly
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
@@ -276,7 +276,8 @@ export const languageConfig_js = {
         // 尾部状态：已解析完一个类型名，只允许 | & [] < .，遇到 { 退出（函数体）
         afterDelimiterTypeExTail: [
             [/\s+/, 'white'],
-            [/[&|]/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
+            [/&(?!&)/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],
+            [/\|(?!\|)/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/\[\s*\]/, 'delimiter.bracket'],  // 数组类型后缀
             [/\[/, { token: 'delimiter.bracket', next: '@typeIndexSignature' }],  // 元组类型 [string, number]
@@ -364,8 +365,8 @@ export const languageConfig_js = {
         // 处理泛型参数中的类型
         typeGeneric: [
             [/\s+/, 'white'],
-            [/\|/, 'operator'],  // 泛型中的联合类型
-            [/&/, 'operator'],  // 泛型中的交叉类型
+            [/\|(?!\|)/, 'operator'],  // 泛型中的联合类型
+            [/&(?!&)/, 'operator'],  // 泛型中的交叉类型
             [/\bextends\b/, 'keyword'],  // 泛型约束 <T extends Foo>
             [/=(?!>)/, 'operator'],  // 泛型默认值 <T = Foo>，排除 =>
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 嵌套泛型
@@ -398,8 +399,8 @@ export const languageConfig_js = {
             [/\.\.\./, 'operator'],  // rest 参数
             [/[a-zA-Z_$][\w$]*/, 'variable.name'],  // 参数类型
             [/\[\]/, 'delimiter.bracket'],
-            [/\|/, 'operator'],
-            [/&/, 'operator'],
+            [/\|(?!\|)/, 'operator'],
+            [/&(?!&)/, 'operator'],
             [/./, 'delimiter'],
         ],
 
