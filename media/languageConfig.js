@@ -261,7 +261,7 @@ export const languageConfig_js = {
             [/\b(readonly)\b/, 'keyword'],  //readonly
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // : { 或 | { 进入对象类型
-            [/\[/, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 元组类型 [string, number]
+            [/\[/, { token: '@rematch', switchTo: '@afterDelimiterTypeExTail' }],  // 元组类型 [string, number]
             [/\((?=[^()]*(?:\([^()]*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 前瞻到 => 才是箭头函数参数
             [/\(/, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/"([^"\\]|\\.)*"/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
@@ -279,6 +279,7 @@ export const languageConfig_js = {
             [/[&|]/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/\[\s*\]/, 'delimiter.bracket'],  // 数组类型后缀
+            [/\[/, { token: 'delimiter.bracket', next: '@typeIndexSignature' }],  // 元组类型 [string, number]
             [/./, { token: '@rematch', next: '@pop' }]  // { ; , ) 等都退出
         ],
 
