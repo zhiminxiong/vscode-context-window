@@ -79,8 +79,8 @@ export const languageConfig_js = {
 
             [/\b(get|set)\b\s*(?=\?\s*:|:)/, 'variable.name'],
 
-            [/\b(catch|of|from|get|set)\b(?=\s*\(|\s*\?\s*\()/, 'method.name'],
-            [/\b(catch|of|from|get|set)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@preGeneric' }],
+            [/\b(catch|finally|of|from|get|set)\b(?=\s*\(|\s*\?\s*\()/, 'method.name'],
+            [/\b(catch|finally|of|from|get|set)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@preGeneric' }],
 
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             [/([:=])(\s*)(\breadonly\b)/, ['operator', 'white', 'keyword']],
