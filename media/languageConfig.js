@@ -105,13 +105,13 @@ export const languageConfig_js = {
             [/\b(this|readonly|undefined|intrinsic|unknown|keyof|any|global|string|super|abstract|override|extends|implements|Promise|declare|import|export|from|async|void|boolean|Boolean|Number|String|never|number|bigint|typeof|instanceof|in|of|with|get|set|constructor|static|private|protected|public)\b/, 'keyword'],
 
             [/\bfunction\b/, { token: 'keyword.type', next: '@afterFunction' }],
-            [/\b(interface)\b(?=\s*[a-zA-Z_$][\w$]*\s*{)/, { token: 'keyword.type', next: '@beforeTypeLiteral' }],
+            [/\b(interface)\b(?=\s*[a-zA-Z_$][\w$])/, { token: 'keyword.type', next: '@beforeTypeLiteral' }],
             // 类型关键字 - function, class, struct 等
             [/\b(function|class|struct|enum)\b/, { token: 'keyword.type', next: '@afterClass' }],
             [/\bnamespace\b/, { token: 'keyword.type', next: '@afterNamespace' }],
             [/\b(type)\b(?=\s*[=!<>+\-*/%&|^~,;)\].])/, 'identifier'],
             // type Foo = {}
-            [/\b(type)\b(?=\s*[a-zA-Z_$][\w$]*\s*=\s*{)/, { token: 'keyword.type', next: '@beforeTypeLiteral' }],
+            [/\b(type)\b(?=\s*[a-zA-Z_$][\w$]*\s*=)/, { token: 'keyword.type', next: '@beforeTypeLiteral' }],
             [/\b(type)\b(?!\s*:)/, { token: 'keyword.type', next: '@afterClass' }],
 
             [/\bnew\b(?=\s*<)/, { token: 'keyword.flow', next: '@typeNewSignature' }],
@@ -253,7 +253,7 @@ export const languageConfig_js = {
 
         // :后入口状态：刚进入或刚过 | & 后，允许 { 进入对象类型
         afterDelimiterTypeEx: [
-            [/\b(private|public|protected|constructor|class|interface|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
+            //[/\b(private|public|protected|constructor|class|interface|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
             [/\s+/, 'white'],
             [/\|/, 'operator'],  // 联合类型，继续留在入口（后面可能还有 {）
             [/&/, 'operator'],   // 交叉类型，继续留在入口
@@ -266,7 +266,8 @@ export const languageConfig_js = {
             [/\(/, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/"([^"\\]|\\.)*"/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
             [/'([^'\\]|\\.)*'/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
-            [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 命名空间类型
+            [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],  // 命名空间类型
+            [/\./, 'delimiter'],       // 命名空间分隔符（如 React.FC）
             [/([a-zA-Z_$][\w$]*)/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 类型名，解析完后切换到尾部状态
             [/[;,=)\]]/, { token: '@rematch', next: '@pop' }],
             [/./, { token: '@rematch', next: '@pop' }]
@@ -274,22 +275,10 @@ export const languageConfig_js = {
 
         // 尾部状态：已解析完一个类型名，只允许 | & [] < .，遇到 { 退出（函数体）
         afterDelimiterTypeExTail: [
-            [/\b(private|public|protected|constructor|class|interface|enum|declare|export|import|namespace|module)\b/, { token: '@rematch', next: '@pop' }],
             [/\s+/, 'white'],
-            [/\|/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],  // | 后回到入口（允许 {）
-            [/&/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
-            [/\b(as|instanceof|keyof)\b/, { token: 'keyword', next: '@afterDelimiterTypeEx' }],
-            [/\b(readonly)\b/, 'keyword'],  //readonly
+            [/[&|]/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],   // & 后回到入口
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\()/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
-            [/([a-zA-Z_$][\w$]*)(?=\s*\()/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
-            [/([a-zA-Z_$][\w$]*)\s*(?=\?\s*:|:)/, { token: '@rematch', next: '@pop' }],// 处理.d.ts 函数返回类型后没有;
-            [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],  // 命名空间类型
-            [/([a-zA-Z_$][\w$]*)/, 'type'],  // 类型名
-            [/\./, 'delimiter'],       // 命名空间分隔符（如 React.FC）
-            [/\[(?=\])/,'delimiter.bracket'],  // [] 数组后缀前瞻，避免误匹配元组
-            [/\[\]/, 'delimiter.bracket'],  // 数组类型后缀
-            [/\[/, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 元组类型 [string, number]
+            [/\[\s*\]/, 'delimiter.bracket'],  // 数组类型后缀
             [/./, { token: '@rematch', next: '@pop' }]  // { ; , ) 等都退出
         ],
 
@@ -484,7 +473,7 @@ export const languageConfig_js = {
             [/[a-zA-Z_$][\w$]*/, 'class.name'],  // type 后的类型名
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型参数 class Foo<T>
             [/=/, 'delimiter.bracket'],
-            [/\{/, { token: 'rematch', switchTo: '@TypeLiteral' }],  // type Foo = { 进入对象类型
+            [/\{/, { token: '@rematch', switchTo: '@TypeLiteral' }],  // type Foo = { 进入对象类型
             [/./, { token: '@rematch', next: '@pop' }]  // 其他情况返回并重新匹配
         ],
 
