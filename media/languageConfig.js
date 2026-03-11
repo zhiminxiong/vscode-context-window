@@ -136,8 +136,8 @@ export const languageConfig_js = {
             [/\b(const)\b/, 'keyword'],
             [/\s+([a-zA-Z_$][\w$]*)\b\s*(?=\=\s*function)/, 'method.name'],
             // ternary: ? expr : — enter state to prevent misidentifying value as variable.name
-            // exclude ?: (optional property) and ?. (optional chain)
-            [/\?(?!\s*[.:]|\s*\?\s*:)/, { token: 'operator', next: '@ternaryTrue' }],
+            // exclude ?: (optional property), ?. (optional chain), ?? (nullish coalescing)
+            [/\?(?!\s*[.:]|\s*\?\s*:|\s*\?)/, { token: 'operator', next: '@ternaryTrue' }],
             [/([a-zA-Z_$][\w$]*)\b\s*(?=:\s*[^/\s]|\?\s*:\s*[^/\s])/, 'variable.name'],
 
             [/=>(?=\s*\b[a-zA-Z_$][\w$]*\b(?!\s*[),]))/, { token: 'operator', next: '@afterDelimiterTypeEx' }],
@@ -220,20 +220,42 @@ export const languageConfig_js = {
         ],
 
         // ternary true-branch: after ?, treat "identifier :" as plain identifier (not variable.name)
+        // ternary true-branch: skip everything until a bare `:` (not inside parens/brackets)
+        // handles: identifier, literal, func(), a.b.c(), getType().foo, arr[0], etc.
         ternaryTrue: [
             [/\s+/, 'white'],
-            [/\b(this|super)\b/, 'keyword'],
-            [/\b(true|false)\b/, { token: 'boolean', next: '@pop' }],                     // 布尔字面量
-            [/\b(null|undefined|NaN|Infinity)\b/, { token: 'keyword', next: '@pop' }],    // 关键字字面量
-            [/"([^"\\]|\\.)*"/, { token: 'string', next: '@pop' }],                       // 双引号字符串
-            [/'([^'\\]|\\.)*'/, { token: 'string', next: '@pop' }],                       // 单引号字符串
-            [/`([^`\\]|\\.)*`/, { token: 'string', next: '@pop' }],                       // 模板字符串
-            [/-?\d+(\.\d+)?/, { token: 'number', next: '@pop' }],                         // 数字（含负数）
-            [/[a-zA-Z_$][\w$]*\s*(?=\()/, { token: 'method.name', next: '@pop' }],       // 函数调用
-            [/([a-zA-Z_$][\w$]*)\b\s*(?=\s*:)/, { token: 'identifier', next: '@pop' }],  // 找到 identifier : 退出
-            [/[a-zA-Z_$][\w$]*(?=\s*\.)/, 'identifier'],                                  // 跳过 aaa. / this. 前缀
-            [/\./, 'delimiter'],                                                            // 跳过点号
-            [/./, { token: '@rematch', next: '@pop' }]
+            [/"([^"\\]|\\.)*"/, 'string'],                                                 // double-quoted string, stay in state
+            [/'([^'\\]|\\.)*'/, 'string'],                                                 // single-quoted string
+            [/`([^`\\]|\\.)*`/, 'string'],                                                 // template string
+            [/\(/, { token: 'delimiter.bracket', next: '@ternarySkipParens' }],            // ( → track paren depth
+            [/\[/, { token: 'delimiter.bracket', next: '@ternarySkipBrackets' }],          // [ → track bracket depth
+            [/:(?!:)/, { token: 'operator', next: '@pop' }],                               // bare `:` → exit (ternary separator)
+            [/[;,)\]]/, { token: '@rematch', next: '@pop' }],                              // statement-end chars → exit
+            [/[a-zA-Z_$][\w$]*\s*(?=\()/, 'method.name'],                                 // function call name (stay, wait for `(`)
+            [/[a-zA-Z_$][\w$]*/, 'identifier'],                                            // plain identifier
+            [/\./, 'delimiter'],                                                            // dot (chained call)
+            [/-?\d+(\.\d+)?/, 'number'],                                                   // number
+            [/./, 'white'],                                                                 // skip anything else
+        ],
+
+        // skip everything inside (...), support nesting, then pop back to ternaryTrue
+        ternarySkipParens: [
+            [/\(/, { token: 'delimiter.bracket', next: '@ternarySkipParens' }],            // nested (
+            [/\)/, { token: 'delimiter.bracket', next: '@pop' }],                          // end → back to ternaryTrue
+            [/"([^"\\]|\\.)*"/, 'string'],
+            [/'([^'\\]|\\.)*'/, 'string'],
+            [/`([^`\\]|\\.)*`/, 'string'],
+            [/[^()"'`]+/, 'white'],
+        ],
+
+        // skip everything inside [...], support nesting, then pop back to ternaryTrue
+        ternarySkipBrackets: [
+            [/\[/, { token: 'delimiter.bracket', next: '@ternarySkipBrackets' }],          // nested [
+            [/\]/, { token: 'delimiter.bracket', next: '@pop' }],                          // end → back to ternaryTrue
+            [/"([^"\\]|\\.)*"/, 'string'],
+            [/'([^'\\]|\\.)*'/, 'string'],
+            [/`([^`\\]|\\.)*`/, 'string'],
+            [/[^\[\]"'`]+/, 'white'],
         ],
 
         afterArrow: [
