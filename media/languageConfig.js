@@ -128,7 +128,7 @@ export const languageConfig_js = {
             
             [/([a-zA-Z_$][\w$]*)(?=\s*\(|\s*\?\s*\()/, 'method.name'],
             [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@preGeneric' }],
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>)/, { token: 'type', next: '@preGeneric' }],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<\s*[a-zA-Z_$?(\["'](?:(?!&&|\|\|)[^<>])*(?:<\s*[a-zA-Z_$?(\["'](?:(?!&&|\|\|)[^<>])*>(?:(?!&&|\|\|)[^<>])*)*>)/, { token: 'type', next: '@preGeneric' }],
 
             [/\b(var|let|const)\b(?!\s*enum)(?=\s*\{)/, { token: 'keyword', next: '@afterDestructuring' }],
             [/\b(var|let|const)\b(?!\s*enum)(?=\s+[a-zA-Z_$][\w$]*\s*(?:\??\s*:|[=;]))/, { token: 'keyword', next: '@afterAccessModifier' }],
