@@ -284,7 +284,7 @@ export const languageConfig_js = {
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/{/, { token: 'delimiter.bracket', next: '@typeObject' }],  // : { 或 | { 进入对象类型
             [/\[/, { token: '@rematch', switchTo: '@afterDelimiterTypeExTail' }],  // 元组类型 [string, number]
-            [/\((?=[^()]*(?:\([^()]*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', next: '@typeFunctionType' }],  // 前瞻到 => 才是箭头函数参数
+            [/\((?=[^()]*(?:\([^()]*\)[^()]*)*\)\s*=>)/, { token: 'delimiter.bracket', switchTo: '@typeFunctionType' }],  // 前瞻到 => 才是箭头函数参数
             [/\(/, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/"([^"\\]|\\.)*"/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
             [/'([^'\\]|\\.)*'/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
@@ -439,7 +439,7 @@ export const languageConfig_js = {
             // 覆盖：a+b  a^b 等（排除 & 和 |，因为它们在类型上下文是交叉/联合类型）
             [/=>(?=\s*[a-zA-Z_$][\w$]*\s*[+\-*/%^!~?])/, { token: 'operator', next: '@pop' }],
             // 箭头后跟类型（字母、数字字面量类型、字符串字面量类型等），进入返回类型解析
-            [/=>/, { token: 'operator', next: '@afterDelimiterTypeEx' }],
+            [/=>/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],
             [/\)/, { token: '@rematch', next: '@pop' }],
             [/./, { token: '@rematch', next: '@pop' }],  // 没有 => 则退出
         ],
