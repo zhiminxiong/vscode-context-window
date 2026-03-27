@@ -79,8 +79,8 @@ export const languageConfig_js = {
 
             [/\b(get|set)\b\s*(?=\?\s*:|:)/, 'variable.name'],
 
-            [/\b(catch|finally|of|from|get|set)\b(?=\s*\(|\s*\?\s*\()/, 'method.name'],
-            [/\b(catch|finally|of|from|get|set)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@preGeneric' }],
+            [/\b(catch|finally|of|from|get|set)\b(?=\s*\(|\s*\?\s*\(|\s*\?\.\s*\()/, 'method.name'],
+            [/\b(catch|finally|of|from|get|set)\b\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*(?:\?\.)?\s*\()/, { token: 'method.name', next: '@preGeneric' }],
 
             [/\b(import|export)\b(?=\s+type\b)/, { token: 'keyword', next: '@importType' }],
             [/([:=])(\s*)(\breadonly\b)/, ['operator', 'white', 'keyword']],
@@ -126,8 +126,8 @@ export const languageConfig_js = {
             // 函数定义 - 改进的函数名识别
             [/([a-zA-Z_$][\w$]*)(?=\s*:\s*function\b)/, 'function.name'],
             
-            [/([a-zA-Z_$][\w$]*)(?=\s*\(|\s*\?\s*\()/, 'method.name'],
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@preGeneric' }],
+            [/([a-zA-Z_$][\w$]*)(?=\s*\(|\s*\?\s*\(|\s*\?\.\s*\()/, 'method.name'],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*(?:\?\.)?\s*\()/, { token: 'method.name', next: '@preGeneric' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=<\s*[a-zA-Z_$?(\["'](?:(?!&&|\|\|)[^<>])*(?:<\s*[a-zA-Z_$?(\["'](?:(?!&&|\|\|)[^<>])*>(?:(?!&&|\|\|)[^<>])*)*>)/, { token: 'type', next: '@preGeneric' }],
 
             [/\b(var|let|const)\b(?!\s*enum)(?=\s*\{)/, { token: 'keyword', next: '@afterDestructuring' }],
@@ -320,8 +320,8 @@ export const languageConfig_js = {
             [/[+-]\s*\?/, 'operator'],  // 映射类型移除可选修饰符 -?
             [/\?/, 'operator'],  // 可选属性标记
             [/\b(readonly)\b/, 'keyword'],  //readonly
-            [/([a-zA-Z_$][\w$]*)(?=\s*\(|\s*\?\s*\()/, { token: 'method.name', next: '@memberFunctionGeneric' }],
-            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*\??\s*\()/, { token: 'method.name', next: '@memberFunctionGeneric' }],
+            [/([a-zA-Z_$][\w$]*)(?=\s*\(|\s*\?\s*\(|\s*\?\.\s*\()/, { token: 'method.name', next: '@memberFunctionGeneric' }],
+            [/([a-zA-Z_$][\w$]*)\s*(?=<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*(?:\?\.)?\s*\()/, { token: 'method.name', next: '@memberFunctionGeneric' }],
             [/\[(?=[a-zA-Z_$][\w$]*\s+in\b)/, { token: 'delimiter.bracket', next: '@mappedTypeKey' }],  // 映射类型 [P in keyof T]
             [/\[(?=[a-zA-Z_$][\w$]*\s*\?:)/, { token: 'delimiter.bracket', next: '@typeIndexSignature' }],  // 索引签名 [key: string]
             // 属性名后跟 : —— 进入类型解析
