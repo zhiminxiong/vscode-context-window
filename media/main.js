@@ -1983,14 +1983,44 @@ let symboleDecorations = [];
                                 let column = 1;
                                 // 如果有定义名，高亮它
                                 if (range.start.character !== range.end.character || range.start.line !== range.end.line) {
+                                    // 默认按原 range 高亮
+                                    let hlStartLine = range.start.line + 1;
+                                    let hlStartCol = range.start.character + 1;
+                                    let hlEndLine = range.end.line + 1;
+                                    let hlEndCol = range.end.character + 1;
+
+                                    try {
+                                        // 1) 判定原 range 是否是"单一的单词"：跨行 或 文本中含空白都视为非单词
+                                        const isMultiLine = range.start.line !== range.end.line;
+                                        const rangeText = model.getValueInRange(new monaco.Range(
+                                            hlStartLine, hlStartCol, hlEndLine, hlEndCol
+                                        ));
+                                        const isSingleWord = !isMultiLine && !/\s/.test(rangeText);
+
+                                        // 2) 不是单一的单词时，在这段范围文本里找独立的 constructor，
+                                        //    命中则只高亮 constructor；否则保持原 range 全部高亮。
+                                        if (!isSingleWord) {
+                                            const m = rangeText.match(/\bconstructor\b/);
+                                            if (m && typeof m.index === 'number') {
+                                                const startModelOffset = model.getOffsetAt({
+                                                    lineNumber: hlStartLine,
+                                                    column: hlStartCol
+                                                });
+                                                const startPos = model.getPositionAt(startModelOffset + m.index);
+                                                const endPos = model.getPositionAt(startModelOffset + m.index + m[0].length);
+                                                hlStartLine = startPos.lineNumber;
+                                                hlStartCol = startPos.column;
+                                                hlEndLine = endPos.lineNumber;
+                                                hlEndCol = endPos.column;
+                                            }
+                                        }
+                                    } catch (e) {
+                                        // 任意异常都回落到原 range
+                                    }
+
                                     // 添加符号高亮装饰
                                     symboleDecorations = editor.deltaDecorations(symboleDecorations, [{
-                                        range: new monaco.Range(
-                                            range.start.line+1,
-                                            range.start.character+1,
-                                            range.end.line+1,
-                                            range.end.character+1
-                                        ),
+                                        range: new monaco.Range(hlStartLine, hlStartCol, hlEndLine, hlEndCol),
                                         options: {
                                             className: 'highlighted-symbol-range',
                                             inlineClassName: 'highlighted-symbol-inline',
