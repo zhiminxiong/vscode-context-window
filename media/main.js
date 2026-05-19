@@ -1981,13 +1981,13 @@ let symboleDecorations = [];
                                 }]);
                                 
                                 let column = 1;
+                                let hlEndLine = range.end.line + 1;
+                                let hlEndCol = range.end.character + 1;
                                 // 如果有定义名，高亮它
                                 if (range.start.character !== range.end.character || range.start.line !== range.end.line) {
                                     // 默认按原 range 高亮
                                     let hlStartLine = range.start.line + 1;
                                     let hlStartCol = range.start.character + 1;
-                                    let hlEndLine = range.end.line + 1;
-                                    let hlEndCol = range.end.character + 1;
 
                                     try {
                                         // 1) 判定原 range 是否是"单一的单词"：跨行 或 文本中含空白都视为非单词
@@ -2049,8 +2049,8 @@ let symboleDecorations = [];
                                     //     endColumn: range.end.character + 1
                                     // });
                                     editor.setPosition(new monaco.Position(
-                                        range.end.line + 1,
-                                        range.end.character + 1
+                                        hlEndLine,
+                                        hlEndCol
                                     ));
                                 }
 
