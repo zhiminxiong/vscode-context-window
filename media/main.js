@@ -2012,6 +2012,9 @@ let symboleDecorations = [];
                                                 hlStartCol = startPos.column;
                                                 hlEndLine = endPos.lineNumber;
                                                 hlEndCol = endPos.column;
+                                            } else {
+                                                hlEndLine = hlStartLine;
+                                                hlEndCol = hlStartCol;
                                             }
                                         }
                                     } catch (e) {
