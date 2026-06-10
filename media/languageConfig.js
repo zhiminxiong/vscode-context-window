@@ -494,6 +494,8 @@ export const languageConfig_js = {
 
         beforeTypeLiteral: [
             [/\s+/, 'white'],  // 跳过空白
+            [/\bextends\b/, { token: 'keyword', next: '@afterExtends' }], // interface Foo extends Bar
+            [/\bimplements\b/, { token: 'keyword', next: '@afterImplements' }], // implements
             [/[a-zA-Z_$][\w$]*/, 'class.name'],  // type 后的类型名
             [/</, { token: 'delimiter.bracket', next: '@typeGeneric' }],  // 泛型参数 class Foo<T>
             [/=/, 'delimiter.bracket'],
