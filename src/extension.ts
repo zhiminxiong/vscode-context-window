@@ -7,7 +7,13 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(provider);
 
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(ContextWindowProvider.viewType, provider));
+        vscode.window.registerWebviewViewProvider(ContextWindowProvider.viewType, provider, {
+            webviewOptions: {
+                // 切到 Terminal/Problems 等其他面板再切回时，保留 webview 的运行上下文，
+                // 避免 Monaco 编辑器被销毁重建导致字体等运行期状态丢失
+                retainContextWhenHidden: true
+            }
+        }));
 
     context.subscriptions.push(
         vscode.window.registerWebviewPanelSerializer('FloatContextView', provider)
