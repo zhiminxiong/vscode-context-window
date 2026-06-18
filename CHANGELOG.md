@@ -4,6 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.0] 2026.06.12
+
+#### Changed
+
+- Fixed Context Window Font Size Returns to Default Automatically #9.
+- Syntax Parsing & Highlighting Optimization.
+
 ## [0.9.3] 2026.03.02
 
 #### Changed
