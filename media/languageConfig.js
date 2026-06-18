@@ -288,6 +288,8 @@ export const languageConfig_js = {
             [/\(/, { token: 'delimiter.bracket', next: '@typeGeneric' }],
             [/"([^"\\]|\\.)*"/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
             [/'([^'\\]|\\.)*'/, { token: 'string', switchTo: '@afterDelimiterTypeExTail' }],
+            // 内置类型关键字（与 root 着色保持一致），解析完切到尾部状态
+            [/\b(void|never|undefined|unknown|any|boolean|number|string|bigint|object|symbol)\b/, { token: 'keyword', switchTo: '@afterDelimiterTypeExTail' }],
             [/([a-zA-Z_$][\w$]*)\s*(?=\.)/, 'type'],  // 命名空间类型
             [/\./, 'delimiter'],       // 命名空间分隔符（如 React.FC）
             [/([a-zA-Z_$][\w$]*)/, { token: 'type', switchTo: '@afterDelimiterTypeExTail' }],  // 类型名，解析完后切换到尾部状态
@@ -429,6 +431,8 @@ export const languageConfig_js = {
         // 消费 ) 之后的 => 和返回类型
         typeFunctionTypeArrow: [
             [/\s+/, 'white'],
+            // 箭头后跟内置类型关键字，作为返回类型解析（如 () => void）
+            [/=>(?=\s*\b(?:void|never|undefined|unknown|any|boolean|number|string|bigint|object|symbol)\b)/, { token: 'operator', switchTo: '@afterDelimiterTypeEx' }],
             // 箭头后跟 { 或 (，是函数体/表达式，只识别箭头然后 pop
             [/=>(?=\s*[{(])/, { token: 'operator', next: '@pop' }],
             [/=>(?=\s*[a-zA-Z_$][\w$]*[\[,)])/, { token: 'operator', next: '@pop' }],
