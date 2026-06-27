@@ -4,6 +4,18 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.1] 2026.06.27
+
+#### Changed
+
+- Reworked the frontend cache eviction into a size-aware recency score so larger files (more expensive to reload) are kept longer, while no file lives forever.
+
+#### Added
+
+- `cacheSizeLimit` (default `30`): max number of files cached in the frontend.
+- `backendLargeFileSize` (default `100` KB): size threshold above which a file is cached in the extension host.
+- `backendCacheSize` (default `20`): max number of large files cached in the extension host.
+
 ## [1.0.0] 2026.06.12
 
 #### Changed

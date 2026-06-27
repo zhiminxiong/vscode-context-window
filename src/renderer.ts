@@ -26,15 +26,35 @@ export class Renderer {
     private readonly _onNeedsRender = new vscode.EventEmitter<void>();
     public readonly needsRender: vscode.Event<void>;
 
-    // 文件内容缓存（最多10个）
+    // 大文件内容缓存
     private readonly _fileCache = new Map<string, FileCacheEntry>();
-    private readonly MAX_CACHE_SIZE = 10;
-    // 大文件阈值（超过这个行数视为大文件，需要缓存）
-    private readonly LARGE_FILE_THRESHOLD = 5000;
+    // 后端大文件缓存容量（可配）：最多缓存多少个大文件
+    private maxCacheSize = 20;
+    // 大文件 size 阈值（字节，可配）：文件内容超过该大小视为大文件，需要后端缓存
+    private largeFileSizeThreshold = 100 * 1024;
 
     constructor() {
         // 使用自己的事件发射器
         this.needsRender = this._onNeedsRender.event;
+
+        // 读取缓存配置，并监听配置变更
+        this.refreshConfig();
+        this._disposables.push(
+            vscode.workspace.onDidChangeConfiguration(e => {
+                if (e.affectsConfiguration('contextView.contextWindow.backendCacheSize') ||
+                    e.affectsConfiguration('contextView.contextWindow.backendLargeFileSize')) {
+                    this.refreshConfig();
+                }
+            })
+        );
+    }
+
+    // 从 VS Code 配置读取后端缓存参数
+    private refreshConfig(): void {
+        const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+        this.maxCacheSize = cfg.get('backendCacheSize', 20);
+        // 配置以 KB 为单位，转换为字节
+        this.largeFileSizeThreshold = cfg.get('backendLargeFileSize', 100) * 1024;
     }
 
     dispose() {
@@ -90,12 +110,13 @@ export class Renderer {
         const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
         const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || languageId);
 
-        const isLargeFile = doc.lineCount > this.LARGE_FILE_THRESHOLD;
-
         let content = this.readFullFileContent(doc);
 
+        // 按内容字节大小判定是否为大文件（content 已无条件读取，零额外开销）
+        const isLargeFile = content.length > this.largeFileSizeThreshold;
+
         if (isLargeFile) {
-            //console.log(`[definition] getFileContents Caching large file content for ${cacheKey} (lines: ${doc.lineCount})`);
+            //console.log(`[definition] getFileContents Caching large file content for ${cacheKey} (size: ${content.length})`);
             this.addToCache(cacheKey, {
                 content,
                 languageId: finalLanguageId,
@@ -132,7 +153,7 @@ export class Renderer {
         }
         
         // 如果缓存已满，淘汰最久未访问的
-        if (this._fileCache.size >= this.MAX_CACHE_SIZE) {
+        if (this._fileCache.size >= this.maxCacheSize) {
             this.evictLRU();
         }
         

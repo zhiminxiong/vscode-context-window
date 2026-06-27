@@ -187,13 +187,18 @@
         },
         "contextView.contextWindow.cacheSizeLimit": {
           "type": "number",
-          "default": 20,
-          "description": "Maximum number of files to cache in the frontend. When exceeded, the cache will use smart eviction strategy."
+          "default": 30,
+          "description": "Maximum number of files to cache in the frontend (webview). When exceeded, eviction uses a size-aware recency score so larger files (more expensive to reload) are kept longer, but no file lives forever."
         },
-        "contextView.contextWindow.largeFileThreshold": {
+        "contextView.contextWindow.backendLargeFileSize": {
           "type": "number",
-          "default": 2000,
-          "description": "Line count threshold for large files. Files with more lines than this value will be prioritized in cache eviction."
+          "default": 100,
+          "description": "Size threshold in KB for large files in the extension host. Files whose content is larger than this value are cached in the backend to avoid re-reading them."
+        },
+        "contextView.contextWindow.backendCacheSize": {
+          "type": "number",
+          "default": 20,
+          "description": "Maximum number of large files cached in the extension host (backend). When exceeded, the least recently used file is evicted."
         },
         "contextView.contextWindow.lightThemeRules": {
           "type": "array",

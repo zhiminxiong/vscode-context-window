@@ -981,14 +981,17 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         });
                                     }
                                     break;
-                                case 'updateContent':
+                                case 'updateContent': {
                                     // 收到完整内容，缓存（使用 URI 作为键，自动覆盖旧版本）
                                     const cacheUri = message.uri;
+                                    const body = message.body || '';
+                                    // 大文件无条件入缓存：每个跳转过的定义文件都缓存，命中即秒开
                                     fileContentCache.set(cacheUri, {
                                         version: message.documentVersion,
-                                        content: message.body,
+                                        content: body,
                                         lines: message.lineCount,  // 添加行数信息
-                                        timestamp: Date.now(),  // 添加时间戳
+                                        size: body.length,         // 添加内容大小（字符数，近似字节），用于淘汰评分
+                                        timestamp: Date.now(),     // 添加时间戳
                                         metadata: {
                                             languageId: message.languageId
                                         }
@@ -996,35 +999,36 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                                     //console.log(`[definition] Cache set for ${cacheUri} size ${fileContentCache.size}`);
 
-                                    // 从配置中获取缓存限制和大文件阈值
+                                    // 从配置中获取缓存条数上限（仅按条数限制，不限制内存）
                                     const cacheConfig = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
-                                    const cacheSizeLimit = cacheConfig.cacheSizeLimit || 20;
-                                    const largeFileThreshold = cacheConfig.largeFileThreshold || 2000;
-                                    
-                                    // 限制前端缓存大小
+                                    const cacheSizeLimit = cacheConfig.cacheSizeLimit || 30;
+
+                                    // 成本感知淘汰：保留价值 = sizeWeight / age，淘汰价值最低者。
+                                    // 大文件 miss 重新加载最贵（IPC 传输 MB 级字符串 + Monaco setValue），
+                                    // 故 size 越大保留价值越高（用对数压缩，避免大文件碾压小文件）；
+                                    // age 随时间单调增长，命中刷新 timestamp，确保再大的文件也不会永生。
                                     if (fileContentCache.size > cacheSizeLimit) {
-                                        // 将缓存转换为数组以便排序
-                                        const cacheEntries = Array.from(fileContentCache.entries());
-                                        
-                                        // 分类：大文件（>2000行）和小文件（<=2000行）
-                                        const largeFiles = cacheEntries.filter(([_, entry]) => entry.lines > largeFileThreshold);
-                                        const smallFiles = cacheEntries.filter(([_, entry]) => entry.lines <= largeFileThreshold);
-                                        
-                                        let keyToDelete;
-                                        
-                                        if (smallFiles.length > 0) {
-                                            // 优先淘汰小文件中最旧的
-                                            smallFiles.sort((a, b) => a[1].timestamp - b[1].timestamp);
-                                            keyToDelete = smallFiles[0][0];
-                                        } else {
-                                            // 所有都是大文件，淘汰最旧的大文件
-                                            largeFiles.sort((a, b) => a[1].timestamp - b[1].timestamp);
-                                            keyToDelete = largeFiles[0][0];
-                                        }
-                                        
-                                        if (keyToDelete) {
-                                            fileContentCache.delete(keyToDelete);
-                                            //console.log(`[definition] Cache evicted: ${keyToDelete} (${fileContentCache.size} entries remaining)`);
+                                        const SIZE_BASE = 50 * 1024; // 50KB 归一基准
+                                        const now = Date.now();
+                                        const valueOf = (entry) => {
+                                            const age = Math.max(now - entry.timestamp, 1);
+                                            const sizeWeight = 1 + Math.log2(1 + (entry.size || 0) / SIZE_BASE);
+                                            return sizeWeight / age;
+                                        };
+                                        while (fileContentCache.size > cacheSizeLimit) {
+                                            let victimKey = null;
+                                            let minValue = Infinity;
+                                            for (const [key, entry] of fileContentCache) {
+                                                if (key === cacheUri) continue; // 不淘汰刚写入的项
+                                                const v = valueOf(entry);
+                                                if (v < minValue) {
+                                                    minValue = v;
+                                                    victimKey = key;
+                                                }
+                                            }
+                                            if (!victimKey) break;
+                                            fileContentCache.delete(victimKey);
+                                            //console.log(`[definition] Cache evicted: ${victimKey} (${fileContentCache.size} entries remaining)`);
                                         }
                                     }
 
@@ -1037,6 +1041,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         curLine: message.curLine
                                     });
                                     break;
+                                }
                                 case 'noContent':
                                     //console.log('[definition] Showing no content message');
                                     // 隐藏左侧定义列表

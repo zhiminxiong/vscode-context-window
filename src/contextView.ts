@@ -372,8 +372,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 fontFamily: contextWindowConfig.get('fontFamily', 'Consolas, monospace'),
                 minimap: contextWindowConfig.get('minimap', true),
                 useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
-                cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 20),
-                largeFileThreshold: contextWindowConfig.get('largeFileThreshold', 2000),
+                cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 30),
                 fixStickyScroll: contextWindowConfig.get('fixStickyScroll', false),
             }
         };

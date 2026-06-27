@@ -36,6 +36,12 @@ Please check out that extension if you just want documentation in the panel or s
     - When unchecked, the custom tokenizer will be used—primarily for token  highlighting—and it must be used together with lightThemeRules or darkThemeRules.
 - `contextView.contextWindow.lightThemeRules` — Color rules for the light theme
     - Default colors are provided—modify them as needed; leaving the fields empty will fall back to the default tokenizer.
+- `contextView.contextWindow.cacheSizeLimit` — Maximum number of files cached in the frontend (webview). Default `30`.
+    - Every visited definition file is cached. When the limit is exceeded, eviction uses a size-aware recency score: larger files (more expensive to reload) are kept longer, but no file lives forever.
+- `contextView.contextWindow.backendLargeFileSize` — Size threshold in **KB** for caching a file in the extension host (backend). Default `100` (≈ 3000 lines).
+    - Only files whose content is larger than this value are cached in the backend, so a frontend miss can refetch them without re-reading the document.
+    - Note: setting it too large means almost no file qualifies and the backend cache stays empty (no effect); setting it too small lets small files take up the limited backend slots and crowd out the truly large files. Recommended range: ~50KB to ~300KB.
+- `contextView.contextWindow.backendCacheSize` — Maximum number of large files cached in the extension host (backend). Default `20`. The least recently used file is evicted when exceeded.
 
 ## Commands
 
