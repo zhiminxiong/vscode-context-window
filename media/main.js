@@ -953,7 +953,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     const cached = fileContentCache.get(editorState.uri);
                                     if (cached && cached.version === requestVersion) {
                                         //console.log(`[definition] Cache hit for ${uri} with version ${requestVersion}`);
-                                        // 缓存命中且版本匹配，直接使用
+                                        // 缓存命中且版本匹配：刷新访问时间，使淘汰策略成为真正的 LRU
+                                        // （淘汰时按 timestamp 升序踢最旧项，命中不刷新会退化为 FIFO，热点文件会被误淘汰）
+                                        cached.timestamp = Date.now();
+                                        // 直接使用缓存内容
                                         updateEditorContent(cached.content, {
                                             newUri: message.uri,
                                             languageId: message.languageId,
