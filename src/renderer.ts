@@ -55,6 +55,10 @@ export class Renderer {
         this.maxCacheSize = cfg.get('backendCacheSize', 20);
         // 配置以 KB 为单位，转换为字节
         this.largeFileSizeThreshold = cfg.get('backendLargeFileSize', 100) * 1024;
+        // 新容量可能比当前缓存小，主动裁剪到位
+        while (this._fileCache.size > this.maxCacheSize) {
+            this.evictLRU();
+        }
     }
 
     dispose() {
@@ -203,7 +207,7 @@ export class Renderer {
         }
         
         // 如果缓存已满，淘汰最久未访问的
-        if (this._fileCache.size >= this.maxCacheSize) {
+        while (this._fileCache.size >= this.maxCacheSize) {
             this.evictLRU();
         }
         
