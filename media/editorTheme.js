@@ -2,35 +2,57 @@
 
 // Monaco 主题相关：根据 VS Code 颜色变量与上下文配置生成自定义主题
 
-import { getCssVar } from './colorUtils.js';
+import { getCssVars } from './colorUtils.js';
 
 export function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, light) {
+    // 性能优化：一次性读取所有需要的 CSS 变量，避免每个颜色键各自触发一次 getComputedStyle
+    const v = getCssVars([
+        '--vscode-editor-background',
+        '--vscode-editor-foreground',
+        '--vscode-editor-selectionBackground',
+        '--vscode-editor-inactiveSelectionBackground',
+        '--vscode-editor-selectionHighlightBackground',
+        '--vscode-editor-findMatchHighlightBackground',
+        '--vscode-editorGutter-background',
+        '--vscode-editorGutter-addedBackground',
+        '--vscode-editorGutter-modifiedBackground',
+        '--vscode-editorGutter-deletedBackground',
+        '--vscode-editorLineNumber-foreground',
+        '--vscode-editorLineNumber-activeForeground',
+        '--vscode-editorLineNumber-dimmedForeground',
+        '--vscode-foreground',
+        '--vscode-editorIndentGuide-background',
+        '--vscode-editorIndentGuide-activeBackground',
+        '--vscode-editor-lineHighlightBackground',
+        '--vscode-editor-lineHighlightBorder',
+    ]);
+
     // 先收集候选颜色，然后清理 undefined
     const candidateColors = {
-        'editor.background': getCssVar('--vscode-editor-background'),
-        'editor.foreground': getCssVar('--vscode-editor-foreground'),
-        "editor.selectionBackground": contextEditorCfg.selectionBackground || getCssVar('--vscode-editor-selectionBackground') || "#07c2db71",
+        'editor.background': v['--vscode-editor-background'],
+        'editor.foreground': v['--vscode-editor-foreground'],
+        "editor.selectionBackground": contextEditorCfg.selectionBackground || v['--vscode-editor-selectionBackground'] || "#07c2db71",
         //"editor.selectionForeground": "#ffffffff",
-        "editor.inactiveSelectionBackground": contextEditorCfg.inactiveSelectionBackground || getCssVar('--vscode-editor-inactiveSelectionBackground') || "#07c2db71",
-        "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || getCssVar('--vscode-editor-selectionHighlightBackground') || "#5bdb0771",
+        "editor.inactiveSelectionBackground": contextEditorCfg.inactiveSelectionBackground || v['--vscode-editor-inactiveSelectionBackground'] || "#07c2db71",
+        "editor.selectionHighlightBackground": contextEditorCfg.selectionHighlightBackground || v['--vscode-editor-selectionHighlightBackground'] || "#5bdb0771",
         "editor.selectionHighlightBorder": contextEditorCfg.selectionHighlightBorder || "#5bdb0791",
-        "editor.findMatchBackground": getCssVar('--vscode-editor-findMatchHighlightBackground') || "#F4D03F",
-        'editorGutter.background': getCssVar('--vscode-editorGutter-background') || getCssVar('--vscode-editor-background'),
-        'editorGutter.addedBackground': getCssVar('--vscode-editorGutter-addedBackground'),
-        'editorGutter.modifiedBackground': getCssVar('--vscode-editorGutter-modifiedBackground'),
-        'editorGutter.deletedBackground': getCssVar('--vscode-editorGutter-deletedBackground'),
-        'editorLineNumber.foreground': getCssVar('--vscode-editorLineNumber-foreground') || getCssVar('--vscode-foreground'),
-        'editorLineNumber.activeForeground': getCssVar('--vscode-editorLineNumber-activeForeground') || getCssVar('--vscode-foreground'),
-        'editorLineNumber.dimmedForeground': getCssVar('--vscode-editorLineNumber-dimmedForeground') || getCssVar('--vscode-editorLineNumber-foreground'),
-        'editorIndentGuide.background': getCssVar('--vscode-editorIndentGuide-background'),
-        'editorIndentGuide.activeBackground': getCssVar('--vscode-editorIndentGuide-activeBackground'),
-        'editor.lineHighlightBackground': getCssVar('--vscode-editor-lineHighlightBackground'),
-        'editor.lineHighlightBorder': getCssVar('--vscode-editor-lineHighlightBorder'),
+        "editor.findMatchBackground": v['--vscode-editor-findMatchHighlightBackground'] || "#F4D03F",
+        'editorGutter.background': v['--vscode-editorGutter-background'] || v['--vscode-editor-background'],
+        'editorGutter.addedBackground': v['--vscode-editorGutter-addedBackground'],
+        'editorGutter.modifiedBackground': v['--vscode-editorGutter-modifiedBackground'],
+        'editorGutter.deletedBackground': v['--vscode-editorGutter-deletedBackground'],
+        'editorLineNumber.foreground': v['--vscode-editorLineNumber-foreground'] || v['--vscode-foreground'],
+        'editorLineNumber.activeForeground': v['--vscode-editorLineNumber-activeForeground'] || v['--vscode-foreground'],
+        'editorLineNumber.dimmedForeground': v['--vscode-editorLineNumber-dimmedForeground'] || v['--vscode-editorLineNumber-foreground'],
+        'editorIndentGuide.background': v['--vscode-editorIndentGuide-background'],
+        'editorIndentGuide.activeBackground': v['--vscode-editorIndentGuide-activeBackground'],
+        'editor.lineHighlightBackground': v['--vscode-editor-lineHighlightBackground'],
+        'editor.lineHighlightBorder': v['--vscode-editor-lineHighlightBorder'],
     };
 
     const colors = {};
-    for (const [k, v] of Object.entries(candidateColors)) {
-        if (typeof v === 'string') colors[k] = v; // 仅保留有效字符串
+    for (const [k, val] of Object.entries(candidateColors)) {
+        if (typeof val === 'string') colors[k] = val; // 仅保留有效字符串
     }
 
     monaco.editor.defineTheme('custom-vs', {

@@ -32,6 +32,32 @@ export function getCssVar(name) {
     }
 }
 
+// 批量读取多个 CSS 变量：只调用一次 getComputedStyle，循环取值后统一转换。
+// 用于 applyMonacoTheme 这类一次要读十几个变量的场景，避免重复触发 style 计算。
+export function getCssVars(names) {
+    const result = {};
+    if (!Array.isArray(names) || names.length === 0) return result;
+    try {
+        const root = document.documentElement;
+        if (!root || typeof getComputedStyle !== 'function') return result;
+        const styles = getComputedStyle(root);
+        if (!styles || typeof styles.getPropertyValue !== 'function') return result;
+        for (const name of names) {
+            try {
+                const raw = styles.getPropertyValue(name);
+                if (typeof raw !== 'string') { result[name] = undefined; continue; }
+                const v = raw.trim();
+                result[name] = v ? cssColorToMonaco(v) : undefined;
+            } catch (e) {
+                result[name] = undefined;
+            }
+        }
+    } catch (e) {
+        console.warn('[definition] getCssVars failed:', e);
+    }
+    return result;
+}
+
 export function getTokenColorFromDOM(editor, position) {
     // 只负责从 DOM 获取渲染颜色，返回 hex 字符串或 null
     try {
