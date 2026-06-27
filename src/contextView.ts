@@ -26,6 +26,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _lastKeyboardUpdateTime = 0;
     private readonly _keyboardUpdateDebounce = 500;
 
+    private _initialUpdateTimer?: NodeJS.Timeout; // 构造时的保底更新延时引用
+
     //private static readonly outputChannel = vscode.window.createOutputChannel('Context View');
 
     private currentUri: vscode.Uri | undefined = undefined;
@@ -160,7 +162,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         //this.update(); // 此时view还未创建，无法更新
 
         // Add delayed initial update，保底更新
-        setTimeout(() => {
+        this._initialUpdateTimer = setTimeout(() => {
+            this._initialUpdateTimer = undefined;
             this.update(/* force */ true);
         }, INITIAL_UPDATE_DELAY);
 
@@ -374,6 +377,20 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     dispose() {
         //ContextWindowProvider.outputChannel.appendLine('[definition] Provider disposing...');
+        // 清理所有 pending 定时器，避免插件停用后回调到已释放对象上
+        if (this._mouseTimer) {
+            clearTimeout(this._mouseTimer);
+            this._mouseTimer = undefined;
+        }
+        if (this._keyboardUpdateTimer) {
+            clearTimeout(this._keyboardUpdateTimer);
+            this._keyboardUpdateTimer = null;
+        }
+        if (this._initialUpdateTimer) {
+            clearTimeout(this._initialUpdateTimer);
+            this._initialUpdateTimer = undefined;
+        }
+
         // 确保关闭定义选择面板
         if (this._currentPanel) {
             this._currentPanel.dispose();
@@ -650,7 +667,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
         const curContext = this.getCurrentContent();
         if (curContext?.content) {
-            this.postMetadata(curContext.content, curContext.navigateLine + 1, false, this._currentPanel.webview);
+            // 恢复时携带 range，确保面板重新就绪后能滚动并高亮到定义行
+            this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._currentPanel.webview);
         }
         this.postMessageToWebview({
             type: 'pinState',
@@ -900,7 +918,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 const curContext = this.getCurrentContent();
                 // 有缓存内容时立即恢复；没有则保持 Monaco "Ready for content." 状态，不主动查找定义
                 if (curContext?.content) {
-                    this.postMetadata(curContext.content, curContext.navigateLine + 1, false, this._view.webview);
+                    // 恢复时携带 range，确保视图重新可见后能滚动并高亮到定义行
+                    this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._view.webview);
                 }
             }
         });
@@ -915,7 +934,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         // 初始加载时如果有缓存内容就直接使用；否则保持 "Ready for content." 状态
         if (curContext?.content) {
-            this.postMetadata(curContext.content, curContext.navigateLine + 1, false, this._view.webview);
+            // 携带 range，确保初次加载缓存内容后能滚动并高亮到定义行
+            this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._view.webview);
         }
 
         this._view.webview.postMessage({

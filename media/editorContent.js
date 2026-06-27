@@ -98,7 +98,7 @@ export function createUpdateEditorContent(ctx) {
             // }
 
             // 滚动到指定行
-            if (range.start) {
+            if (range && range.start) {
                 let targetLine = range.start.line+1;
                 if (curLine && curLine > 0) {
                     targetLine = curLine;
