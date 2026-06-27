@@ -27,6 +27,10 @@ body {
     padding-top: 0 !important;
 }
 
+/* 性能优化：用 class 切换编辑器光标样式，替代 onMouseMove 中遍历所有 DOM 子节点逐个写 inline style */
+.cw-cursor-pointer, .cw-cursor-pointer * { cursor: pointer !important; }
+.cw-cursor-default, .cw-cursor-default * { cursor: default !important; }
+
 
 /* 专门针对 Monaco Editor 的滚动条样式 */
 .monaco-editor .monaco-scrollable-element .slider.horizontal {

@@ -289,18 +289,13 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     });
 
                     // 强制设置鼠标样式
+                    // 性能优化：通过切换 class 让 CSS 处理光标样式，避免每次鼠标移动都
+                    // querySelectorAll('*') 遍历成百上千个 DOM 节点并逐个写 inline style（强制重排）
                     const forcePointerCursor = (isOverText = false) => {
                         const editorContainer = editor.getDomNode();
                         if (editorContainer) {
-                            // 根据是否悬停在文本上设置不同的光标样式
-                            const cursorStyle = isOverText ? 'pointer' : 'default';
-                            editorContainer.style.cursor = cursorStyle;
-                            
-                            // 遍历所有子元素，设置光标样式
-                            const elements = editorContainer.querySelectorAll('*');
-                            elements.forEach(el => {
-                                el.style.cursor = cursorStyle;
-                            });
+                            editorContainer.classList.toggle('cw-cursor-pointer', isOverText);
+                            editorContainer.classList.toggle('cw-cursor-default', !isOverText);
                         }
                     };
 
@@ -546,6 +541,20 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                     // 添加鼠标悬停事件处理
                     let currentDecorations = [];
+                    // 记录上一次高亮的单词，范围未变则跳过 deltaDecorations，避免在同一单词上抖动时反复重画
+                    let lastWordKey = '';
+
+                    // 性能优化：mouseleave 监听只在初始化时绑定一次，避免每次移动到新单词都堆叠 once 监听器（监听器泄漏）
+                    const editorDomForLeave = editor.getDomNode();
+                    if (editorDomForLeave) {
+                        editorDomForLeave.addEventListener('mouseleave', () => {
+                            if (currentDecorations.length) {
+                                currentDecorations = editor.deltaDecorations(currentDecorations, []);
+                            }
+                            lastWordKey = '';
+                        });
+                    }
+
                     editor.onMouseMove((e) => {
                         // 默认使用默认光标
                         let isOverText = false;
@@ -558,43 +567,33 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             if (word) {
                                 // 鼠标悬停在文本上，使用手型光标
                                 isOverText = true;
-                                // 添加新装饰
-                                currentDecorations = editor.deltaDecorations(currentDecorations, [{
-                                    range: new monaco.Range(
-                                    position.lineNumber,
-                                    word.startColumn,
-                                    position.lineNumber,
-                                    word.endColumn
-                                    ),
-                                    options: {
-                                        inlineClassName: light ? 'ctrl-hover-link' : 'ctrl-hover-link-dark'
-                                    }
-                                }]);
-
-                                // 鼠标移出时清除装饰
-                                const container = editor.getDomNode();
-                                if (container) {
-                                    container.addEventListener('mouseleave', () => {
-                                        currentDecorations = editor.deltaDecorations(currentDecorations, []);
-                                    }, { once: true });
+                                // 单词范围未变化则不重复重画装饰
+                                const key = position.lineNumber + ':' + word.startColumn + ':' + word.endColumn;
+                                if (key !== lastWordKey) {
+                                    lastWordKey = key;
+                                    currentDecorations = editor.deltaDecorations(currentDecorations, [{
+                                        range: new monaco.Range(
+                                        position.lineNumber,
+                                        word.startColumn,
+                                        position.lineNumber,
+                                        word.endColumn
+                                        ),
+                                        options: {
+                                            inlineClassName: light ? 'ctrl-hover-link' : 'ctrl-hover-link-dark'
+                                        }
+                                    }]);
                                 }
                             }
-                        } else {
-                            // 当Ctrl键未按下时清除装饰
+                        }
+
+                        if (!isOverText && lastWordKey) {
+                            // 离开文本区域，清除装饰
                             currentDecorations = editor.deltaDecorations(currentDecorations, []);
+                            lastWordKey = '';
                         }
                         // 根据鼠标位置更新光标样式
                         forcePointerCursor(isOverText);
                         return true;
-
-                        // if (isOverText) {
-                        //     e.event.preventDefault();
-                        //     e.event.stopPropagation();
-                        //     return false;  // 阻止默认处理
-                        // }
-                        // else {
-                        //     return true;
-                        // }
                     });
 
                     // 处理链接点击事件 - 在Monaco内部跳转
