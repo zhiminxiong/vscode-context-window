@@ -213,6 +213,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         uri: '',
                         content: '',
                         language: '',
+                        // 定位信息（range/curLine）归前端管：在 updateMetadata 阶段保存，
+                        // 回源拿到内容（updateContent）时复用，避免后端现取时丢失光标定位。
+                        range: null,
+                        curLine: -1,
                         activeLineDecorations: [],
                         symboleDecorations: []
                     };
@@ -947,6 +951,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     break;
                                 case 'updateMetadata':
                                     editorState.uri = message.uri;
+                                    // 保存本次跳转的定位信息，供回源（updateContent）复用
+                                    editorState.range = message.range;
+                                    editorState.curLine = message.curLine;
                                     const requestVersion = message.documentVersion;
                                     
                                     // 检查前端缓存
@@ -977,7 +984,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         
                                         vscode.postMessage({
                                             type: 'requestContent',
-                                            contentHash: contentHash
+                                            contentHash: contentHash,
+                                            // 直接带 uri，后端按 uri 现取（不拆 contentHash，uri 含冒号拆不可靠）
+                                            uri: editorState.uri
                                         });
                                     }
                                     break;
@@ -1034,11 +1043,13 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                                     //console.log(`[definition] updateContent content for ${cacheUri} with version ${message.documentVersion}`);
                                     
+                                    // 单槽命中(if 分支)时后端会回传 range/curLine；
+                                    // 按 uri 现取(else 分支)时不回传，回退到 metadata 阶段保存的定位信息。
                                     updateEditorContent(message.body, {
                                         newUri: message.uri,
                                         languageId: message.languageId,
-                                        range: message.range,
-                                        curLine: message.curLine
+                                        range: message.range != null ? message.range : editorState.range,
+                                        curLine: message.curLine != null ? message.curLine : editorState.curLine
                                     });
                                     break;
                                 }

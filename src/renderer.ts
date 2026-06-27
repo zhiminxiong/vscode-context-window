@@ -138,6 +138,56 @@ export class Renderer {
         };
     }
 
+    /**
+     * 按 URI 现取文件完整内容（与跳转 range 无关）。
+     * 用于前端回源：单槽快照未命中时直接按 uri 重新取内容，
+     * 大文件自动命中 _fileCache，小文件重新读取也很便宜。
+     * 由调用方负责把定位信息（range/curLine）补上，本方法只管内容。
+     */
+    public async getContentByUri(uri: vscode.Uri): Promise<{
+        content: string;
+        languageId: string;
+        documentVersion: number;
+        lineCount: number;
+    }> {
+        const cacheKey = uri.toString();
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const currentVersion = doc.version;
+
+        // 命中后端大文件缓存且版本一致：直接返回
+        const cached = this._fileCache.get(cacheKey);
+        if (cached && cached.documentVersion === currentVersion) {
+            cached.lastAccessTime = Date.now();
+            return {
+                content: cached.content,
+                languageId: cached.languageId,
+                documentVersion: currentVersion,
+                lineCount: doc.lineCount
+            };
+        }
+
+        const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
+        const finalLanguageId = fileExtension === 'inc' ? 'cpp' : doc.languageId;
+        const content = this.readFullFileContent(doc);
+
+        // 大文件入缓存，与 getFileContents 行为保持一致
+        if (content.length > this.largeFileSizeThreshold) {
+            this.addToCache(cacheKey, {
+                content,
+                languageId: finalLanguageId,
+                documentVersion: currentVersion,
+                lastAccessTime: Date.now()
+            });
+        }
+
+        return {
+            content,
+            languageId: finalLanguageId,
+            documentVersion: currentVersion,
+            lineCount: doc.lineCount
+        };
+    }
+
     // 读取完整文件内容
     private readFullFileContent(doc: vscode.TextDocument): string {
         const rangeText = new vscode.Range(0, 0, doc.lineCount, 0);

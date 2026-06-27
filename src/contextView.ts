@@ -773,12 +773,33 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                             lineCount: this._lastContent.lineCount
                         });
                     } else {
-                        // 缓存不存在或已过期
-                        this.postMessageToWebview({
-                            type: 'contentError',
-                            contentHash: message.contentHash,
-                            message: 'Content not available, cache expired'
-                        });
+                        // 单槽快照未命中：不再放弃，改为按 uri 现取。
+                        // 大文件自动命中后端 _fileCache，小文件重新读取也很便宜；
+                        // 不再依赖会被下一次 updateContent 覆盖的 _lastContent 单槽。
+                        (async () => {
+                            try {
+                                const reqUri = vscode.Uri.parse(message.uri);
+                                const info = await this._renderer.getContentByUri(reqUri);
+                                this.postMessageToWebview({
+                                    type: 'updateContent',
+                                    contentHash: message.contentHash,
+                                    body: info.content,
+                                    uri: message.uri,
+                                    languageId: info.languageId,
+                                    updateMode: this._updateMode,
+                                    documentVersion: info.documentVersion,
+                                    lineCount: info.lineCount
+                                    // 不回传 range/curLine：前端用 updateMetadata 阶段保存的定位信息
+                                });
+                            } catch (e) {
+                                this.postMessageToWebview({
+                                    type: 'contentError',
+                                    contentHash: message.contentHash,
+                                    uri: message.uri,
+                                    message: 'Content not available'
+                                });
+                            }
+                        })();
                     }
                     break;
                 case 'jumpDefinition':
