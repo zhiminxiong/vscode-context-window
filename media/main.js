@@ -2,14 +2,13 @@
 
 // 导入语言配置与各功能模块
 import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfig_go, createDocumentSymbolProvider } from './languageConfig.js';
-import { getTokenColorFromDOM } from './colorUtils.js';
-import { requestTokenStyle } from './tokenStyleClient.js';
-import { pickTokenStyle, resetPickColorPosition } from './tokenPicker.js';
-import { tokenAtPosition } from './tokenize.js';
+import { resetPickColorPosition } from './tokenPicker.js';
 import { applyMonacoTheme, isLightTheme } from './editorTheme.js';
 import { injectEditorStyles } from './editorStyles.js';
 import { createDefinitionList } from './definitionList.js';
 import { createUpdateEditorContent } from './editorContent.js';
+import { createMessageHandlers } from './messageHandlers.js';
+import { setupEditorMouseHandlers } from './editorMouseHandlers.js';
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
@@ -593,153 +592,17 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     //     return true;  // 阻止默认处理
                     // });
 
-                    // 添加鼠标悬停事件处理
-                    let currentDecorations = [];
-                    // 记录上一次高亮的单词，范围未变则跳过 deltaDecorations，避免在同一单词上抖动时反复重画
-                    let lastWordKey = '';
-
-                    // 性能优化：mouseleave 监听只在初始化时绑定一次，避免每次移动到新单词都堆叠 once 监听器（监听器泄漏）
-                    const editorDomForLeave = editor.getDomNode();
-                    if (editorDomForLeave) {
-                        editorDomForLeave.addEventListener('mouseleave', () => {
-                            if (currentDecorations.length) {
-                                currentDecorations = editor.deltaDecorations(currentDecorations, []);
-                            }
-                            lastWordKey = '';
-                        });
-                    }
-
-                    editor.onMouseMove((e) => {
-                        // 默认使用默认光标
-                        let isOverText = false;
-
-                        // 获取当前单词
-                        const model = editor.getModel();
-                        const position = e.target.position;
-                        if (model && position && e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
-                            const word = model.getWordAtPosition(position);
-                            if (word) {
-                                // 鼠标悬停在文本上，使用手型光标
-                                isOverText = true;
-                                // 单词范围未变化则不重复重画装饰
-                                const key = position.lineNumber + ':' + word.startColumn + ':' + word.endColumn;
-                                if (key !== lastWordKey) {
-                                    lastWordKey = key;
-                                    currentDecorations = editor.deltaDecorations(currentDecorations, [{
-                                        range: new monaco.Range(
-                                        position.lineNumber,
-                                        word.startColumn,
-                                        position.lineNumber,
-                                        word.endColumn
-                                        ),
-                                        options: {
-                                            inlineClassName: light ? 'ctrl-hover-link' : 'ctrl-hover-link-dark'
-                                        }
-                                    }]);
-                                }
-                            }
-                        }
-
-                        if (!isOverText && lastWordKey) {
-                            // 离开文本区域，清除装饰
-                            currentDecorations = editor.deltaDecorations(currentDecorations, []);
-                            lastWordKey = '';
-                        }
-                        // 根据鼠标位置更新光标样式
-                        forcePointerCursor(isOverText);
-                        return true;
-                    });
-
-                    // 处理链接点击事件 - 在Monaco内部跳转
-                    editor.onMouseUp(async (e) => {
-                        //console.log('[definition] Mouse up event:', e.target, e.event);
-                        // 完全阻止事件传播
-                        //e.event.preventDefault();
-                        //e.event.stopPropagation();
-                        // 使用 e.event.buttons 判断鼠标按键
-                        //const isLeftClick = (e.event.buttons & 1) === 1; // 左键
-                        //const isRightClick = (e.event.buttons & 2) === 2; // 右键
-                        
-                        if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
-                            // 获取当前单词
-                            let model = editor.getModel();
-                            if (!model) {
-                                //console.log('[definition] **********************no model found************************');
-                                model = monaco.editor.createModel(editorState.content, editorState.language);
-                                applyIndentationForModel(model);
-                                editor.setModel(model);
-                            }
-                            const position = e.target.position;
-                            // 检查点击位置是否在当前选择范围内
-                            const selection = editor.getSelection();
-                            const isClickedTextSelected = selection && !selection.isEmpty() && selection.containsPosition(position);
-                            if (model && position && !isClickedTextSelected) {
-                                //console.log('[definition] start to mid + jump definition: ', e);
-                                const word = model.getWordAtPosition(position);
-                                if (word) {
-                                    if (e.event.rightButton) {
-                                        //console.log('[definition] start to mid + jump definition: ', word);
-                                        if (window.pickTokenStyle) {
-                                            let tokenInfo = tokenAtPosition(model, editor, position);
-                                            if (tokenInfo && tokenInfo.token) {
-                                                //console.log('[definition] pickColor action for token:', tokenInfo);
-                                                try {
-                                                    const style = await requestTokenStyle(tokenInfo.token);
-                                                    let token = tokenInfo.token;
-                                                    if (!style || !style.found) {
-                                                        const lastDot = tokenInfo.token.lastIndexOf('.');
-                                                        token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
-                                                    }
-                                                    //console.log('[definition] token style:', style);
-                                                    const newStyle = await pickTokenStyle({
-                                                        token,
-                                                        foreground: style?.foreground,
-                                                        fontStyle: style?.fontStyle,
-                                                        description: style?.description
-                                                    }, getTokenColorFromDOM(editor, position) || '#808080', word.word);
-                                                    //console.log('[definition] picked new style:', newStyle);
-                                                    if (newStyle) {
-                                                        // 回传扩展端，后续用于更新规则
-                                                        vscode.postMessage({
-                                                            type: 'tokenStyle.set',
-                                                            newStyle,
-                                                            token
-                                                        });
-                                                    }
-                                                } catch (err) {
-                                                    console.error('[context-window] pickColor action failed:', err);
-                                                }
-                                            }
-                                        } else {
-                                            editor.setSelection({
-                                                startLineNumber: position.lineNumber,
-                                                startColumn: word.startColumn,
-                                                endLineNumber: position.lineNumber,
-                                                endColumn: word.endColumn
-                                            });
-                                            hideCursor();
-                                        }
-                                    } else if (e.event.leftButton) {
-                                        //console.log(`[definition] start to jump definition: ${word} with uri ${uri}`);
-                                        vscode.postMessage({
-                                            type: 'jumpDefinition',
-                                            uri: editorState.uri,
-                                            token: word.word,
-                                            position: {
-                                                line: position.lineNumber - 1,
-                                                character: position.column - 1
-                                            }
-                                        });
-                                    }
-                                }
-                            }
-                        } else {
-                            if (e.event.rightButton) {
-                                editor.focus();
-                                showCursor();
-                            }
-                        }
-                        return true;
+                    // 鼠标交互逻辑（悬停高亮 + 点击跳转/取色）已抽离到 editorMouseHandlers.js
+                    // （内部持有悬停高亮状态并完成 onMouseMove / onMouseUp / mouseleave 注册）
+                    setupEditorMouseHandlers({
+                        editor,
+                        state: editorState,
+                        light,
+                        vscode,
+                        applyIndentationForModel,
+                        forcePointerCursor,
+                        showCursor,
+                        hideCursor
                     });
 
                     // === 禁用 Monaco 内置的跳转 / Peek / 查找引用能力 ===
@@ -769,6 +632,17 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         applyIndentationForModel,
                         updateFilenameDisplay,
                         hideCursor
+                    });
+
+                    // 消息处理逻辑已抽离到 messageHandlers.js（工厂持有 editor / editorState /
+                    // 前端缓存 / vscode 通信 及内容更新、定义列表清理等回调）
+                    const { handleUpdateMetadata, handleUpdateContent, handleNoContent } = createMessageHandlers({
+                        editor,
+                        state: editorState,
+                        fileContentCache,
+                        vscode,
+                        updateEditorContent,
+                        clearDefinitionList
                     });
 
                     window.addEventListener('blur', () => {
@@ -875,154 +749,13 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     document.querySelector('.progress-container').style.display = 'none';
                                     break;
                                 case 'updateMetadata':
-                                    editorState.uri = message.uri;
-                                    // 保存本次跳转的定位信息，供回源（updateContent）复用
-                                    editorState.range = message.range;
-                                    editorState.curLine = message.curLine;
-                                    const requestVersion = message.documentVersion;
-                                    
-                                    // 检查前端缓存
-                                    const cached = fileContentCache.get(editorState.uri);
-                                    if (cached && cached.version === requestVersion) {
-                                        //console.log(`[definition] Cache hit for ${uri} with version ${requestVersion}`);
-                                        // 缓存命中且版本匹配：刷新访问时间，使淘汰策略成为真正的 LRU
-                                        // （淘汰时按 timestamp 升序踢最旧项，命中不刷新会退化为 FIFO，热点文件会被误淘汰）
-                                        cached.timestamp = Date.now();
-                                        // 直接使用缓存内容
-                                        updateEditorContent(cached.content, {
-                                            newUri: message.uri,
-                                            languageId: message.languageId,
-                                            range: message.range,
-                                            scrollToLine: message.scrollToLine,
-                                            curLine: message.curLine
-                                        });
-                                    } else {
-                                        // 缓存未命中或版本不匹配，请求完整内容
-                                        // 如果版本不匹配，先清除旧缓存
-                                        if (cached && cached.version !== requestVersion) {
-                                            fileContentCache.delete(editorState.uri);
-                                        }
-
-                                        const contentHash = `${editorState.uri}:${requestVersion}`;
-
-                                        //console.log(`[definition] Cache miss for ${uri} with version ${requestVersion}, requesting content`);
-                                        
-                                        vscode.postMessage({
-                                            type: 'requestContent',
-                                            contentHash: contentHash,
-                                            // 直接带 uri，后端按 uri 现取（不拆 contentHash，uri 含冒号拆不可靠）
-                                            uri: editorState.uri
-                                        });
-                                    }
+                                    handleUpdateMetadata(message);
                                     break;
-                                case 'updateContent': {
-                                    // 收到完整内容，缓存（使用 URI 作为键，自动覆盖旧版本）
-                                    const cacheUri = message.uri;
-                                    const body = message.body || '';
-                                    // 大文件无条件入缓存：每个跳转过的定义文件都缓存，命中即秒开
-                                    fileContentCache.set(cacheUri, {
-                                        version: message.documentVersion,
-                                        content: body,
-                                        lines: message.lineCount,  // 添加行数信息
-                                        size: body.length,         // 添加内容大小（字符数，近似字节），用于淘汰评分
-                                        timestamp: Date.now(),     // 添加时间戳
-                                        metadata: {
-                                            languageId: message.languageId
-                                        }
-                                    });
-
-                                    //console.log(`[definition] Cache set for ${cacheUri} size ${fileContentCache.size}`);
-
-                                    // 从配置中获取缓存条数上限（仅按条数限制，不限制内存）
-                                    const cacheConfig = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
-                                    const cacheSizeLimit = cacheConfig.cacheSizeLimit || 30;
-
-                                    // 成本感知淘汰：保留价值 = sizeWeight / age，淘汰价值最低者。
-                                    // 大文件 miss 重新加载最贵（IPC 传输 MB 级字符串 + Monaco setValue），
-                                    // 故 size 越大保留价值越高（用对数压缩，避免大文件碾压小文件）；
-                                    // age 随时间单调增长，命中刷新 timestamp，确保再大的文件也不会永生。
-                                    if (fileContentCache.size > cacheSizeLimit) {
-                                        const SIZE_BASE = 50 * 1024; // 50KB 归一基准
-                                        const now = Date.now();
-                                        const valueOf = (entry) => {
-                                            const age = Math.max(now - entry.timestamp, 1);
-                                            const sizeWeight = 1 + Math.log2(1 + (entry.size || 0) / SIZE_BASE);
-                                            return sizeWeight / age;
-                                        };
-                                        while (fileContentCache.size > cacheSizeLimit) {
-                                            let victimKey = null;
-                                            let minValue = Infinity;
-                                            for (const [key, entry] of fileContentCache) {
-                                                if (key === cacheUri) continue; // 不淘汰刚写入的项
-                                                const v = valueOf(entry);
-                                                if (v < minValue) {
-                                                    minValue = v;
-                                                    victimKey = key;
-                                                }
-                                            }
-                                            if (!victimKey) break;
-                                            fileContentCache.delete(victimKey);
-                                            //console.log(`[definition] Cache evicted: ${victimKey} (${fileContentCache.size} entries remaining)`);
-                                        }
-                                    }
-
-                                    //console.log(`[definition] updateContent content for ${cacheUri} with version ${message.documentVersion}`);
-                                    
-                                    // 单槽命中(if 分支)时后端会回传 range/curLine；
-                                    // 按 uri 现取(else 分支)时不回传，回退到 metadata 阶段保存的定位信息。
-                                    updateEditorContent(message.body, {
-                                        newUri: message.uri,
-                                        languageId: message.languageId,
-                                        range: message.range != null ? message.range : editorState.range,
-                                        curLine: message.curLine != null ? message.curLine : editorState.curLine
-                                    });
+                                case 'updateContent':
+                                    handleUpdateContent(message);
                                     break;
-                                }
                                 case 'noContent':
-                                    //console.log('[definition] Showing no content message');
-                                    // 隐藏左侧定义列表
-                                    clearDefinitionList();
-                                    
-                                    // 检查编辑器是否已创建
-                                    if (typeof editor !== 'undefined' && editor) {
-                                        // 使用Monaco编辑器显示"No symbol found."并高亮"No symbol"
-                                        document.getElementById('container').style.display = 'block';
-                                        document.getElementById('main').style.display = 'none';
-                                        
-                                        // 设置编辑器内容
-                                        const model = editor.getModel();
-                                        if (model) {
-                                            model.setValue('No symbol found.');
-                                            editor.updateOptions({ lineNumbersMinChars: 1 });
-                                            // 高亮"No symbol"（前9个字符）
-                                            // 保存装饰ID，以便后续清除
-                                            editorState.symboleDecorations = editor.deltaDecorations(editorState.symboleDecorations, [{ 
-                                                range: new monaco.Range(1, 1, 1, 1 + 9), 
-                                                options: { 
-                                                    className: 'highlighted-symbol-range', 
-                                                    inlineClassName: 'highlighted-symbol-inline' 
-                                                } 
-                                            }]);
-                                            
-                                            // 将光标移到超大列值，使其不可见
-                                            editor.setSelection({
-                                                startLineNumber: 1,
-                                                startColumn: 999999,
-                                                endLineNumber: 1,
-                                                endColumn: 999999
-                                            });
-                                            
-                                            // 强制编辑器重新布局以占满整个空间
-                                            setTimeout(() => {
-                                                editor.layout();
-                                            }, 100);
-                                        }
-                                    } else {
-                                        // 编辑器未创建，使用原始HTML显示
-                                        document.getElementById('container').style.display = 'none';
-                                        document.getElementById('main').style.display = 'block';
-                                        document.getElementById('main').innerHTML = message.body;
-                                    }
+                                    handleNoContent(message);
                                     break;
                                 //default:
                                     //console.log('[definition] Unknown message type:', message.type);
