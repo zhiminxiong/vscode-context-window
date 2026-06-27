@@ -193,65 +193,41 @@ export function activate(context: vscode.ExtensionContext) {
             }
         }));
     
-    context.subscriptions.push(
-        vscode.commands.registerCommand('vscode-context-window.testNavigate', () => {
-            // 测试 extension.ts 第10行（单点）
-            const singlePointRange = {
-                start: { line: 9, character: 5 },
-                end: { line: 9, character: 31 }
-            };
-            vscode.commands.executeCommand(
-                'vscode-context-window.navigateUri',
-                'file:///e:/code_proj/vscode-context-window/src/extension.ts',
-                singlePointRange
-            );
-        }));
+    registerDirectiveDecorations(context);
+}
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('vscode-context-window.testNavigateRange', () => {
-            // 测试 extension.ts 第10行第1字符 到 第20行第10字符的范围
-            const range = {
-                start: { line: 10, character: 1 },
-                end: { line: 20, character: 10 }
-            };
-            vscode.commands.executeCommand(
-                'vscode-context-window.navigateUri',
-                'file:///e:/code_proj/vscode-context-window/src/extension.ts',
-                range
-            );
-        }));
-
-    const contextWindowConfig = vscode.workspace.getConfiguration('contextView.contextWindow');
-    if (!contextWindowConfig.get('fixToken', false))
-        return;
-
+// 从 editor.tokenColorCustomizations 读取 #include 指令的前景色
+function readIncludeColor(): string {
     const config = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
-    const semanticHighlighting = (config?.get('textMateRules') || []) as Array<{
+    const textMateRules = (config?.get('textMateRules') || []) as Array<{
         scope: string;
-        settings: {
-            foreground?: string;
-        };
+        settings: { foreground?: string };
     }>;
-    let includeColor = '#0000FF'; // 默认颜色
-
-    // 查找 include 关键字的颜色设置
-    for (const rule of semanticHighlighting) {
+    for (const rule of textMateRules) {
         if (rule.scope === 'keyword.control.directive.include') {
-            includeColor = rule.settings.foreground || includeColor;
-            break;
+            return rule.settings.foreground || '#0000FF';
         }
     }
+    return '#0000FF'; // 默认颜色
+}
 
-    const editorConfig = vscode.workspace.getConfiguration('editor');
-    //const fontFamily = editorConfig.get('fontFamily') || 'Consolas, monospace';
-    const fontWeight = String(editorConfig.get('fontWeight') || 'normal');
-    //const fontSize = editorConfig.get('fontSize') || 14;
+/**
+ * 注册 #include / #pragma / #region / #endregion 等预处理指令的装饰器高亮。
+ * 仅当 contextView.contextWindow.fixToken 开启时生效，并随字体/颜色配置变更自动刷新。
+ */
+function registerDirectiveDecorations(context: vscode.ExtensionContext) {
+    const contextWindowConfig = vscode.workspace.getConfiguration('contextView.contextWindow');
+    if (!contextWindowConfig.get('fixToken', false)) {
+        return;
+    }
+
+    let includeColor = readIncludeColor();
+    const fontWeight = String(vscode.workspace.getConfiguration('editor').get('fontWeight') || 'normal');
 
     let decorationTypeInclude = vscode.window.createTextEditorDecorationType({
         color: includeColor,
         fontStyle: fontWeight === 'bold' ? 'oblique' : 'normal',
         fontWeight: fontWeight,
-        //textDecoration: `none; font-size: ${fontSize}px`  // 使用 textDecoration 来设置字体大小
     });
 
     function updateDecorations() {
@@ -268,17 +244,8 @@ export function activate(context: vscode.ExtensionContext) {
         while ((match = regex.exec(text))) {
             const startPos = editor.document.positionAt(match.index);
             const endPos = editor.document.positionAt(match.index + match[0].length);
-            const decoration = { range: new vscode.Range(startPos, endPos) };
-
-            if (match[1] === 'include') {
-                includeDecorations.push(decoration);
-            } else if (match[1] === 'pragma') {
-                includeDecorations.push(decoration);
-            } else if (match[1] === 'region') {
-                includeDecorations.push(decoration);
-            } else if (match[1] === 'endregion') {
-                includeDecorations.push(decoration);
-            }
+            // include / pragma / region / endregion 都使用同一种装饰
+            includeDecorations.push({ range: new vscode.Range(startPos, endPos) });
         }
 
         editor.setDecorations(decorationTypeInclude, includeDecorations);
@@ -296,28 +263,10 @@ export function activate(context: vscode.ExtensionContext) {
             e.affectsConfiguration('editor.fontSize') ||
             e.affectsConfiguration('editor.tokenColorCustomizations')) {
 
-            // 重新获取颜色设置
-            const config = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
-            const semanticHighlighting = (config?.get('textMateRules') || []) as Array<{
-                scope: string;
-                settings: {
-                    foreground?: string;
-                };
-            }>;
-            
-            // 更新颜色
-            for (const rule of semanticHighlighting) {
-                if (rule.scope === 'keyword.control.directive.include') {
-                    includeColor = rule.settings.foreground || '#0000FF';
-                    break;
-                }
-            }
+            includeColor = readIncludeColor();
+            const newFontWeight = String(vscode.workspace.getConfiguration('editor').get('fontWeight') || 'normal');
 
-            // 获取新的字体设置
-            const editorConfig = vscode.workspace.getConfiguration('editor');
-            const newFontWeight = String(editorConfig.get('fontWeight') || 'normal');
-
-            // 更新装饰器
+            // 重建装饰器
             decorationTypeInclude.dispose();
             decorationTypeInclude = vscode.window.createTextEditorDecorationType({
                 color: includeColor,

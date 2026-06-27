@@ -16,7 +16,14 @@ interface FileCacheEntry {
     content: string;
     languageId: string;
     documentVersion: number;  // 添加：文档版本号
-    lastAccessTime: number;  // 最后访问时间，用于LRU淘汰
+}
+
+// loadContent 的返回结构：仅包含与 range 无关的内容与元数据
+interface LoadedContent {
+    content: string;
+    languageId: string;
+    documentVersion: number;
+    lineCount: number;
 }
 
 export class Renderer {
@@ -26,7 +33,10 @@ export class Renderer {
     private readonly _onNeedsRender = new vscode.EventEmitter<void>();
     public readonly needsRender: vscode.Event<void>;
 
-    // 大文件内容缓存
+    // 大文件内容缓存。
+    // 利用 JS Map 保持插入顺序的特性实现 O(1) LRU：
+    //   命中时 delete + set 把条目移到末尾（最近使用）；
+    //   淘汰时直接取 keys().next().value（最旧条目）。
     private readonly _fileCache = new Map<string, FileCacheEntry>();
     // 后端大文件缓存容量（可配）：最多缓存多少个大文件
     private maxCacheSize = 20;
@@ -52,7 +62,7 @@ export class Renderer {
     // 从 VS Code 配置读取后端缓存参数
     private refreshConfig(): void {
         const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
-        this.maxCacheSize = cfg.get('backendCacheSize', 20);
+        this.maxCacheSize = Math.max(1, cfg.get('backendCacheSize', 20));
         // 配置以 KB 为单位，转换为字节
         this.largeFileSizeThreshold = cfg.get('backendLargeFileSize', 100) * 1024;
         // 新容量可能比当前缓存小，主动裁剪到位
@@ -82,63 +92,21 @@ export class Renderer {
         }
     }
 
+    /**
+     * 跳转渲染：读取文件内容并补上定位 range。
+     */
     private async getFileContents(uri: vscode.Uri, range: vscode.Range, languageId: string): Promise<FileContentInfo> {
-        const cacheKey = uri.toString();
-
-        // 先打开文档获取版本号（无论如何都需要打开文档）
-        //let beginTime = Date.now();
-        const doc = await vscode.workspace.openTextDocument(uri);
-        //let costtime = Date.now() - beginTime;
-        //console.log(`[definition] 打开文档 ${uri.toString()} 花费时间: ${costtime} ms`);
-        const currentVersion = doc.version;
-
-        // 1. 先检查缓存
-        const cached = this._fileCache.get(cacheKey);
-        if (cached && cached.documentVersion === currentVersion) {
-            //console.log(`[definition] getFileContents Cache hit for ${cacheKey}`);
-            // 更新访问时间（LRU）
-            cached.lastAccessTime = Date.now();
-            return {
-                content: cached.content,
-                range: {
-                    start: { line: range.start.line, character: range.start.character },
-                    end: { line: range.end.line, character: range.end.character }
-                },
-                jmpUri: uri.toString(),
-                languageId: cached.languageId,
-                documentVersion: currentVersion,
-                lineCount: doc.lineCount
-            };
-        }
-
-        const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
-        const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || languageId);
-
-        let content = this.readFullFileContent(doc);
-
-        // 按内容字节大小判定是否为大文件（content 已无条件读取，零额外开销）
-        const isLargeFile = content.length > this.largeFileSizeThreshold;
-
-        if (isLargeFile) {
-            //console.log(`[definition] getFileContents Caching large file content for ${cacheKey} (size: ${content.length})`);
-            this.addToCache(cacheKey, {
-                content,
-                languageId: finalLanguageId,
-                documentVersion: currentVersion,
-                lastAccessTime: Date.now()
-            });
-        }
-
+        const loaded = await this.loadContent(uri, languageId);
         return {
-            content,
+            content: loaded.content,
             range: {
                 start: { line: range.start.line, character: range.start.character },
                 end: { line: range.end.line, character: range.end.character }
             },
             jmpUri: uri.toString(),
-            languageId: finalLanguageId,
-            documentVersion: currentVersion,
-            lineCount: doc.lineCount
+            languageId: loaded.languageId,
+            documentVersion: loaded.documentVersion,
+            lineCount: loaded.lineCount
         };
     }
 
@@ -148,20 +116,25 @@ export class Renderer {
      * 大文件自动命中 _fileCache，小文件重新读取也很便宜。
      * 由调用方负责把定位信息（range/curLine）补上，本方法只管内容。
      */
-    public async getContentByUri(uri: vscode.Uri): Promise<{
-        content: string;
-        languageId: string;
-        documentVersion: number;
-        lineCount: number;
-    }> {
+    public async getContentByUri(uri: vscode.Uri): Promise<LoadedContent> {
+        return this.loadContent(uri);
+    }
+
+    /**
+     * 统一的内容加载逻辑：打开文档 → 查缓存 → 判定大文件 → 入缓存。
+     * 是 getFileContents 与 getContentByUri 的公共底座，避免两处流程重复、行为漂移。
+     * @param fallbackLanguageId 当文档自身无 languageId 时的回退语言（跳转场景传入当前编辑器语言）
+     */
+    private async loadContent(uri: vscode.Uri, fallbackLanguageId?: string): Promise<LoadedContent> {
         const cacheKey = uri.toString();
         const doc = await vscode.workspace.openTextDocument(uri);
         const currentVersion = doc.version;
 
-        // 命中后端大文件缓存且版本一致：直接返回
+        // 命中后端大文件缓存且版本一致：直接返回，并把条目移到末尾（O(1) LRU）
         const cached = this._fileCache.get(cacheKey);
         if (cached && cached.documentVersion === currentVersion) {
-            cached.lastAccessTime = Date.now();
+            this._fileCache.delete(cacheKey);
+            this._fileCache.set(cacheKey, cached);
             return {
                 content: cached.content,
                 languageId: cached.languageId,
@@ -171,16 +144,15 @@ export class Renderer {
         }
 
         const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
-        const finalLanguageId = fileExtension === 'inc' ? 'cpp' : doc.languageId;
+        const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || fallbackLanguageId || 'plaintext');
         const content = this.readFullFileContent(doc);
 
-        // 大文件入缓存，与 getFileContents 行为保持一致
+        // 按内容字节大小判定是否为大文件（content 已无条件读取，零额外开销）
         if (content.length > this.largeFileSizeThreshold) {
             this.addToCache(cacheKey, {
                 content,
                 languageId: finalLanguageId,
-                documentVersion: currentVersion,
-                lastAccessTime: Date.now()
+                documentVersion: currentVersion
             });
         }
 
@@ -198,36 +170,28 @@ export class Renderer {
         return doc.getText(rangeText);
     }
 
-    // 添加到缓存（LRU淘汰）
+    // 添加到缓存（O(1) LRU）
     private addToCache(key: string, entry: FileCacheEntry): void {
-        // 如果已存在，直接更新
+        // 如果已存在，先删除再插入，使其移到末尾（最近使用）
         if (this._fileCache.has(key)) {
+            this._fileCache.delete(key);
             this._fileCache.set(key, entry);
             return;
         }
-        
-        // 如果缓存已满，淘汰最久未访问的
+
+        // 如果缓存已满，淘汰最久未访问的（Map 头部）
         while (this._fileCache.size >= this.maxCacheSize) {
             this.evictLRU();
         }
-        
-        // 添加新条目
+
+        // 添加新条目（位于末尾）
         this._fileCache.set(key, entry);
     }
 
-    // LRU淘汰：移除最久未访问的条目
+    // LRU 淘汰：移除最久未访问的条目（Map 头部，O(1)）
     private evictLRU(): void {
-        let oldestKey: string | null = null;
-        let oldestTime = Infinity;
-        
-        for (const [key, entry] of this._fileCache.entries()) {
-            if (entry.lastAccessTime < oldestTime) {
-                oldestTime = entry.lastAccessTime;
-                oldestKey = key;
-            }
-        }
-        
-        if (oldestKey) {
+        const oldestKey = this._fileCache.keys().next().value;
+        if (oldestKey !== undefined) {
             this._fileCache.delete(oldestKey);
         }
     }

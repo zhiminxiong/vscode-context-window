@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 import { Renderer, FileContentInfo } from './renderer';
-import * as path from 'path';
-import { time } from 'console';
 
 enum UpdateMode {
     Live = 'live',
     Sticky = 'sticky',
 }
 const maxHistorySize = 50;
+const MOUSE_RELEASE_DELAY = 300;   // 鼠标松开检测延时（ms）
+const INITIAL_UPDATE_DELAY = 2000; // 初始化后保底更新延时（ms）
 
 interface HistoryInfo {
     content: FileContentInfo | undefined;
@@ -55,6 +55,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _lastContentHash: string | undefined;  // 最近一次的内容标识
     private _lastContent: FileContentInfo | undefined;  // 最近一次的内容
 
+    private _progressDepth = 0;  // 进度条嵌套计数：归零才隐藏，避免并发更新时进度条错配
+
     constructor(
         private readonly _extensionUri: vscode.Uri,
     ) {
@@ -87,24 +89,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             }
         }, null, this._disposables);
 
-        // Listens for changes to workspace folders (when user adds/removes folders)
-        vscode.workspace.onDidChangeWorkspaceFolders(() => {
-            if (this._currentPanel) {
-                //ContextWindowProvider.outputChannel.appendLine('[definition] onDidChangeWorkspaceFolders dispose');
-                //this._currentPanel.dispose();
-                //this._currentPanel = undefined;
-            }
-        }, null, this._disposables);
-
-        // 失去焦点时
-        vscode.window.onDidChangeWindowState((e) => {
-            if (!e.focused && this._currentPanel) {
-                //ContextWindowProvider.outputChannel.appendLine('[definition] onDidChangeWindowState dispose');
-                //this._currentPanel.dispose();
-                //this._currentPanel = undefined;
-            }
-        }, null, this._disposables);
-
         // when the extension is deactivated，clean up resources
         this._disposables.push(
             vscode.Disposable.from({
@@ -116,7 +100,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 }
             })
         );
-        let lastPosition: vscode.Position | undefined;
         let lastDocumentVersion: number | undefined;
         // 修改选择变化事件处理
         vscode.window.onDidChangeTextEditorSelection((e) => {
@@ -125,18 +108,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 return;
             }
 
-            const currentPosition = e.selections[0].active;
             const currentDocumentVersion = e.textEditor.document.version;
 
             // 检查是否是输入事件（文档版本变化）
             if (lastDocumentVersion && currentDocumentVersion !== lastDocumentVersion) {
-                //console.log('[definition] onDidChangeTextEditorSelection ret: ', currentDocumentVersion, lastDocumentVersion);
+                // 输入事件（文档版本变化）：仅记录版本，不触发更新
                 lastDocumentVersion = currentDocumentVersion;
-                lastPosition = currentPosition;
                 return;
             }
 
-            lastPosition = currentPosition;
             lastDocumentVersion = currentDocumentVersion;
 
             //console.log('[definition] onDidChangeTextEditorSelection: ', e);
@@ -163,7 +143,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                                 this.update();
                             }
                         }
-                    }, 300); // 300ms 后检查鼠标状态
+                    }, MOUSE_RELEASE_DELAY);
                 } else {
                     // 键盘事件：直接更新
                     this._handleKeyboardUpdate();
@@ -181,9 +161,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         // Add delayed initial update，保底更新
         setTimeout(() => {
-            //console.log('[definition] timeout update');
             this.update(/* force */ true);
-        }, 2000); // Wait for 2 seconds after initialization
+        }, INITIAL_UPDATE_DELAY);
 
         // listen for language status changes
         vscode.languages.onDidChangeDiagnostics(e => {
@@ -386,91 +365,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 // dark或hc-black主题
                 config.customThemeRules = contextWindowConfig.get('darkThemeRules', []);
             }
-            /*
-            [
-                    { "token": "keyword", "foreground": "#0000ff", "description": "static|private|protected|public etc." },
-                    { "token": "keyword.type", "foreground": "#ff0000", "fontStyle": "bold", "description": "keyword such as function class etc." },
-                    { "token": "keyword.flow", "foreground": "#ff0000", "fontStyle": "bold", "description": "if|else|for|while etc." },
-                    { "token": "keyword.directive", "foreground": "#0000ff", "description": "#include|#pragma|#region|#endregion etc." },
-                    { "token": "keyword.directive.control", "foreground": "#ff0000", "fontStyle": "bold", "description": "#define|#undef|#if|#elif|#else|#endif etc." },
-                    { "token": "variable.name", "foreground": "#000080", "fontStyle": "bold" },
-                    { "token": "variable.parameter", "foreground": "#000080" },
-                    { "token": "identifier", "foreground": "#000080" },
-                    { "token": "type", "foreground": "#0000ff" },
-                    { "token": "class.name", "foreground": "#0000ff", "fontStyle": "bold" },
-                    { "token": "function.name", "foreground": "#a00000", "fontStyle": "bold" },
-                    { "token": "method.name", "foreground": "#a00000", "fontStyle": "bold" },
-                    { "token": "string", "foreground": "#005700" },
-                    { "token": "string.escape", "foreground": "#005700" },
-                    { "token": "number", "foreground": "#ff0000" },
-                    { "token": "boolean", "foreground": "#800080" },
-                    { "token": "regexp", "foreground": "#811f3f" },
-                    { "token": "null", "foreground": "#0000ff" },
-                    { "token": "comment", "foreground": "#005700" },
-                    { "token": "property", "foreground": "#000080" },
-                    { "token": "operator", "foreground": "#800080" },
-                    { "token": "delimiter", "foreground": "#000000" },
-                    { "token": "delimiter.bracket", "foreground": "#000000" },
-                    { "token": "delimiter.parenthesis", "foreground": "#000000" },
-                    { "token": "delimiter.angle", "foreground": "#000000" },
-                    { "token": "macro", "foreground": "#A00000", "fontStyle": "italic" },
-                    
-                    { "token": "variable", "foreground": "#000080" },
-                    { "token": "variable.predefined", "foreground": "#ff0000", "fontStyle": "bold" },
-                    { "token": "type.declaration", "foreground": "#0000ff" },
-                    { "token": "class", "foreground": "#ff0000" },
-                    { "token": "entity.name.type.class", "foreground": "#ff0000", "fontStyle": "bold" },
-                    { "token": "entity.name.type", "foreground": "#ff0000", "fontStyle": "bold" },
-                    { "token": "interface", "foreground": "#ff0000" },
-                    { "token": "enum", "foreground": "#ff0000" },
-                    { "token": "struct", "foreground": "#ff0000" },
-                    { "token": "function", "foreground": "#a00000" },
-                    { "token": "function.call", "foreground": "#a00000" },
-                    { "token": "method", "foreground": "#a00000" },
-                    { "token": "comment.doc", "foreground": "#005700" },
-                    { "token": "property.declaration", "foreground": "#000080" },
-                    { "token": "member", "foreground": "#000080" },
-                    { "token": "field", "foreground": "#000080" },
-                    { "token": "tag", "foreground": "#800000" },
-                    { "token": "tag.attribute.name", "foreground": "#000080" },
-                    { "token": "attribute.name", "foreground": "#000080" },
-                    { "token": "attribute.value", "foreground": "#0000ff" },
-                    { "token": "namespace", "foreground": "#ff0000" },
-                    { "token": "constant", "foreground": "#800080" },
-                    { "token": "constant.language", "foreground": "#0000ff" },
-                    { "token": "modifier", "foreground": "#0000ff" },
-                    { "token": "constructor", "foreground": "#a00000" },
-                    { "token": "decorator", "foreground": "#800080" },
-                    { "token": "keyword.control", "foreground": "#ff0000" },
-                    { "token": "keyword.operator", "foreground": "#800080" },
-                    { "token": "keyword.declaration", "foreground": "#0000ff" },
-                    { "token": "keyword.modifier", "foreground": "#0000ff" },
-                    { "token": "keyword.conditional", "foreground": "#ff0000" },
-                    { "token": "keyword.repeat", "foreground": "#ff0000" },
-                    { "token": "keyword.exception", "foreground": "#ff0000" },
-                    { "token": "keyword.other", "foreground": "#0000ff" },
-                    { "token": "keyword.predefined", "foreground": "#0000ff" },
-                    { "token": "keyword.function", "foreground": "#ff0000", "fontStyle": "bold" }
-                    ]
-            */
         } else {
             config.customThemeRules = [];
         }
 
-        //console.log('[definition] editor', editorConfig);
-        
-        // 添加语法高亮配置
-        // if (tokenColorCustomizations) {
-        //     console.log('[definition] tokenColorCustomizations', tokenColorCustomizations);
-        //     config.tokenColorCustomizations = tokenColorCustomizations;
-        // }
-        
-        // 添加语义高亮配置
-        // if (semanticTokenColorCustomizations) {
-        //     console.log('[definition] semanticTokenColorCustomizations', semanticTokenColorCustomizations);
-        //     config.semanticTokenColorCustomizations = semanticTokenColorCustomizations;
-        // }
-        
         return config;
     }
 
@@ -512,11 +410,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             const contentInfo = this._history[this._historyIndex];
             this.updateContent(contentInfo?.content, contentInfo.navigateLine);
         }
-    }
-
-    private isSameUri(uri: string): boolean {
-        let curFileContentInfo = (this._historyIndex < this._history.length) ? this._history[this._historyIndex] : undefined;
-        return (curFileContentInfo && curFileContentInfo.content) ? (curFileContentInfo.content.jmpUri === uri) : false;
     }
 
     public showFloatingWebview() {
@@ -610,131 +503,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private async handleWebviewMessage(webview: vscode.Webview) {
         webview.onDidReceiveMessage(async message => {
             const editor = vscode.window.activeTextEditor || this._lastUpdateEditor;
-            // if (!vscode.window.activeTextEditor && this._lastUpdateEditor) {
-            //     console.error('[definition] No active text editor found, using last updated editor');
-            // }
-            //console.log('[definition] Received message from webview:', message);
             switch (message.type) {
-                // 通过 token 查询颜色与字体样式（仅从 rules 读取）
-                case 'tokenStyle.get': {
-                    try {
-                        const token = String(message.token ?? '');
-                        const rules = this.getThemeRules();
-                        //console.log('[definition] tokenStyle.get rules', rules);
-                        let rule = rules.find(r => r && r.token === token);
-                        //console.log('[definition] tokenStyle.get exact rule: ', rule);
-                        // 如果找不到，去掉语言后缀（最后一个 . 之后的部分）再尝试一次
-                        if (!rule) {
-                            const lastDot = token.lastIndexOf('.');
-                            if (lastDot > 0) {
-                                const tokenNoLang = token.slice(0, lastDot);
-                                rule = rules.find(r => r && r.token === tokenNoLang);
-                            }
-                            //console.log('[definition] tokenStyle.get second rule: ', rule);
-                        }
-                        
-                        this.postMessageToWebview({
-                            type: 'tokenStyle.get.result',
-                            token,
-                            found: !!rule,
-                            style: rule,
-                        });
-                    } catch (err) {
-                        this.postMessageToWebview({
-                            type: 'tokenStyle.get.result',
-                            error: String(err),
-                            token: message?.token,
-                            found: false,
-                            style: null,
-                        });
-                    }
+                case 'tokenStyle.get':
+                    this.handleTokenStyleGet(message);
                     break;
-                }
-
-                // 通过 token 设置颜色与字体样式（仅写入 rules，并只下发 rules 的更新消息）
-                case 'tokenStyle.set': {
-                    try {
-                        const token = String(message.token ?? '').trim();
-                        const patch: { foreground?: string; fontStyle?: string } = {};
-
-                        if (message.newStyle && typeof message.newStyle.foreground === 'string' && message.newStyle.foreground.trim()) {
-                            patch.foreground = message.newStyle.foreground.trim();
-                        }
-                        if (message.newStyle && (message.newStyle.bold || message.newStyle.italic)) {
-                            if (message.newStyle.bold && message.newStyle.italic) {
-                                patch.fontStyle = "bold italic";
-                            } else if (message.newStyle.bold) {
-                                patch.fontStyle = "bold";
-                            } else if (message.newStyle.italic) {
-                                patch.fontStyle = "italic";
-                            }
-                        }
-                        if (!token) {
-                            throw new Error('token is required');
-                        }
-
-                        //console.log('[definition] tokenStyle.set token:', token, 'patch:', patch);
-
-                        const prev = this.getThemeRules();
-                        const next = this.upsertRule(prev, token, patch);
-                        await this.setThemeRules(next);
-
-                        //console.log('[definition] tokenStyle.set updated rules', next);
-                        //const cur = this.getThemeRules();
-                        //console.log('[definition] tokenStyle.set cur rules', cur);
-
-                        // 仅推送 rules 的变更，不带其它配置
-                        // this.postMessageToWebview({
-                        //     type: 'customThemeRules.update',
-                        //     customThemeRules: next,
-                        // });
-
-                        // 回传设置结果
-                        // this.postMessageToWebview({
-                        //     type: 'tokenStyle.set.result',
-                        //     ok: true,
-                        //     token,
-                        //     style: { foreground: patch.foreground, fontStyle: patch.fontStyle },
-                        // });
-                    } catch (err) {
-                        this.postMessageToWebview({
-                            type: 'tokenStyle.set.result',
-                            ok: false,
-                            token: message?.token,
-                            error: String(err),
-                        });
-                    }
+                case 'tokenStyle.set':
+                    await this.handleTokenStyleSet(message);
                     break;
-                }
                 case 'editorReady':
-                    if (this._currentPanel && webview == this._currentPanel.webview) {
-                        let curContext = this.getCurrentContent();
-                        //console.log('[definition] editorReady');
-                        // If we have cached content, restore it immediately
-                        if (curContext?.content) {
-                            //console.log('[definition] editorReady update');
-
-                            const uri = curContext.content.jmpUri.toString();
-                            const currentVersion = curContext.content.documentVersion;
-                            
-                            // 生成内容的唯一标识
-                            const contentHash = `${uri}:${currentVersion}`;
-
-                            this._currentPanel.webview.postMessage({
-                                type: 'updateMetadata',
-                                contentHash: contentHash,
-                                uri: uri,
-                                languageId: curContext.content.languageId,
-                                updateMode: this._updateMode,
-                                curLine: curContext.navigateLine + 1,
-                                documentVersion: currentVersion
-                            });
-                        }
-                        this.postMessageToWebview({
-                            type: 'pinState',
-                            pinned: this._pinned
-                        });
-                    }
+                    this.handleEditorReady(webview);
                     break;
                 case 'pin':
                     await vscode.commands.executeCommand('contextView.contextWindow.pin');
@@ -746,195 +523,307 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     this.showFloatingWebview();
                     break;
                 case 'revealInFileExplorer':
-                    if (message.filePath) {
-                        try {
-                            const uri = vscode.Uri.parse(message.filePath);
-                            await vscode.commands.executeCommand('revealFileInOS', uri);
-                        } catch (error) {
-                            console.error('[definition] revealInExplorer error:', error);
-                        }
-                    }
+                    await this.handleRevealInFileExplorer(message);
                     break;
                 case 'navigate':
                     this.navigate(message.direction);
                     break;
                 case 'requestContent':
-                    // WebView 请求完整内容（只返回最近一次的内容）
-                    if (message.contentHash && message.contentHash === this._lastContentHash && this._lastContent) {
-                        this.postMessageToWebview({
-                            type: 'updateContent',
-                            contentHash: this._lastContentHash,
-                            body: this._lastContent.content,
-                            uri: this._lastContent.jmpUri.toString(),
-                            languageId: this._lastContent.languageId,
-                            updateMode: this._updateMode,
-                            range: this._lastContent.range,
-                            documentVersion: this._lastContent.documentVersion,
-                            lineCount: this._lastContent.lineCount
-                        });
-                    } else {
-                        // 单槽快照未命中：不再放弃，改为按 uri 现取。
-                        // 大文件自动命中后端 _fileCache，小文件重新读取也很便宜；
-                        // 不再依赖会被下一次 updateContent 覆盖的 _lastContent 单槽。
-                        (async () => {
-                            try {
-                                const reqUri = vscode.Uri.parse(message.uri);
-                                const info = await this._renderer.getContentByUri(reqUri);
-                                this.postMessageToWebview({
-                                    type: 'updateContent',
-                                    contentHash: message.contentHash,
-                                    body: info.content,
-                                    uri: message.uri,
-                                    languageId: info.languageId,
-                                    updateMode: this._updateMode,
-                                    documentVersion: info.documentVersion,
-                                    lineCount: info.lineCount
-                                    // 不回传 range/curLine：前端用 updateMetadata 阶段保存的定位信息
-                                });
-                            } catch (e) {
-                                this.postMessageToWebview({
-                                    type: 'contentError',
-                                    contentHash: message.contentHash,
-                                    uri: message.uri,
-                                    message: 'Content not available'
-                                });
-                            }
-                        })();
-                    }
+                    this.handleRequestContent(message);
                     break;
                 case 'jumpDefinition':
-                    if (editor && message.uri?.length > 0) {
-                        /* if (this.isSameDefinition(message.uri, message.position.line, message.token)) {
-                            // 不需处理
-                            //console.log('[definition] SameDefinition:', message.position);
-                        } else  */{
-                            const updatePromise = (async () => {
-                                let definitions = await vscode.commands.executeCommand<vscode.Location[]>(
-                                    'vscode.executeDefinitionProvider',
-                                    vscode.Uri.parse(message.uri),
-                                    new vscode.Position(message.position.line, message.position.character)
-                                );
-
-                                if (definitions && definitions.length > 0) {
-                                    //console.log('[definition] jumpDefinition: ', definitions);
-                                    
-                                    // 主动隐藏定义列表（在处理新的跳转前）
-                                    if (definitions.length === 1) {
-                                        this.postMessageToWebview({
-                                            type: 'clearDefinitionList'
-                                        });
-                                    }
-
-                                    let definition = definitions[0];
-                                    
-                                    // 如果有多个定义，传递给 Monaco Editor
-                                    if (definitions.length > 1) {
-                                        const currentPosition = new vscode.Position(message.position.line, message.position.character);
-                                        definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
-                                    }
-                                    //console.log('[definition] jumpDefinition: ', message.token);
-
-                                    const contentInfo = await this._renderer.renderDefinition(editor.document.languageId, definition);
-                                    this.updateContent(contentInfo);
-                                    this.addToHistory(contentInfo, message.position.line);
-                                } else {
-                                    //console.log('[definition] No symbol found at position:', message.position);
-                                    this.postMessageToWebview({
-                                            type: 'noSymbolFound',
-                                            pos: message.position,
-                                            token: message.token
-                                        });
-                                }
-                            })();
-
-                            this.withProgress<void>(()=>updatePromise);
-                        }
-                    }
+                    this.handleJumpDefinition(message, editor);
                     break;
                 case 'doubleClick':
-                    if (message.location === 'bottomArea') {
-                        let curContext = this.getCurrentContent();
-                        this.currentUri = (curContext && curContext.content)? vscode.Uri.parse(curContext.content.jmpUri) : undefined;
-                        this.currentLine = (curContext && curContext.content)? curContext.content.range.start.line : 0;
-                        if (this.currentUri) {
-                            // 打开文件
-                            const document = await vscode.workspace.openTextDocument(this.currentUri);
-                            
-                            // 跳转到指定行
-                            const line = this.currentLine;//message.line - 1; // VSCode的行号从0开始
-                            const range = new vscode.Range(line, 0, line, 0);
-
-                            let column = this._currentPanel ? vscode.ViewColumn.One : vscode.ViewColumn.Active;
-
-                            const editor = await vscode.window.showTextDocument(document, {
-                                selection: range,
-                                viewColumn: column,
-                                preserveFocus: false,
-                                preview: false
-                            });
-
-                            if (editor != vscode.window.activeTextEditor) {
-                                console.error('[definition] Failed to open text editor');
-                            }
-                            
-                            // 移动光标并显示该行
-                            //editor.selection = new vscode.Selection(range.start, range.start);
-                            //editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-                            this._currentCacheKey = createCacheKey(vscode.window.activeTextEditor);
-                        }
-                    }
+                    await this.handleDoubleClick(message);
                     break;
                 case 'definitionItemSelected':
-                    // 处理定义列表项被选中的情况
-                    //console.log('[definition] Definition item selected:', message);
-                    
-                    if (this._pickItems && message.index !== undefined) {
-                        const selected = this._pickItems[message.index];
-                        if (selected && editor) {
-                            // 渲染选中的定义
-                            // this._renderer.renderDefinition(editor.document.languageId, selected.definition).then(contentInfo => {
-                            //     this.updateContent(contentInfo);
-                            //     // 更新历史记录的内容，但保持当前行号
-                            //     if (this._history.length > this._historyIndex) {
-                            //         this._history[this._historyIndex].content = contentInfo;
-                            //     }
-                            // });
-                            const updatePromise = (async () => {
-                                try {
-                                    const contentInfo = await this._renderer.renderDefinition(
-                                        editor.document.languageId, 
-                                        selected.definition
-                                    );
-                                    
-                                    this.updateContent(contentInfo);
-                                    
-                                    // 更新历史记录
-                                    if (this._history.length > this._historyIndex) {
-                                        this._history[this._historyIndex].content = contentInfo;
-                                    }
-                                } catch (error) {
-                                    // 错误处理
-                                    this.postMessageToWebview({
-                                        type: 'showContentError',
-                                        message: 'Failed to load definition content'
-                                    });
-                                }
-                            })();
-
-                            setTimeout(() => {
-                                this.withProgress<void>(()=>updatePromise);
-                            }, 0); 
-                        }
-                    }
+                    this.handleDefinitionItemSelected(message, editor);
                     break;
                 case 'closeDefinitionList':
-                    // 处理关闭定义列表的请求
-                    this.postMessageToWebview({
-                        type: 'clearDefinitionList'
-                    });
+                    this.postMessageToWebview({ type: 'clearDefinitionList' });
                     break;
             }
         });
+    }
+
+    /**
+     * 统一发送 updateMetadata 消息，避免在多处重复构造 contentHash + postMessage。
+     * @param content      内容信息
+     * @param curLine      1-based 当前行（-1 表示无）
+     * @param includeRange 是否附带 range（updateContent 场景需要）
+     * @param target       指定目标 webview；不传则广播到 view + panel
+     */
+    private postMetadata(content: FileContentInfo, curLine: number, includeRange: boolean, target?: vscode.Webview) {
+        const uri = content.jmpUri.toString();
+        const currentVersion = content.documentVersion;
+        const msg: any = {
+            type: 'updateMetadata',
+            contentHash: `${uri}:${currentVersion}`,
+            uri,
+            languageId: content.languageId,
+            updateMode: this._updateMode,
+            curLine,
+            documentVersion: currentVersion
+        };
+        if (includeRange) {
+            msg.range = content.range;
+        }
+        if (target) {
+            target.postMessage(msg);
+        } else {
+            this.postMessageToWebview(msg);
+        }
+    }
+
+    // 通过 token 查询颜色与字体样式（仅从 rules 读取）
+    private handleTokenStyleGet(message: any) {
+        try {
+            const token = String(message.token ?? '');
+            const rules = this.getThemeRules();
+            let rule = rules.find(r => r && r.token === token);
+            // 如果找不到，去掉语言后缀（最后一个 . 之后的部分）再尝试一次
+            if (!rule) {
+                const lastDot = token.lastIndexOf('.');
+                if (lastDot > 0) {
+                    const tokenNoLang = token.slice(0, lastDot);
+                    rule = rules.find(r => r && r.token === tokenNoLang);
+                }
+            }
+
+            this.postMessageToWebview({
+                type: 'tokenStyle.get.result',
+                token,
+                found: !!rule,
+                style: rule,
+            });
+        } catch (err) {
+            this.postMessageToWebview({
+                type: 'tokenStyle.get.result',
+                error: String(err),
+                token: message?.token,
+                found: false,
+                style: null,
+            });
+        }
+    }
+
+    // 通过 token 设置颜色与字体样式（仅写入 rules）
+    private async handleTokenStyleSet(message: any) {
+        try {
+            const token = String(message.token ?? '').trim();
+            const patch: { foreground?: string; fontStyle?: string } = {};
+
+            if (message.newStyle && typeof message.newStyle.foreground === 'string' && message.newStyle.foreground.trim()) {
+                patch.foreground = message.newStyle.foreground.trim();
+            }
+            if (message.newStyle && (message.newStyle.bold || message.newStyle.italic)) {
+                if (message.newStyle.bold && message.newStyle.italic) {
+                    patch.fontStyle = "bold italic";
+                } else if (message.newStyle.bold) {
+                    patch.fontStyle = "bold";
+                } else if (message.newStyle.italic) {
+                    patch.fontStyle = "italic";
+                }
+            }
+            if (!token) {
+                throw new Error('token is required');
+            }
+
+            const prev = this.getThemeRules();
+            const next = this.upsertRule(prev, token, patch);
+            await this.setThemeRules(next);
+        } catch (err) {
+            this.postMessageToWebview({
+                type: 'tokenStyle.set.result',
+                ok: false,
+                token: message?.token,
+                error: String(err),
+            });
+        }
+    }
+
+    // 浮动面板的编辑器就绪：若有缓存内容则立即恢复
+    private handleEditorReady(webview: vscode.Webview) {
+        if (!(this._currentPanel && webview === this._currentPanel.webview)) {
+            return;
+        }
+        const curContext = this.getCurrentContent();
+        if (curContext?.content) {
+            this.postMetadata(curContext.content, curContext.navigateLine + 1, false, this._currentPanel.webview);
+        }
+        this.postMessageToWebview({
+            type: 'pinState',
+            pinned: this._pinned
+        });
+    }
+
+    private async handleRevealInFileExplorer(message: any) {
+        if (!message.filePath) {
+            return;
+        }
+        try {
+            const uri = vscode.Uri.parse(message.filePath);
+            await vscode.commands.executeCommand('revealFileInOS', uri);
+        } catch (error) {
+            console.error('[context-window] revealInExplorer error:', error);
+        }
+    }
+
+    // WebView 请求完整内容（优先命中最近一次的单槽缓存，未命中则按 uri 现取）
+    private handleRequestContent(message: any) {
+        if (message.contentHash && message.contentHash === this._lastContentHash && this._lastContent) {
+            this.postMessageToWebview({
+                type: 'updateContent',
+                contentHash: this._lastContentHash,
+                body: this._lastContent.content,
+                uri: this._lastContent.jmpUri.toString(),
+                languageId: this._lastContent.languageId,
+                updateMode: this._updateMode,
+                range: this._lastContent.range,
+                documentVersion: this._lastContent.documentVersion,
+                lineCount: this._lastContent.lineCount
+            });
+            return;
+        }
+
+        // 单槽快照未命中：不再放弃，改为按 uri 现取。
+        // 大文件自动命中后端 _fileCache，小文件重新读取也很便宜；
+        // 不再依赖会被下一次 updateContent 覆盖的 _lastContent 单槽。
+        (async () => {
+            try {
+                const reqUri = vscode.Uri.parse(message.uri);
+                const info = await this._renderer.getContentByUri(reqUri);
+                this.postMessageToWebview({
+                    type: 'updateContent',
+                    contentHash: message.contentHash,
+                    body: info.content,
+                    uri: message.uri,
+                    languageId: info.languageId,
+                    updateMode: this._updateMode,
+                    documentVersion: info.documentVersion,
+                    lineCount: info.lineCount
+                    // 不回传 range/curLine：前端用 updateMetadata 阶段保存的定位信息
+                });
+            } catch (e) {
+                this.postMessageToWebview({
+                    type: 'contentError',
+                    contentHash: message.contentHash,
+                    uri: message.uri,
+                    message: 'Content not available'
+                });
+            }
+        })();
+    }
+
+    // 点击符号：查找定义并渲染
+    private handleJumpDefinition(message: any, editor: vscode.TextEditor | undefined) {
+        if (!editor || !(message.uri?.length > 0)) {
+            return;
+        }
+
+        const updatePromise = (async () => {
+            const definitions = await vscode.commands.executeCommand<vscode.Location[]>(
+                'vscode.executeDefinitionProvider',
+                vscode.Uri.parse(message.uri),
+                new vscode.Position(message.position.line, message.position.character)
+            );
+
+            if (definitions && definitions.length > 0) {
+                // 主动隐藏定义列表（在处理新的跳转前）
+                if (definitions.length === 1) {
+                    this.postMessageToWebview({ type: 'clearDefinitionList' });
+                }
+
+                let definition = definitions[0];
+
+                // 如果有多个定义，传递给 Monaco Editor
+                if (definitions.length > 1) {
+                    const currentPosition = new vscode.Position(message.position.line, message.position.character);
+                    definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
+                }
+
+                const contentInfo = await this._renderer.renderDefinition(editor.document.languageId, definition);
+                this.updateContent(contentInfo);
+                this.addToHistory(contentInfo, message.position.line);
+            } else {
+                this.postMessageToWebview({
+                    type: 'noSymbolFound',
+                    pos: message.position,
+                    token: message.token
+                });
+            }
+        })();
+
+        this.withProgress<void>(() => updatePromise);
+    }
+
+    // 双击底部区域：在主编辑区打开当前上下文文件并跳转
+    private async handleDoubleClick(message: any) {
+        if (message.location !== 'bottomArea') {
+            return;
+        }
+
+        const curContext = this.getCurrentContent();
+        this.currentUri = curContext?.content ? vscode.Uri.parse(curContext.content.jmpUri) : undefined;
+        this.currentLine = curContext?.content ? curContext.content.range.start.line : 0;
+        if (!this.currentUri) {
+            return;
+        }
+
+        const document = await vscode.workspace.openTextDocument(this.currentUri);
+        const line = this.currentLine;
+        const range = new vscode.Range(line, 0, line, 0);
+        const column = this._currentPanel ? vscode.ViewColumn.One : vscode.ViewColumn.Active;
+
+        const openedEditor = await vscode.window.showTextDocument(document, {
+            selection: range,
+            viewColumn: column,
+            preserveFocus: false,
+            preview: false
+        });
+
+        if (openedEditor !== vscode.window.activeTextEditor) {
+            console.error('[context-window] Failed to open text editor');
+        }
+
+        this._currentCacheKey = createCacheKey(vscode.window.activeTextEditor);
+    }
+
+    // 定义列表项被选中：渲染对应定义
+    private handleDefinitionItemSelected(message: any, editor: vscode.TextEditor | undefined) {
+        if (!this._pickItems || message.index === undefined) {
+            return;
+        }
+        const selected = this._pickItems[message.index];
+        if (!selected || !editor) {
+            return;
+        }
+
+        const updatePromise = (async () => {
+            try {
+                const contentInfo = await this._renderer.renderDefinition(
+                    editor.document.languageId,
+                    selected.definition
+                );
+
+                this.updateContent(contentInfo);
+
+                // 更新历史记录
+                if (this._history.length > this._historyIndex) {
+                    this._history[this._historyIndex].content = contentInfo;
+                }
+            } catch (error) {
+                this.postMessageToWebview({
+                    type: 'showContentError',
+                    message: 'Failed to load definition content'
+                });
+            }
+        })();
+
+        setTimeout(() => {
+            this.withProgress<void>(() => updatePromise);
+        }, 0);
     }
 
     private resetWebviewPanel(panel: vscode.WebviewPanel) {
@@ -1008,33 +897,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         webviewView.onDidChangeVisibility(() => {
             if (this._view?.visible) {
-                let curContext = this.getCurrentContent();
-                //console.log('[definition] onDidChangeVisibility');
-                // If we have cached content, restore it immediately
+                const curContext = this.getCurrentContent();
+                // 有缓存内容时立即恢复；没有则保持 Monaco "Ready for content." 状态，不主动查找定义
                 if (curContext?.content) {
-                    const uri = curContext.content.jmpUri.toString();
-                    const currentVersion = curContext.content.documentVersion;
-                    
-                    // 生成内容的唯一标识
-                    const contentHash = `${uri}:${currentVersion}`;
-                    this._view.webview.postMessage({
-                        type: 'updateMetadata',
-                        contentHash: contentHash,
-                        uri: uri,
-                        languageId: curContext.content.languageId,
-                        updateMode: this._updateMode,
-                        curLine: curContext.navigateLine + 1,
-                        documentVersion: currentVersion
-                    });
-                }
-                else {
-                    // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态
-                    // 不主动查找定义，也不显示"No symbol found..."
-                }
-            } else {
-                if (this._currentPanel) {
-                    //this._currentPanel.dispose();
-                    //this._currentPanel = undefined;
+                    this.postMetadata(curContext.content, curContext.navigateLine + 1, false, this._view.webview);
                 }
             }
         });
@@ -1045,29 +911,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         this.updateTitle();
 
-        let curContext = this.getCurrentContent();
+        const curContext = this.getCurrentContent();
 
-        // 初始加载时如果有缓存内容就直接使用
+        // 初始加载时如果有缓存内容就直接使用；否则保持 "Ready for content." 状态
         if (curContext?.content) {
-            //console.log('[definition] Using cached content for initial load');
-            const uri = curContext.content.jmpUri.toString();
-            const currentVersion = curContext.content.documentVersion;
-            
-            // 生成内容的唯一标识
-            const contentHash = `${uri}:${currentVersion}`;
-            this._view.webview.postMessage({
-                type: 'updateMetadata',
-                contentHash: contentHash,
-                uri: uri,
-                languageId: curContext.content.languageId,
-                updateMode: this._updateMode,
-                curLine: curContext.navigateLine + 1,
-                documentVersion: currentVersion
-            });
-        } else {
-            //console.log('[definition] No cached content, keeping Ready for content state');
-            // 没有缓存内容时，保持Monaco编辑器的"Ready for content."状态，不主动查找定义
-            // 只有用户主动点击符号时才会触发定义查找
+            this.postMetadata(curContext.content, curContext.navigateLine + 1, false, this._view.webview);
         }
 
         this._view.webview.postMessage({
@@ -1227,67 +1075,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         </html>`;
     }
 
-    // 添加等待面板准备就绪的方法
-    private waitForPanelReady(): Promise<void> {
-        return new Promise((resolve) => {
-            if (!this._view) {
-                resolve();
-                return;
-            }
-
-            // 设置超时，避免无限等待
-            const timeout = setTimeout(() => {
-                resolve();
-            }, 5000); // 5秒超时
-
-            // 监听面板的确认消息
-            const messageListener = this._view.webview.onDidReceiveMessage((message) => {
-                if (message.type === 'contentReady') {
-                    clearTimeout(timeout);
-                    messageListener.dispose();
-                    resolve();
-                }
-            });
-        });
-    }
-
     private async updateContent(contentInfo?: FileContentInfo, curLine: number =-1) {
-        //console.log('[definition] updateContent', contentInfo);
         if (contentInfo && contentInfo.content.length && contentInfo.jmpUri) {
-            //console.log(`definition: update content ${contentInfo.content}`);
-            const uri = contentInfo.jmpUri.toString();
-            const currentVersion = contentInfo.documentVersion;
-            
-            // 生成内容的唯一标识
-            const contentHash = `${uri}:${currentVersion}`;
-            
             // 只缓存最近一次的内容（供前端请求使用）
-            this._lastContentHash = contentHash;
+            this._lastContentHash = `${contentInfo.jmpUri.toString()}:${contentInfo.documentVersion}`;
             this._lastContent = contentInfo;
 
-            // this.postMessageToWebview({
-            //     type: 'update',
-            //     body: contentInfo.content,
-            //     uri: contentInfo.jmpUri.toString(),
-            //     languageId: contentInfo.languageId, // 添加语言ID
-            //     updateMode: this._updateMode,
-            //     curLine: (curLine !== -1) ? curLine + 1 : -1,
-            //     symbolName: contentInfo.symbolName // 添加符号名称
-            // });
-
-            //console.log(`[definition] updateContent: Sending metadata for contentHash ${contentHash}`);
-
-            // 先发送元数据（不包含 body）
-            this.postMessageToWebview({
-                type: 'updateMetadata',
-                contentHash: contentHash,
-                uri: uri,
-                languageId: contentInfo.languageId,
-                updateMode: this._updateMode,
-                range: contentInfo.range,
-                curLine: (curLine !== -1) ? curLine + 1 : -1,
-                documentVersion: currentVersion
-            });
+            // 先发送元数据（不包含 body），body 由前端按需 requestContent 拉取
+            this.postMetadata(contentInfo, (curLine !== -1) ? curLine + 1 : -1, true);
 
             if (this._currentPanel) {
                 let filePath;
@@ -1296,12 +1091,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 } catch (e) {
                     filePath = contentInfo.jmpUri;
                 }
-                let filename = filePath.split('/').pop()?.split('\\').pop();
+                const filename = filePath.split('/').pop()?.split('\\').pop();
                 this._currentPanel.title = filename ?? "Context Window";
             }
-
-            // 等待面板确认渲染完成
-            //await this.waitForPanelReady();
         } else {
             this.postMessageToWebview({
                 type: 'noContent',
@@ -1312,16 +1104,20 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     private async withProgress<T>(operation: () => Promise<T>): Promise<T> {
-        this.postMessageToWebview({ type: 'beginProgress' });
-        //console.log('[definition] beginProgress', new Date().toLocaleTimeString());
-        
+        // 用计数器配对 begin/end：只有首个开始时显示、最后一个结束时隐藏，
+        // 避免多次更新交叠导致进度条提前消失或卡住。
+        if (this._progressDepth === 0) {
+            this.postMessageToWebview({ type: 'beginProgress' });
+        }
+        this._progressDepth++;
+
         try {
-            // for test
-            //await new Promise(resolve => setTimeout(resolve, 5000));
             return await operation();
         } finally {
-            //console.log('[definition] endProgress', new Date().toLocaleTimeString());
-            this.postMessageToWebview({ type: 'endProgress' });
+            this._progressDepth--;
+            if (this._progressDepth === 0) {
+                this.postMessageToWebview({ type: 'endProgress' });
+            }
         }
     }
 
@@ -1392,65 +1188,19 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             }
         })();
 
-        this.withProgress<void>(()=>updatePromise);
-/*
-        await Promise.race([
-            updatePromise,
-
-            // Don't show progress indicator right away, which causes a flash
-            new Promise<void>(resolve => setTimeout(resolve, 0)).then(() => {
-                if (loadingEntry.cts.token.isCancellationRequested) {
-                    return;
-                }
-                return vscode.window.withProgress({ location: { viewId: ContextWindowProvider.viewType } }, () => updatePromise);
-            }),
-        ]);*/
+        this.withProgress<void>(() => updatePromise);
     }
 
-    // 修改选择事件处理方法
     private async getHtmlContentForActiveEditor(token: vscode.CancellationToken): Promise<FileContentInfo> {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
-            //console.log('No editor');
-            // Around line 452, there's likely a return statement like this:
-            // It needs to be updated to include the languageId property:
-            return { 
-                content: '',
-                range: {
-                    start: { line: 0, character: 0 },
-                    end: { line: 0, character: 0 }
-                },
-                jmpUri: '', languageId: 'plaintext', documentVersion: 0, lineCount: 0 
-            };
+            return createEmptyContent();
         }
-        // 获取当前光标位置
-        //const position = editor.selection.active;
-        
-        // 获取当前光标位置下的单词或标识符的范围
-        //const wordRange = editor.document.getWordRangeAtPosition(position);
 
-        // 获取该范围内的文本内容
-        //const selectedText = wordRange ? editor.document.getText(wordRange) : '';
-        //vscode.window.showInformationMessage(`Selected text: ${selectedText}`);
-
-        let definitions = await this.getDefinitionAtCurrentPositionInEditor(editor);
+        const definitions = await this.getDefinitionAtCurrentPositionInEditor(editor);
 
         if (token.isCancellationRequested || !definitions || definitions.length === 0) {
-            //console.log('[definition] No definitions found');
-            return { 
-                content: '',
-                range: {
-                    start: { line: 0, character: 0 },
-                    end: { line: 0, character: 0 }
-                },
-                jmpUri: '', languageId: 'plaintext', documentVersion: 0, lineCount: 0 
-            };
-        }
-
-        // 确保关闭之前的面板
-        if (this._currentPanel) {
-            //this._currentPanel.dispose();
-            //this._currentPanel = undefined;
+            return createEmptyContent();
         }
 
         let definition = definitions[0];
@@ -1459,14 +1209,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             const currentPosition = editor.selection.active;
             definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
             if (!definition) {
-                return { 
-                    content: '',
-                    range: {
-                        start: { line: 0, character: 0 },
-                        end: { line: 0, character: 0 }
-                    },
-                    jmpUri: '', languageId: 'plaintext', documentVersion: 0, lineCount: 0 
-                };
+                return createEmptyContent();
             }
         } else {
             // 主动隐藏定义列表
@@ -1475,15 +1218,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             });
         }
 
-        //console.log('[definition] ', definitions);
-        return definitions.length ? await this._renderer.renderDefinition(editor.document.languageId, definition) : { 
-            content: '',
-            range: {
-                start: { line: 0, character: 0 },
-                end: { line: 0, character: 0 }
-            },
-            jmpUri: '', languageId: 'plaintext', documentVersion: 0, lineCount: 0 
-        };
+        // 此处 definitions 必非空，直接渲染选中的定义
+        return await this._renderer.renderDefinition(editor.document.languageId, definition);
     }
 
     private async getDefinitionAtCurrentPositionInEditor(editor: vscode.TextEditor) {
@@ -1595,6 +1331,21 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return definitions[0]; // 出错时返回第一个定义
         }
     }
+}
+
+// 统一的空内容工厂，替代多处重复的空 FileContentInfo 字面量
+function createEmptyContent(): FileContentInfo {
+    return {
+        content: '',
+        range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 }
+        },
+        jmpUri: '',
+        languageId: 'plaintext',
+        documentVersion: 0,
+        lineCount: 0
+    };
 }
 
 function getNonce() {

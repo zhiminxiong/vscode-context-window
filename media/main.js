@@ -23,7 +23,57 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
     window.isPinned = false;
     window.pickTokenStyle = false;
     window.stickyScroll = false;
-    //console.log('[definition] WebView script started from main.js');
+
+    // 统一调试日志开关：默认关闭，排查问题时置为 true 即可恢复所有调试输出，
+    // 避免历史遗留的 [definition] 前缀散落各处且无法集中控制。
+    const DEBUG = false;
+    function log(...args) {
+        if (DEBUG) {
+            console.log('[context-window]', ...args);
+        }
+    }
+
+    // 禁用 Monaco 内置的跳转 / Peek / 查找引用 / 实现 / 类型定义能力。
+    // 警告：依赖 Monaco 内部实现（下划线私有成员），升级 monaco-editor 版本后需重新验证。
+    function disableEditorNavigation(ed) {
+        const svc = ed._codeEditorService;
+        if (svc) {
+            // 覆盖定义/Peek/引用/实现/类型定义查询，统一返回空，阻止内部跳转
+            svc.getDefinitionsAtPosition = () => Promise.resolve([]);
+            svc.peekDefinition = () => Promise.resolve([]);
+            svc.findReferences = () => Promise.resolve([]);
+            svc.findImplementations = () => Promise.resolve([]);
+            svc.findTypeDefinition = () => Promise.resolve([]);
+        }
+
+        // 通过负号前缀键绑定批量禁用跳转相关命令
+        const disabledCommands = [
+            'editor.action.openLink',
+            'editor.action.openLinkToSide',
+            'editor.action.openLinkInPeek',
+            'editor.action.goToDefinition',
+            'editor.action.goToTypeDefinition',
+            'editor.action.goToImplementation',
+            'editor.action.goToReferences',
+            'editor.action.peekDefinition',
+            'editor.action.peekTypeDefinition',
+            'editor.action.peekImplementation',
+            'editor.action.peekReferences'
+        ];
+        const kbService = ed._standaloneKeybindingService;
+        if (kbService && kbService.addDynamicKeybindings) {
+            const keybindingRules = disabledCommands.map(command => ({
+                keybinding: 0,           // 0 表示没有键绑定
+                command: `-${command}`,  // 负号前缀禁用命令
+                when: undefined
+            }));
+            try {
+                kbService.addDynamicKeybindings(keybindingRules);
+            } catch (error) {
+                log('Failed to disable commands using addDynamicKeybindings:', error);
+            }
+        }
+    }
 
     // 确保 WebView 使用 VS Code 的颜色主题
     //document.body.classList.add('vscode-light', 'vscode-dark', 'vscode-high-contrast');
@@ -35,7 +85,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
     
     // 添加错误处理
     window.onerror = function(message, source, lineno, colno, error) {
-        console.error('[definition] Global error:', message, 'at', source, lineno, colno, error);
+        console.error('[context-window] Global error:', message, 'at', source, lineno, colno, error);
         document.getElementById('main').style.display = 'block';
         document.getElementById('main').innerHTML = `<div style="color: var(--vscode-errorForeground); font-size: var(--vscode-editor-font-size);">load error: ${message}</div>`;
         return true;
@@ -657,7 +707,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                                         });
                                                     }
                                                 } catch (err) {
-                                                    console.error('[definition] pickColor action failed:', err);
+                                                    console.error('[context-window] pickColor action failed:', err);
                                                 }
                                             }
                                         } else {
@@ -692,71 +742,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         return true;
                     });
 
-                    // 在创建编辑器实例后添加以下代码
-                    const originalGetDefinitionsAtPosition = editor._codeEditorService.getDefinitionsAtPosition;
-                    editor._codeEditorService.getDefinitionsAtPosition = function(model, position, token) {
-                        // 返回空数组，表示没有定义可跳转
-                        return Promise.resolve([]);
-                    };
-
-                    // 覆盖peek实现
-                    const originalPeekDefinition = editor._codeEditorService.peekDefinition;
-                    editor._codeEditorService.peekDefinition = function(model, position, token) {
-                        // 返回空数组，表示没有定义可peek
-                        return Promise.resolve([]);
-                    };
-
-                    // 覆盖reference实现
-                    const originalFindReferences = editor._codeEditorService.findReferences;
-                    editor._codeEditorService.findReferences = function(model, position, token) {
-                        // 返回空数组，表示没有引用可查找
-                        return Promise.resolve([]);
-                    };
-
-                    // 覆盖implementation实现
-                    const originalFindImplementations = editor._codeEditorService.findImplementations;
-                    editor._codeEditorService.findImplementations = function(model, position, token) {
-                        // 返回空数组，表示没有实现可查找
-                        return Promise.resolve([]);
-                    };
-
-                    // 覆盖type definition实现
-                    const originalFindTypeDefinition = editor._codeEditorService.findTypeDefinition;
-                    editor._codeEditorService.findTypeDefinition = function(model, position, token) {
-                        // 返回空数组，表示没有类型定义可查找
-                        return Promise.resolve([]);
-                    };
-
-                    // 完全禁用所有与跳转相关的命令
-                    // 使用Monaco Editor 0.52.0的正确API
-                    const disabledCommands = [
-                        'editor.action.openLink',
-                        'editor.action.openLinkToSide',
-                        'editor.action.openLinkInPeek',
-                        'editor.action.goToDefinition',
-                        'editor.action.goToTypeDefinition',
-                        'editor.action.goToImplementation',
-                        'editor.action.goToReferences',
-                        'editor.action.peekDefinition',
-                        'editor.action.peekTypeDefinition',
-                        'editor.action.peekImplementation',
-                        'editor.action.peekReferences'
-                    ];
-
-                    // 使用addDynamicKeybindings批量禁用命令（推荐方式）
-                    if (editor._standaloneKeybindingService && editor._standaloneKeybindingService.addDynamicKeybindings) {
-                        const keybindingRules = disabledCommands.map(command => ({
-                            keybinding: 0,  // 0表示没有键绑定
-                            command: `-${command}`,  // 使用负号前缀禁用命令
-                            when: undefined
-                        }));
-                        
-                        try {
-                            editor._standaloneKeybindingService.addDynamicKeybindings(keybindingRules);
-                        } catch (error) {
-                            console.warn('Failed to disable commands using addDynamicKeybindings:', error);
-                        }
-                    }
+                    // === 禁用 Monaco 内置的跳转 / Peek / 查找引用能力 ===
+                    // 警告：以下逻辑依赖 Monaco 内部实现（下划线私有成员 _codeEditorService /
+                    // _standaloneKeybindingService）。升级 monaco-editor 版本后需重新验证可用性。
+                    disableEditorNavigation(editor);
 
                     editorState.symboleDecorations = editor.deltaDecorations(editorState.symboleDecorations, [{ range: new monaco.Range(1, 1, 1, 1 + 5), options: { className: 'highlighted-symbol-range', inlineClassName: 'highlighted-symbol-inline' } }]);
 
@@ -818,70 +807,6 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         }
                                     }
                                     break;
-                                /*case 'updateEditorConfiguration':
-                                    // 更新编辑器配置
-                                    if (editor && message.configuration) {
-                                        //console.log('[definition] Updating editor configuration');
-                                        
-                                        // 更新编辑器选项
-                                        editor.updateOptions(message.configuration || {});
-                                        
-                                        // 更新主题
-                                        if (message.configuration.tokenColorCustomizations) {
-                                            // 确保colors是有效对象
-                                            const safeColors = {};
-                                            const colors = window.vsCodeEditorConfiguration.tokenColorCustomizations;
-                                            if (colors && typeof colors === 'object') {
-                                                Object.keys(colors).forEach(key => {
-                                                    if (typeof colors[key] === 'string') {
-                                                        safeColors[key] = colors[key];
-                                                    }
-                                                });
-                                            }
-                                            monaco.editor.defineTheme('vscode-custom', {
-                                                base: message.configuration.theme || 'vs',
-                                                inherit: true,
-                                                rules: [],
-                                                colors: safeColors
-                                            });
-                                            try {
-                                                monaco.editor.setTheme('vscode-custom');
-                                                //console.log('[definition] 自定义主题已应用2');
-                                            } catch (themeError) {
-                                                //console.error('[definition] 应用自定义主题失败2:', themeError);
-                                                monaco.editor.setTheme('vs'); // 回退到默认主题
-                                            }
-                                        } else if (message.configuration.theme) {
-                                            monaco.editor.setTheme(message.configuration.theme);
-                                        }
-
-                                        // 更新语义高亮
-                                        if (message.configuration.semanticTokenColorCustomizations) {
-                                            try {
-                                                // Monaco不支持为所有语言(*)设置通用的语义标记提供程序
-                                                const supportedLanguages = ['javascript', 'typescript', 'html', 'css', 'json', 'markdown', 'cpp', 'python', 'java', 'go'];
-                                                
-                                                // 为每种支持的语言设置语义标记提供程序
-                                                supportedLanguages.forEach(lang => {
-                                                    try {
-                                                        monaco.languages.setTokensProvider(lang, {
-                                                            getInitialState: () => null,
-                                                            tokenize: (line) => {
-                                                                return { tokens: [], endState: null };
-                                                            }
-                                                        });
-                                                    } catch (langError) {
-                                                        //console.warn(`[definition] 为 ${lang} 更新语义标记提供程序失败:`, langError);
-                                                    }
-                                                });
-                                                
-                                                //console.log('[definition] 语义高亮配置已更新');
-                                            } catch (error) {
-                                                //console.error('[definition] 更新语义高亮配置失败:', error);
-                                            }
-                                        }
-                                    }
-                                    break;*/
                                 case 'updateContextEditorCfg':
                                     if (message.contextEditorCfg) {
                                         window.vsCodeEditorConfiguration.contextEditorCfg = message.contextEditorCfg;
@@ -1103,7 +1028,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     //console.log('[definition] Unknown message type:', message.type);
                             }
                         } catch (error) {
-                            console.error('[definition] Error handling message:', error);
+                            console.error('[context-window] Error handling message:', error);
                             document.getElementById('main').style.display = 'block';
                             document.getElementById('main').innerHTML = '<div style="color: red; padding: 20px;">处理消息时出错: ' + error.message + '</div>';
                         }
@@ -1111,19 +1036,19 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     
 
                 } catch (error) {
-                    console.error('[definition] Error initializing editor:', error);
+                    console.error('[context-window] Error initializing editor:', error);
                     document.getElementById('main').style.display = 'block';
                     document.getElementById('main').innerHTML = '<div style="color: red; padding: 20px;">Error initializing editor: ' + error.message + '</div>';
                 }
             }, function(error) {
-                console.error('[definition] Failed to load Monaco editor:', error);
+                console.error('[context-window] Failed to load Monaco editor:', error);
                 document.getElementById('main').style.display = 'block';
                 document.getElementById('main').innerHTML = '<div style="color: red; padding: 20px;">Failed to load Monaco editor: ' + (error ? error.message : 'Unknown error') + '</div>';
             });
         };
         
         loaderScript.onerror = function(error) {
-            console.error('[definition] Failed to load Monaco loader.js:', error);
+            console.error('[context-window] Failed to load Monaco loader.js:', error);
             document.getElementById('main').style.display = 'block';
             document.getElementById('main').innerHTML = '<div style="color: red; padding: 20px;">Failed to load Monaco loader.js</div>';
         };
@@ -1132,7 +1057,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
         document.head.appendChild(loaderScript);
         
     } catch (error) {
-        console.error('[definition] Error in main script:', error);
+        console.error('[context-window] Error in main script:', error);
         document.getElementById('main').style.display = 'block';
         document.getElementById('main').innerHTML = '<div style="color: red; padding: 20px;">初始化失败: ' + error.message + '</div>';
     }
