@@ -9,9 +9,10 @@
 
 import { getEffectiveTokenStyle, isLightTheme } from './editorTheme.js';
 
-export async function requestTokenStyle(token) {
+// isSemantic=true 时按 VSCode 选择器匹配语义 token（类型+修饰符子集），否则按 TextMate 前缀匹配。
+export async function requestTokenStyle(token, isSemantic) {
     try {
-        return getEffectiveTokenStyle(token, isLightTheme());
+        return getEffectiveTokenStyle(token, isLightTheme(), isSemantic);
     } catch (e) {
         return { found: false };
     }

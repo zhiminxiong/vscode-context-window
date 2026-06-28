@@ -3,13 +3,14 @@
 // 导入语言配置与各功能模块
 import { createDocumentSymbolProvider } from './documentSymbolProvider.js';
 import { resetPickColorPosition } from './tokenPicker.js';
-import { applyMonacoTheme, isLightTheme } from './editorTheme.js';
+import { applyMonacoTheme, isLightTheme, installSemanticRenderMatch } from './editorTheme.js';
 import { patchControlKeywords, installControlKeywordPatch } from './controlKeywords.js';
 import { injectEditorStyles } from './editorStyles.js';
 import { createDefinitionList } from './definitionList.js';
 import { createUpdateEditorContent } from './editorContent.js';
 import { createMessageHandlers } from './messageHandlers.js';
 import { setupEditorMouseHandlers } from './editorMouseHandlers.js';
+import { setupTextmate, ensureGrammar as tmEnsureGrammar, updateThemeScopes as tmUpdateThemeScopes } from './textmateClient.js';
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
@@ -119,12 +120,18 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                 //console.log('[definition] Monaco editor loaded');
                 // applyMonacoTheme / isLightTheme 已抽离到 editorTheme.js（见顶部 import）
 
-                // 尽早劫持 setMonarchTokensProvider：之后任何语言懒加载 Monarch 时，
-                // 都会被自动注入控制流关键字分类（keyword.control / keyword.control.conditional）。
-                installControlKeywordPatch(monaco);
-
                 const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
                 let light = isLightTheme();
+
+                // 方案 B 启用时，基础语法层改由真实 TextMate 语法接管（setTokensProvider），
+                // 不再需要、也不能保留 Monarch 控制流补丁——否则其延时重注册 Monarch 会覆盖 TextMate provider。
+                const textmateMode = !!(window.ctxTextmate && window.ctxTextmate.enabled);
+
+                // 尽早劫持 setMonarchTokensProvider：之后任何语言懒加载 Monarch 时，
+                // 都会被自动注入控制流关键字分类（keyword.control / keyword.control.conditional）。
+                if (!textmateMode) {
+                    installControlKeywordPatch(monaco);
+                }
 
                 // 诊断：打印从扩展端解析到的「当前主题语义配色」。若为 undefined，说明未读到主题文件（多半是扩展宿主未重载）。
                 console.log('[context-window] themeSemanticRules:', window.vsCodeEditorConfiguration?.themeSemanticRules);
@@ -139,8 +146,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                 }
 
                 // 把控制流关键字（if/else/for/return…）从通用 keyword 拆出单独着色，对齐 VSCode 的 keyword.control。
-                // 关键字由 Monaco 内置 Monarch 着色，故两种 tokenizer 模式下都需要打补丁。
-                patchControlKeywords(monaco, ['typescript', 'javascript']);
+                // 关键字由 Monaco 内置 Monarch 着色，故 Monarch/语义两种模式下都需要打补丁；
+                // 方案 B（真实 TextMate）下无需此补丁（TextMate 本身就产出 keyword.control.* 等精确 scope）。
+                if (!textmateMode) {
+                    patchControlKeywords(monaco, ['typescript', 'javascript']);
+                }
                 
                 // 隐藏加载状态，显示编辑器容器
                 document.getElementById('main').style.display = 'none';
@@ -270,6 +280,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                     const currentStickyScroll = editor.getOption(monaco.editor.EditorOption.stickyScroll);
                     window.stickyScroll = currentStickyScroll?.enabled;
+
+                    // 让语义着色渲染按 VSCode 选择器匹配「类型+修饰符」组合规则（如 class.constructorOrDestructor），
+                    // 而非 Monaco 默认的 TextMate 前缀匹配。须在语义 token 到达前安装。
+                    installSemanticRenderMatch(editor);
 
                     // 编辑器可变会话状态（供 onMouseUp / 消息处理 / 内容更新等多处共享读写）
                     const editorState = {
@@ -473,10 +487,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         try { semanticTokensEmitter.fire(); } catch (_) {}
                     }
 
-                    if (!contextEditorCfg.useDefaultTokenizer) {
-                        // 语义着色模式：禁用前端手写 Monarch，仅注册"查表型"语义 token provider。
-                        // 基础语法层（keyword/string/comment/number/operator）交给 Monaco 内置 tokenizer，
-                        // 语义叠加层（variable/parameter/property/type/class/function/method/namespace…）由后端语义 token 提供。
+                    if (!contextEditorCfg.useDefaultTokenizer || contextEditorCfg.useTextmateGrammar) {
+                        // 语义着色模式 / 方案 B TextMate 模式：注册"查表型"语义 token provider。
+                        // 基础语法层（keyword/string/comment/number/operator）：语义模式交给 Monaco 内置 Monarch，
+                        // 方案 B 则交给真实 TextMate 语法（见 textmateClient）；两种模式下语义叠加层
+                        // （variable/parameter/property/type/class/function/method/namespace…）都由后端语义 token 提供。
                         const semanticLanguages = [
                             'python', 'java', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
                             'erlang',
@@ -694,13 +709,31 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // 定义列表面板逻辑已抽离到 definitionList.js（工厂函数持有 editor 引用）
                     const { updateDefinitionList, clearDefinitionList, updateFilenameDisplay } = createDefinitionList(editor);
 
+                    // 方案 B：初始化真实 TextMate 高亮（仅当 useTextmateGrammar 启用且配置就绪时生效）。
+                    // 失败/未启用时 tmEnsureGrammar 会返回 resolved null，editorContent 调用是无害的。
+                    // 无条件诊断：打印注入的 textmate 配置，便于判定是「未启用/未注入」还是「启用但加载失败」。
+                    console.log('[context-window] ctxTextmate config =', window.ctxTextmate);
+                    if (window.ctxTextmate && window.ctxTextmate.enabled) {
+                        setupTextmate({ monaco, vscode, cfg: window.ctxTextmate })
+                            .then(() => {
+                                // 预加载当前模型语言，尽快接管分词
+                                const m = editor.getModel();
+                                if (m) { tmEnsureGrammar(m.getLanguageId()); }
+                            })
+                            .catch(err => console.error('[context-window] setup textmate failed:', err));
+                    } else {
+                        console.warn('[context-window] TextMate mode OFF (window.ctxTextmate.enabled is falsy). 请确认 contextView.contextWindow.useTextmateGrammar = true 并重启扩展宿主。');
+                    }
+
                     // 内容更新逻辑已抽离到 editorContent.js（工厂持有 editor / editorState 及缩进、文件名、光标等回调）
                     const updateEditorContent = createUpdateEditorContent({
                         editor,
                         state: editorState,
                         applyIndentationForModel,
                         updateFilenameDisplay,
-                        hideCursor
+                        hideCursor,
+                        // 方案 B：真实 TextMate 语法按需加载入口（未启用时为 no-op）
+                        ensureGrammar: tmEnsureGrammar
                     });
 
                     // 消息处理逻辑已抽离到 messageHandlers.js（工厂持有 editor / editorState /
@@ -754,6 +787,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         window.vsCodeEditorConfiguration.contextEditorCfg = message.contextEditorCfg;
                                         window.vsCodeEditorConfiguration.customThemeRules = message.customThemeRules;
 
+                                        // 方案 B：用户自定义规则变化后，刷新可着色 scope 集合，
+                                        // 使新配色的深层 scope 也能被 pickScope 选中（弹窗所见 === 编辑器所染）
+                                        tmUpdateThemeScopes();
+
                                         // 重新定义主题
                                         applyMonacoTheme(window.vsCodeEditorConfiguration, message.contextEditorCfg, isLightTheme());
                                         
@@ -778,6 +815,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         if (Array.isArray(message.themeSemanticRules)) {
                                             window.vsCodeEditorConfiguration.themeSemanticRules = message.themeSemanticRules;
                                         }
+                                        // 方案 B：同步刷新「全部 textmate scope → 颜色」，并更新前端 scope 集合
+                                        if (Array.isArray(message.themeTextmateRules)) {
+                                            window.vsCodeEditorConfiguration.themeTextmateRules = message.themeTextmateRules;
+                                        }
+                                        tmUpdateThemeScopes();
                                         const ctxCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
                                         applyMonacoTheme(window.vsCodeEditorConfiguration, ctxCfg, isLightTheme());
                                         if (editor) {

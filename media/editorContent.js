@@ -6,7 +6,7 @@
 // monaco / document 直接使用全局对象（与其它模块一致）。
 
 export function createUpdateEditorContent(ctx) {
-    const { editor, state, applyIndentationForModel, updateFilenameDisplay, hideCursor } = ctx;
+    const { editor, state, applyIndentationForModel, updateFilenameDisplay, hideCursor, ensureGrammar } = ctx;
 
     return function updateEditorContent(newContent, options) {
         //console.log('[definition] Updating editor content with options:', options);
@@ -37,6 +37,12 @@ export function createUpdateEditorContent(ctx) {
             // 更新全局变量
             state.content = newContent;
             state.language = languageId;
+
+            // 方案 B：确保该语言的真实 TextMate 语法已加载并接管分词。
+            // 异步加载完成后会通过 setTokensProvider 触发 Monaco 重新着色（首次有短暂回退着色，随后对齐 VSCode）。
+            if (typeof ensureGrammar === 'function' && languageId) {
+                try { ensureGrammar(languageId); } catch (_) {}
+            }
 
             // 避免Monaco将旧装饰迁移到新内容的相同位置
             if (state.symboleDecorations.length > 0) {

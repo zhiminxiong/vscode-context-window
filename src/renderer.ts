@@ -142,11 +142,12 @@ export class Renderer {
         const cacheKey = uri.toString();
         const doc = await vscode.workspace.openTextDocument(uri);
         const currentVersion = doc.version;
-        // 仅在"非默认 tokenizer"（即语义着色模式）下才向语言服务器索取语义 token，
-        // 默认模式走 Monaco 内置 tokenizer，无需多一次较贵的语义请求。
-        const needSemantic = !vscode.workspace
-            .getConfiguration('contextView.contextWindow')
-            .get<boolean>('useDefaultTokenizer', true);
+        // 仅在"非默认 tokenizer"（即语义着色模式）或「方案 B 真实 TextMate 模式」下才向语言服务器索取语义 token。
+        // 默认 Monaco tokenizer 模式无需多一次较贵的语义请求；TextMate 模式需要语义层叠加在基础语法层之上。
+        const cwCfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+        const needSemantic =
+            !cwCfg.get<boolean>('useDefaultTokenizer', true) ||
+            cwCfg.get<boolean>('useTextmateGrammar', false);
 
         // 命中后端大文件缓存且版本一致：直接返回，并把条目移到末尾（O(1) LRU）
         const cached = this._fileCache.get(cacheKey);

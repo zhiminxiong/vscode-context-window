@@ -17,3 +17,8 @@ node_modules/monaco-editor/**
 !node_modules/monaco-editor/min/
 !node_modules/monaco-editor/min/vs/
 !node_modules/monaco-editor/min/vs/**
+
+# 方案 B：oniguruma 的 WASM 二进制必须随包发布（vscode-textmate 已被打进 media/textmate.bundle.js，无需单独发布）
+!node_modules/vscode-oniguruma/
+!node_modules/vscode-oniguruma/release/
+!node_modules/vscode-oniguruma/release/onig.wasm

@@ -175,6 +175,11 @@
           "default": true,
           "description": "Using the default tokenizer of Monaco Editor.\nTake effect when VSCode starts."
         },
+        "contextView.contextWindow.useTextmateGrammar": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use real TextMate grammars (harvested from your installed VSCode language extensions) for base syntax highlighting, instead of Monaco's built-in Monarch tokenizer. This aligns keywords/strings/comments/operators with VSCode. Semantic tokens are still layered on top. Takes effect when VSCode starts."
+        },
         "contextView.contextWindow.fixToken": {
           "type": "boolean",
           "default": false,
@@ -219,6 +224,7 @@
     "webpack-dev": "webpack --mode development --watch",
     "lint": "eslint . --ext .ts,.tsx"
   },
+  "//dependencies-note": "vscode-textmate / vscode-oniguruma 仅在 webview 端打包使用（media/textmate.bundle.js）。",
   "devDependencies": {
     "@types/node": "^14.11.2",
     "@types/vscode": "^1.50.0",
@@ -231,6 +237,8 @@
     "webpack-cli": "^4.9.0"
   },
   "dependencies": {
-    "monaco-editor": "^0.55.1"
+    "monaco-editor": "^0.55.1",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

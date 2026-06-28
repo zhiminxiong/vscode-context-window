@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Renderer, FileContentInfo } from './renderer';
-import { resolveSemanticRules } from './themeColorResolver';
+import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
+import { getGrammarMaps, getGrammarContent } from './grammarRegistry';
 
 enum UpdateMode {
     Live = 'live',
@@ -68,7 +69,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this.postMessageToWebview({
                     type: 'updateTheme',
                     theme: this._getVSCodeTheme(theme),
-                    themeSemanticRules: resolveSemanticRules()
+                    themeSemanticRules: resolveSemanticRules(),
+                    // 方案 B：主题切换时同步刷新「全部 textmate scope → 颜色」，使基础语法层实时跟随主题
+                    themeTextmateRules: this._isTextmateEnabled() ? resolveRawTokenColors() : undefined
                 });
         });
 
@@ -192,7 +195,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             enableForms: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this._extensionUri, 'media'),
-                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor')
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor'),
+                // 方案 B：oniguruma WASM 所在目录
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'vscode-oniguruma')
             ]
         };
 
@@ -327,6 +332,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    // 方案 B 是否启用：使用真实 TextMate 语法做基础语法层着色
+    private _isTextmateEnabled(): boolean {
+        return vscode.workspace
+            .getConfiguration('contextView.contextWindow')
+            .get<boolean>('useTextmateGrammar', false);
+    }
+
     // 获取 VS Code 编辑器完整配置
     private _getVSCodeEditorConfiguration(): any {
         // 获取所有编辑器相关配置
@@ -341,6 +353,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             contextEditorCfg: any;
             customThemeRules?: any[];
             themeSemanticRules?: any[];
+            themeTextmateRules?: any[];
         } = {
             theme: currentTheme,
             // 将编辑器配置转换为对象
@@ -357,6 +370,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 fontFamily: contextWindowConfig.get('fontFamily', 'Consolas, monospace'),
                 minimap: contextWindowConfig.get('minimap', true),
                 useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
+                useTextmateGrammar: contextWindowConfig.get('useTextmateGrammar', false),
                 cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 30),
                 fixStickyScroll: contextWindowConfig.get('fixStickyScroll', false),
             }
@@ -369,6 +383,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         // 从当前 VSCode 主题解析出的语义 token 真实配色，作为 Monaco 的默认色（前端可被用户规则覆盖）。
         // 解析失败时为 undefined，前端回退到硬编码兜底色。
         config.themeSemanticRules = resolveSemanticRules();
+
+        // 方案 B：启用真实 TextMate 语法时，下发主题全部 tokenColors（scope → 颜色），供基础语法层着色。
+        if (this._isTextmateEnabled()) {
+            config.themeTextmateRules = resolveRawTokenColors();
+        }
 
         return config;
     }
@@ -545,6 +564,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'requestContent':
                     this.handleRequestContent(message);
+                    break;
+                case 'requestGrammar':
+                    this.handleRequestGrammar(message);
                     break;
                 case 'jumpDefinition':
                     this.handleJumpDefinition(message, editor);
@@ -748,6 +770,31 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         })();
     }
 
+    // 方案 B：webview 按 scopeName 请求语法文件原始内容，这里读文件并回包。
+    private handleRequestGrammar(message: any) {
+        const scopeName = String(message?.scopeName ?? '');
+        if (!scopeName) {
+            this.postMessageToWebview({ type: 'grammarData', scopeName, found: false });
+            return;
+        }
+        try {
+            const src = getGrammarContent(scopeName);
+            if (src) {
+                this.postMessageToWebview({
+                    type: 'grammarData',
+                    scopeName,
+                    found: true,
+                    content: src.content,
+                    path: src.path
+                });
+            } else {
+                this.postMessageToWebview({ type: 'grammarData', scopeName, found: false });
+            }
+        } catch (err) {
+            this.postMessageToWebview({ type: 'grammarData', scopeName, found: false, error: String(err) });
+        }
+    }
+
     // 点击符号：查找定义并渲染
     private handleJumpDefinition(message: any, editor: vscode.TextEditor | undefined) {
         if (!editor || !(message.uri?.length > 0)) {
@@ -917,7 +964,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this._extensionUri, 'media'),
-                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor') // 添加 Monaco Editor 资源路径
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor'), // 添加 Monaco Editor 资源路径
+                // 方案 B：oniguruma WASM 所在目录
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'vscode-oniguruma')
             ]
         };
     
@@ -1007,6 +1056,19 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
         const navigationScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'navigation.js'));
 
+        // 方案 B：oniguruma WASM 资源 URI + 语法/注入映射（启用时才下发，避免无谓收割与体积）
+        const textmateEnabled = this._isTextmateEnabled();
+        const wasmUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'vscode-oniguruma', 'release', 'onig.wasm')
+        ).toString();
+        const grammarMaps = textmateEnabled ? getGrammarMaps() : { languageToScope: {}, injections: {} };
+        const textmateConfig = {
+            enabled: textmateEnabled,
+            wasmUri,
+            languageToScope: grammarMaps.languageToScope,
+            injections: grammarMaps.injections
+        };
+
         const nonce = getNonce();
 
         // 获取当前主题
@@ -1024,9 +1086,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             <meta http-equiv="Content-Security-Policy" content="
                 default-src 'none';
                 style-src ${webview.cspSource} 'unsafe-inline';
-                script-src 'nonce-${nonce}' 'unsafe-eval' ${webview.cspSource};
+                script-src 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' ${webview.cspSource};
                 worker-src ${webview.cspSource} blob:;
                 child-src ${webview.cspSource} blob:;
+                connect-src ${webview.cspSource};
                 img-src data: https: ${webview.cspSource};
                 font-src ${webview.cspSource} data:;
                 ">
@@ -1078,6 +1141,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 // 设置当前主题 - 确保使用有效的Monaco主题名称
                 window.vsCodeTheme = '${currentTheme}';
                 //console.log('[definition] Theme set to:', window.vsCodeTheme);
+
+                // 方案 B：真实 TextMate 语法接入所需的配置（WASM 资源 URI + 语言/注入映射）
+                try {
+                    window.ctxTextmate = ${JSON.stringify(textmateConfig)};
+                } catch (error) {
+                    console.error('[context-window] Failed to parse textmate config:', error);
+                    window.ctxTextmate = { enabled: false };
+                }
                 
                 // 传递完整编辑器配置 - 使用try-catch避免JSON序列化错误
                 try {

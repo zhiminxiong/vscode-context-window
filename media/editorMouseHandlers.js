@@ -10,6 +10,7 @@ import { getTokenColorFromDOM } from './colorUtils.js';
 import { requestTokenStyle } from './tokenStyleClient.js';
 import { pickTokenStyle } from './tokenPicker.js';
 import { tokenAtPosition, semanticTokenAtPosition } from './tokenize.js';
+import { getScopeAtPosition } from './textmateClient.js';
 
 export function setupEditorMouseHandlers(ctx) {
     const {
@@ -117,7 +118,22 @@ export function setupEditorMouseHandlers(ctx) {
                                 ? semanticTokenAtPosition(position, semanticState)
                                 : null;
                             if (!tokenInfo || !tokenInfo.token) {
-                                tokenInfo = tokenAtPosition(model, editor, position);
+                                // 方案 B：优先用真实 TextMate 语法取该位置的 scope（如 storage.type.struct.cpp），
+                                // 与编辑器渲染同源；grammar 未就绪/未启用时回退到 Monaco 基础 tokenizer。
+                                let tm = null;
+                                if (window.ctxTextmate && window.ctxTextmate.enabled) {
+                                    const sc = getScopeAtPosition(model, position);
+                                    if (sc && sc.picked) {
+                                        tm = {
+                                            token: sc.picked,
+                                            startColumn: sc.startColumn,
+                                            endColumn: sc.endColumn,
+                                            text: sc.text,
+                                            textmate: true // 标记：真实 TextMate scope，展示/写入用完整 scope，不做语言后缀裁剪
+                                        };
+                                    }
+                                }
+                                tokenInfo = tm || tokenAtPosition(model, editor, position);
                             }
                             if (tokenInfo && tokenInfo.token) {
                                 //console.log('[definition] pickColor action for token:', tokenInfo);
@@ -134,12 +150,15 @@ export function setupEditorMouseHandlers(ctx) {
                                         token = tokenInfo.modifiers.length
                                             ? [tokenInfo.token].concat(tokenInfo.modifiers).join('.')
                                             : tokenInfo.token;
-                                        style = await requestTokenStyle(token);
+                                        // 语义 token：按 VSCode 选择器匹配（类型 + 修饰符子集）
+                                        style = await requestTokenStyle(token, true);
                                     } else {
-                                        // Monarch 基础 token：保留原行为——无规则时去掉语言后缀
-                                        style = await requestTokenStyle(tokenInfo.token);
+                                        // 基础语法层 token：TextMate 前缀匹配。
+                                        style = await requestTokenStyle(tokenInfo.token, false);
                                         token = tokenInfo.token;
-                                        if (!style || !style.found) {
+                                        // 方案 B 的真实 TextMate scope（如 storage.type.struct.cpp）已是可渲染的完整 scope，
+                                        // 保持完整展示/写入（对齐 VSCode）；仅对 Monarch 基础 token 在无规则时裁剪语言后缀。
+                                        if (!tokenInfo.textmate && (!style || !style.found)) {
                                             const lastDot = tokenInfo.token.lastIndexOf('.');
                                             token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
                                         }

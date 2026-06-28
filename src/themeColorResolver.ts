@@ -330,6 +330,59 @@ export function resolveSemanticRules(): SemanticRule[] | undefined {
     }
 }
 
+// 解析「当前主题的完整 textmate tokenColors」为 Monaco 规则（scope → 颜色/字体）。
+// 用途：方案 B 下 webview 用真实 TextMate 语法分词，会产出任意 scope（如 keyword.control.flow.cpp、
+// string.quoted.double.cpp、punctuation.* 等）。这里把主题里所有 tokenColors 规则原样下发，
+// Monaco 的主题 trie 即可按「最长 scope 前缀」为这些 scope 着色，使基础语法层与 VSCode 一致。
+// 与 resolveSemanticRules 不同：那份是「语义类型 → 颜色」的精选集；这份是「全部 textmate scope → 颜色」的全集。
+// 解析失败返回 undefined，前端回退（不渲染基础层颜色，仅靠语义层）。
+export function resolveRawTokenColors(): SemanticRule[] | undefined {
+    try {
+        const themeFile = findThemePath();
+        if (!themeFile) { return undefined; }
+        const base = loadThemeJson(themeFile);
+        const themeLabel = vscode.workspace.getConfiguration('workbench').get<string>('colorTheme');
+        const userTokenColors = readUserTokenColors(themeLabel);
+        const all = base.tokenColors.concat(userTokenColors);
+
+        const out: SemanticRule[] = [];
+        const seen = new Set<string>();
+        for (const rule of all) {
+            const settings = rule.settings;
+            if (!settings) { continue; }
+            const fg = normalizeColor(settings.foreground);
+            const fontStyle = normalizeFontStyle(settings);
+            if (!fg && (fontStyle === undefined || fontStyle === '')) { continue; }
+            for (const sc of normalizeScopes(rule.scope)) {
+                if (!sc) { continue; }
+                // 去重 key：同一 scope 后者覆盖前者（与主题文件顺序一致），故记录顺序即可，重复直接覆盖
+                const dupKey = sc;
+                if (seen.has(dupKey)) {
+                    // 覆盖已存在的同名 scope（保持后者优先）
+                    const idx = out.findIndex(r => r.token === sc);
+                    if (idx >= 0) {
+                        out[idx] = {
+                            token: sc,
+                            ...(fg ? { foreground: fg } : {}),
+                            ...(fontStyle ? { fontStyle } : {}),
+                        };
+                    }
+                    continue;
+                }
+                seen.add(dupKey);
+                out.push({
+                    token: sc,
+                    ...(fg ? { foreground: fg } : {}),
+                    ...(fontStyle ? { fontStyle } : {}),
+                });
+            }
+        }
+        return out.length ? out : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 function resolveSemanticRulesInner(): SemanticRule[] | undefined {
     const themeFile = findThemePath();
     if (!themeFile) { return undefined; }
@@ -369,8 +422,11 @@ function resolveSemanticRulesInner(): SemanticRule[] | undefined {
     for (const type of Object.keys(SEMANTIC_TO_SCOPES)) {
         // 基础类型规则
         const baseFg = pushRule(type, type);
-        // 该类型相关的修饰符组合 = 类型专属 ∪ '*' 通配
-        const combos = new Set<string>([...(comboMap.get(type) || []), ...starCombos]);
+        // 该类型相关的修饰符组合 = 类型专属 ∪ '*' 通配。
+        // 顺序很关键：通配（'*'，如来自 *.declaration）在前、类型专属（如来自 class.constructorOrDestructor）在后。
+        // 二者拍平后同形（都是 class.<mod>），特异性（修饰符数）相同时前端按「后注册覆盖」取最后命中，
+        // 故类型专属排在后面才能更高优先级——与 VSCode「类型选择器优先于通配选择器」一致。
+        const combos = new Set<string>([...starCombos, ...(comboMap.get(type) || [])]);
         for (const combo of combos) {
             if (!combo) { continue; }
             pushRule(`${type}.${combo}`, type, baseFg);
