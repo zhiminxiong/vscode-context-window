@@ -597,8 +597,12 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // 跟随光标的隐藏输入框/overflow widget 挂到 document.body 的另一个 .monaco-editor 容器，
                     // 这正是「能识别语义 token 的标识符(如 vscode.Disposable)右键必现原生菜单」的根因
                     // （此时 contextmenu 的 target 在主节点子树之外，原监听收不到，无法 preventDefault）。
-                    // 这里在 document 捕获阶段统一处理：仅当右键落在「任意编辑器相关 UI」上时屏蔽原生菜单，
-                    // 其它区域一律放行，保留插件右键能力；shift/ctrl/meta+右键 放行给 Monaco 菜单逻辑。
+                    // 这里在 document 捕获阶段统一处理右键：默认禁用浏览器原生菜单，
+                    // 仅放行底部状态栏（导航栏 / 文件名区）——它有自己的自定义右键菜单（见 navigation.js）。
+                    // 之前用 closest('.monaco-editor') 判定是否屏蔽，但 Monaco 为语义 token 标识符
+                    // (如 vscode.Disposable) 创建的隐藏输入框 / overflow widget 会挂到该子树之外，导致这次
+                    // contextmenu 漏网、原生菜单盖在 token 浮窗上——这正是「浮窗弹出后又马上变菜单」的根因。
+                    // 改为「默认屏蔽 + 仅放行状态栏」即可彻底解决；shift/ctrl/meta+右键 放行给 Monaco 菜单逻辑。
                     if (!window.__ctxMenuSuppressorInstalled) {
                         window.__ctxMenuSuppressorInstalled = true;
                         document.addEventListener('contextmenu', (e) => {
@@ -606,13 +610,14 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                 return;
                             }
                             const t = e.target;
-                            const inEditor = t && typeof t.closest === 'function' && t.closest('.monaco-editor');
-                            const isEditorTextarea = t && t.tagName === 'TEXTAREA' &&
-                                (t.classList.contains('inputarea') || t.classList.contains('input'));
-                            if (inEditor || isEditorTextarea) {
-                                e.preventDefault();
-                                e.stopPropagation();
+                            // 底部状态栏保留自身的自定义右键菜单，放行让 navigation.js 处理
+                            if (t && typeof t.closest === 'function' &&
+                                (t.closest('.nav-bar') || t.closest('.double-click-area'))) {
+                                return;
                             }
+                            // 其它区域：统一禁用浏览器原生右键菜单
+                            e.preventDefault();
+                            e.stopPropagation();
                         }, true);
                     }
 
