@@ -205,21 +205,90 @@ export class Renderer {
             if (!legend || !legend.tokenTypes) {
                 return null;
             }
-            const tokens = await vscode.commands.executeCommand<vscode.SemanticTokens>(
+            // 1) 先试整文档（< 10 万字符的文件 TS 等语言服务直接给）
+            const full = await vscode.commands.executeCommand<vscode.SemanticTokens>(
                 'vscode.provideDocumentSemanticTokens', uri);
-            if (!tokens || !tokens.data || tokens.data.length === 0) {
+            let data: number[] | null =
+                (full && full.data && full.data.length) ? Array.from(full.data) : null;
+
+            // 2) 整文档为空（大文件被 TS 的 100000 字符上限拒绝）→ 按行分段用 range provider 拼接
+            if (!data) {
+                data = await this.collectRangeTokensByChunks(uri);
+            }
+            if (!data || data.length === 0) {
                 return null;
             }
+
             return {
                 legend: {
                     tokenTypes: Array.from(legend.tokenTypes),
                     tokenModifiers: Array.from(legend.tokenModifiers || [])
                 },
-                data: Array.from(tokens.data)
+                data
             };
         } catch {
             return null;
         }
+    }
+
+    /**
+     * 大文件分段取语义 token：VSCode 内置 TS 扩展对 > 100000 字符的文档会直接跳过整文档语义 token，
+     * 但 range provider 只校验「单次请求范围」的长度。语义 token 不跨行（LSP 规定每个 token 在单行内），
+     * 故按行边界切成多段（每段 < 上限）逐段取 range 语义 token，解码为文档绝对坐标后合并，
+     * 再重新编码为一份完整的、从文档 (0,0) 起的 delta 序列。前端解码逻辑无需改动。
+     */
+    private async collectRangeTokensByChunks(uri: vscode.Uri): Promise<number[] | null> {
+        const LIMIT = 90000; // 留余量，低于 TS 硬编码的 100000
+        const doc = await vscode.workspace.openTextDocument(uri);
+
+        // 按行切分（token 不跨行，行边界切不截断、段间不重叠）
+        const ranges: vscode.Range[] = [];
+        let segStart = 0;
+        let segChars = 0;
+        for (let line = 0; line < doc.lineCount; line++) {
+            const lineLen = doc.lineAt(line).text.length + 1; // +1 估算换行符
+            if (segChars > 0 && segChars + lineLen > LIMIT) {
+                ranges.push(new vscode.Range(segStart, 0, line, 0)); // [segStart, line)
+                segStart = line;
+                segChars = 0;
+            }
+            segChars += lineLen;
+        }
+        ranges.push(new vscode.Range(segStart, 0, doc.lineCount, 0));
+
+        // 逐段取（并行发起，减少往返等待）
+        const segs = await Promise.all(ranges.map(r =>
+            vscode.commands.executeCommand<vscode.SemanticTokens>(
+                'vscode.provideDocumentRangeSemanticTokens', uri, r)
+        ));
+
+        // 解码为文档绝对坐标 token
+        const abs: Array<{ line: number; char: number; len: number; type: number; mod: number }> = [];
+        for (const seg of segs) {
+            if (!seg || !seg.data || seg.data.length === 0) { continue; }
+            const d = seg.data;
+            let line = 0, char = 0;
+            for (let i = 0; i + 4 < d.length; i += 5) {
+                if (d[i] === 0) { char += d[i + 1]; }
+                else { line += d[i]; char = d[i + 1]; }
+                abs.push({ line, char, len: d[i + 2], type: d[i + 3], mod: d[i + 4] });
+            }
+        }
+        if (abs.length === 0) { return null; }
+
+        // 段按行递增、段内递增，整体已有序；排序做边界保险
+        abs.sort((a, b) => a.line - b.line || a.char - b.char);
+
+        // 重新编码为文档绝对坐标的 delta 5 元组
+        const out: number[] = [];
+        let pl = 0, pc = 0;
+        for (const t of abs) {
+            const dLine = t.line - pl;
+            const dChar = dLine === 0 ? t.char - pc : t.char;
+            out.push(dLine, dChar, t.len, t.type, t.mod);
+            pl = t.line; pc = t.char;
+        }
+        return out;
     }
 
     // 读取完整文件内容
