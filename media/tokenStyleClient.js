@@ -1,46 +1,18 @@
 //@ts-check
 
-// 通过扩展端异步获取 token 的现有样式（仅 rules），带本地兜底与超时
+// 获取某 token 当前「实际生效」的样式，用于取色面板取初值。
+//
+// 直接复用 editorTheme 的 getEffectiveTokenStyle —— 它用与 Monaco 完全相同的合并规则集
+// （默认 themeSemanticRules + 用户自定义）做最长前缀匹配，保证面板显示的颜色/粗体
+// 与编辑器实际渲染一致；不再走扩展端往返，避免「后端只查用户规则」与「前端默认规则」
+// 两套逻辑不一致（例如用户宽泛 keyword 规则遮蔽默认精确 keyword.control.loop）。
+
+import { getEffectiveTokenStyle, isLightTheme } from './editorTheme.js';
 
 export async function requestTokenStyle(token) {
-    // 本地兜底读取（避免扩展未实现或超时）
-    function readLocalRule(token) {
-        const rules = window.vsCodeEditorConfiguration?.customThemeRules;
-        if (Array.isArray(rules)) {
-            const r = rules.find(x => x && x.token === token);
-            if (r) return { foreground: r.foreground, fontStyle: r.fontStyle };
-        }
-        return null;
+    try {
+        return getEffectiveTokenStyle(token, isLightTheme());
+    } catch (e) {
+        return { found: false };
     }
-
-    // 优先尝试向扩展请求，超时后回退到本地
-    return new Promise((resolve) => {
-        try {
-            const reqId = `ts_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-            const timeout = setTimeout(() => {
-                window.removeEventListener('message', onMessage);
-                resolve(readLocalRule(token));
-            }, 1500); // 1.5s 超时兜底
-
-            function onMessage(event) {
-                const msg = event.data;
-                if (msg && msg.type === 'tokenStyle.get.result' && msg.token === token && (!msg.reqId || msg.reqId === reqId)) {
-                    //console.log('[definition] tokenStyle.get.result:', msg);
-                    clearTimeout(timeout);
-                    window.removeEventListener('message', onMessage);
-                    if (msg.error) {
-                        resolve(readLocalRule(token));
-                    } else {
-                        resolve(msg.style || readLocalRule(token));
-                    }
-                }
-            }
-
-            window.addEventListener('message', onMessage);
-            window.vscode.postMessage({ type: 'tokenStyle.get', token, reqId });
-        } catch (e) {
-            // 任意异常直接走本地兜底
-            resolve(readLocalRule(token));
-        }
-    });
 }

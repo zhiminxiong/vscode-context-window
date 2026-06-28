@@ -16,8 +16,18 @@ export async function pickTokenStyle(options = {
     fontStyle: '',
     description: ''
 }, domColor = '#808080', word = '') {
+    // Monaco 主题规则的 foreground 不带 '#'（如 "267f99"），但 <input type=color> 与 CSS color
+    // 都要求 "#rrggbb"，否则会被当非法值显示为黑色。这里统一规整，使面板显示与编辑器实际渲染一致。
+    const normalizeHex = (c) => {
+        if (typeof c !== 'string') { return ''; }
+        let s = c.trim();
+        if (!s) { return ''; }
+        if (!s.startsWith('#')) { s = '#' + s; }
+        // <input type=color> 仅支持 #rrggbb（不支持 alpha），截断到 7 位
+        return /^#[0-9a-fA-F]{6,8}$/.test(s) ? s.slice(0, 7) : s;
+    };
     const hasInitialColor = typeof options.foreground === 'string' && options.foreground.trim();
-    const initialColor = hasInitialColor ? options.foreground : '#ff0000';
+    const initialColor = hasInitialColor ? normalizeHex(options.foreground) : '#ff0000';
 
     //console.log('[definition] pickColor initial:', initialColor, ' domColor:', domColor, ' hasInitialColor:', hasInitialColor);
 

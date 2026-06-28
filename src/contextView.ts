@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Renderer, FileContentInfo } from './renderer';
+import { resolveSemanticRules } from './themeColorResolver';
 
 enum UpdateMode {
     Live = 'live',
@@ -62,11 +63,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     constructor(
         private readonly _extensionUri: vscode.Uri,
     ) {
-        // 监听主题变化
+        // 监听主题变化：除主题名外，同步下发新主题解析出的语义配色，使 Monaco 实时跟随 VSCode 配色
         this._themeListener = vscode.window.onDidChangeActiveColorTheme(theme => {
             this.postMessageToWebview({
                     type: 'updateTheme',
-                    theme: this._getVSCodeTheme(theme)
+                    theme: this._getVSCodeTheme(theme),
+                    themeSemanticRules: resolveSemanticRules()
                 });
         });
 
@@ -338,6 +340,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             editorOptions: any;
             contextEditorCfg: any;
             customThemeRules?: any[];
+            themeSemanticRules?: any[];
         } = {
             theme: currentTheme,
             // 将编辑器配置转换为对象
@@ -371,6 +374,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         } else {
             config.customThemeRules = [];
         }
+
+        // 从当前 VSCode 主题解析出的语义 token 真实配色，作为 Monaco 的默认色（前端可被用户规则覆盖）。
+        // 解析失败时为 undefined，前端回退到硬编码兜底色。
+        config.themeSemanticRules = resolveSemanticRules();
 
         return config;
     }
@@ -700,7 +707,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 updateMode: this._updateMode,
                 range: this._lastContent.range,
                 documentVersion: this._lastContent.documentVersion,
-                lineCount: this._lastContent.lineCount
+                lineCount: this._lastContent.lineCount,
+                semantic: this._lastContent.semantic ?? null
             });
             return;
         }
@@ -720,7 +728,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     languageId: info.languageId,
                     updateMode: this._updateMode,
                     documentVersion: info.documentVersion,
-                    lineCount: info.lineCount
+                    lineCount: info.lineCount,
+                    semantic: info.semantic ?? null
                     // 不回传 range/curLine：前端用 updateMetadata 阶段保存的定位信息
                 });
             } catch (e) {

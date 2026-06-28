@@ -12,8 +12,16 @@ export function createMessageHandlers(ctx) {
         fileContentCache,
         vscode,
         updateEditorContent,
-        clearDefinitionList
+        clearDefinitionList,
+        applySemanticTokens
     } = ctx;
+
+    // 安全调用语义 token 写入回调（默认模式下未提供该回调时静默跳过）
+    function setSemantic(semantic) {
+        if (typeof applySemanticTokens === 'function') {
+            applySemanticTokens(semantic);
+        }
+    }
 
     // 收到元数据：保存定位信息，命中前端缓存则直接渲染，否则向后端请求完整内容
     function handleUpdateMetadata(message) {
@@ -29,6 +37,8 @@ export function createMessageHandlers(ctx) {
             // 缓存命中且版本匹配：刷新访问时间，使淘汰策略成为真正的 LRU
             // （淘汰时按 timestamp 升序踢最旧项，命中不刷新会退化为 FIFO，热点文件会被误淘汰）
             cached.timestamp = Date.now();
+            // 命中缓存：先恢复该版本的语义 token，再渲染，保证着色与内容一致
+            setSemantic(cached.semantic);
             // 直接使用缓存内容
             updateEditorContent(cached.content, {
                 newUri: message.uri,
@@ -67,6 +77,7 @@ export function createMessageHandlers(ctx) {
             lines: message.lineCount,  // 添加行数信息
             size: body.length,         // 添加内容大小（字符数，近似字节），用于淘汰评分
             timestamp: Date.now(),     // 添加时间戳
+            semantic: message.semantic || null, // 与内容同版本缓存的语义 token
             metadata: {
                 languageId: message.languageId
             }
@@ -103,6 +114,9 @@ export function createMessageHandlers(ctx) {
                 fileContentCache.delete(victimKey);
             }
         }
+
+        // 渲染前先写入本次语义 token（setValue 触发重新着色时 provider 已能拿到数据）
+        setSemantic(message.semantic);
 
         // 单槽命中(if 分支)时后端会回传 range/curLine；
         // 按 uri 现取(else 分支)时不回传，回退到 metadata 阶段保存的定位信息。

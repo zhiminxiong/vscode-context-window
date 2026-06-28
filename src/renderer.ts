@@ -1,5 +1,14 @@
 import * as vscode from 'vscode';
 
+// 后端透传给前端的语义 token 负载。
+// legend：tokenTypes / tokenModifiers 索引表（由语言服务器提供，按语言而定）。
+// data：LSP 标准 5 元组 delta 编码 [ΔLine, ΔStartChar, length, tokenTypeIdx, tokenModifiers]，
+//       Uint32Array 转成 number[] 以便跨 webview 序列化。
+export interface SemanticPayload {
+    legend: { tokenTypes: string[]; tokenModifiers: string[] };
+    data: number[];
+}
+
 export interface FileContentInfo {
     content: string;
     range: {
@@ -10,12 +19,14 @@ export interface FileContentInfo {
     languageId: string; // 添加语言ID用于Monaco Editor
     documentVersion: number;
     lineCount: number;
+    semantic?: SemanticPayload | null; // VSCode 语义 token（按需，可能为空）
 }
 
 interface FileCacheEntry {
     content: string;
     languageId: string;
     documentVersion: number;  // 添加：文档版本号
+    semantic?: SemanticPayload | null; // 与内容同版本缓存的语义 token
 }
 
 // loadContent 的返回结构：仅包含与 range 无关的内容与元数据
@@ -24,6 +35,7 @@ interface LoadedContent {
     languageId: string;
     documentVersion: number;
     lineCount: number;
+    semantic?: SemanticPayload | null;
 }
 
 export class Renderer {
@@ -106,7 +118,8 @@ export class Renderer {
             jmpUri: uri.toString(),
             languageId: loaded.languageId,
             documentVersion: loaded.documentVersion,
-            lineCount: loaded.lineCount
+            lineCount: loaded.lineCount,
+            semantic: loaded.semantic
         };
     }
 
@@ -129,30 +142,44 @@ export class Renderer {
         const cacheKey = uri.toString();
         const doc = await vscode.workspace.openTextDocument(uri);
         const currentVersion = doc.version;
+        // 仅在"非默认 tokenizer"（即语义着色模式）下才向语言服务器索取语义 token，
+        // 默认模式走 Monaco 内置 tokenizer，无需多一次较贵的语义请求。
+        const needSemantic = !vscode.workspace
+            .getConfiguration('contextView.contextWindow')
+            .get<boolean>('useDefaultTokenizer', true);
 
         // 命中后端大文件缓存且版本一致：直接返回，并把条目移到末尾（O(1) LRU）
         const cached = this._fileCache.get(cacheKey);
         if (cached && cached.documentVersion === currentVersion) {
             this._fileCache.delete(cacheKey);
             this._fileCache.set(cacheKey, cached);
+            // 缓存项可能在"默认模式"时写入而未带语义 token，按需补取并回填
+            let semantic = cached.semantic;
+            if (needSemantic && semantic === undefined) {
+                semantic = await this.getSemanticTokens(uri);
+                cached.semantic = semantic;
+            }
             return {
                 content: cached.content,
                 languageId: cached.languageId,
                 documentVersion: currentVersion,
-                lineCount: doc.lineCount
+                lineCount: doc.lineCount,
+                semantic: needSemantic ? semantic : null
             };
         }
 
         const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
         const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || fallbackLanguageId || 'plaintext');
         const content = this.readFullFileContent(doc);
+        const semantic = needSemantic ? await this.getSemanticTokens(uri) : null;
 
         // 按内容字节大小判定是否为大文件（content 已无条件读取，零额外开销）
         if (content.length > this.largeFileSizeThreshold) {
             this.addToCache(cacheKey, {
                 content,
                 languageId: finalLanguageId,
-                documentVersion: currentVersion
+                documentVersion: currentVersion,
+                semantic
             });
         }
 
@@ -160,8 +187,39 @@ export class Renderer {
             content,
             languageId: finalLanguageId,
             documentVersion: currentVersion,
-            lineCount: doc.lineCount
+            lineCount: doc.lineCount,
+            semantic
         };
+    }
+
+    /**
+     * 取整文档的 VSCode 语义 token：调用与编辑器同源的内置命令，
+     * 拿到的就是当前语言服务器（cpptools/gopls/TS 等）产出的语义分类。
+     * 与编辑器显示的是整文档坐标，前端 Monaco 显示也是整文档，坐标天然一一对应。
+     * 任意失败（未装语言扩展 / 不支持语义 token / 文档未纳入分析）均返回 null，前端回退到基础着色。
+     */
+    private async getSemanticTokens(uri: vscode.Uri): Promise<SemanticPayload | null> {
+        try {
+            const legend = await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
+                'vscode.provideDocumentSemanticTokensLegend', uri);
+            if (!legend || !legend.tokenTypes) {
+                return null;
+            }
+            const tokens = await vscode.commands.executeCommand<vscode.SemanticTokens>(
+                'vscode.provideDocumentSemanticTokens', uri);
+            if (!tokens || !tokens.data || tokens.data.length === 0) {
+                return null;
+            }
+            return {
+                legend: {
+                    tokenTypes: Array.from(legend.tokenTypes),
+                    tokenModifiers: Array.from(legend.tokenModifiers || [])
+                },
+                data: Array.from(tokens.data)
+            };
+        } catch {
+            return null;
+        }
     }
 
     // 读取完整文件内容

@@ -1,9 +1,10 @@
 //@ts-check
 
 // 导入语言配置与各功能模块
-import { languageConfig_js, languageConfig_cpp, languageConfig_cs, languageConfig_go, createDocumentSymbolProvider } from './languageConfig.js';
+import { createDocumentSymbolProvider } from './languageConfig.js';
 import { resetPickColorPosition } from './tokenPicker.js';
 import { applyMonacoTheme, isLightTheme } from './editorTheme.js';
+import { patchControlKeywords, installControlKeywordPatch } from './controlKeywords.js';
 import { injectEditorStyles } from './editorStyles.js';
 import { createDefinitionList } from './definitionList.js';
 import { createUpdateEditorContent } from './editorContent.js';
@@ -118,8 +119,15 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                 //console.log('[definition] Monaco editor loaded');
                 // applyMonacoTheme / isLightTheme 已抽离到 editorTheme.js（见顶部 import）
 
+                // 尽早劫持 setMonarchTokensProvider：之后任何语言懒加载 Monarch 时，
+                // 都会被自动注入控制流关键字分类（keyword.control / keyword.control.conditional）。
+                installControlKeywordPatch(monaco);
+
                 const contextEditorCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
                 let light = isLightTheme();
+
+                // 诊断：打印从扩展端解析到的「当前主题语义配色」。若为 undefined，说明未读到主题文件（多半是扩展宿主未重载）。
+                console.log('[context-window] themeSemanticRules:', window.vsCodeEditorConfiguration?.themeSemanticRules);
 
                 // 如果有自定义主题规则
                 if (window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.customThemeRules) {
@@ -129,6 +137,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // 使用自定义主题
                     window.vsCodeTheme = 'custom-vs';
                 }
+
+                // 把控制流关键字（if/else/for/return…）从通用 keyword 拆出单独着色，对齐 VSCode 的 keyword.control。
+                // 关键字由 Monaco 内置 Monarch 着色，故两种 tokenizer 模式下都需要打补丁。
+                patchControlKeywords(monaco, ['typescript', 'javascript']);
                 
                 // 隐藏加载状态，显示编辑器容器
                 document.getElementById('main').style.display = 'none';
@@ -165,7 +177,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             language: 'plaintext',
                             readOnly: true,
                             theme: window.vsCodeTheme || 'vs',
-                            automaticLayout: true
+                            automaticLayout: true,
+                            // 开启语义着色：标识符的精确分类由后端透传的 VSCode 语义 token 提供
+                            'semanticHighlighting.enabled': true
                         };
 
                         // 从 VS Code 配置中提取相关选项
@@ -439,28 +453,53 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     hideCursor();
                     // ========== 动态光标显示/隐藏功能结束 ==========
 
+                    // 语义着色会话状态：后端透传的整文档语义 token（legend + data）。
+                    // 前端不再用手写 Monarch 去"猜"标识符语义，改由 VSCode 语言服务器的语义 token 驱动着色。
+                    const semanticState = { legend: null, data: null };
+                    // 语义 token 变更通知：内容相同但语义数据更新（如缓存命中/live 重取）时，
+                    // 主动触发 Monaco 重新向 provider 索取语义 token 并重着色。
+                    const semanticTokensEmitter = new monaco.Emitter();
+
+                    // 写入后端发来的语义 token 并通知 Monaco 刷新（在 setValue 前调用，保证 provide 时数据已就绪）
+                    function applySemanticTokens(semantic) {
+                        if (semantic && Array.isArray(semantic.data) && semantic.legend && Array.isArray(semantic.legend.tokenTypes)) {
+                            semanticState.legend = semantic.legend;
+                            semanticState.data = semantic.data;
+                        } else {
+                            // 无语义 token（未装语言扩展 / 不支持 / 文档未纳入分析）：清空，回退到基础着色
+                            semanticState.legend = null;
+                            semanticState.data = null;
+                        }
+                        try { semanticTokensEmitter.fire(); } catch (_) {}
+                    }
+
                     if (!contextEditorCfg.useDefaultTokenizer) {
-                        // 定义使用JavaScript提供器作为默认的语言列表
-                        const defaultLanguages = [
+                        // 语义着色模式：禁用前端手写 Monarch，仅注册"查表型"语义 token provider。
+                        // 基础语法层（keyword/string/comment/number/operator）交给 Monaco 内置 tokenizer，
+                        // 语义叠加层（variable/parameter/property/type/class/function/method/namespace…）由后端语义 token 提供。
+                        const semanticLanguages = [
                             'python', 'java', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
-                            'erlang', 
+                            'erlang',
+                            'javascript', 'typescript', 'cpp', 'c', 'csharp', 'go'
                         ];
 
-                        // 为默认语言设置JavaScript提供器
-                        defaultLanguages.forEach(lang => {
-                            monaco.languages.setMonarchTokensProvider(lang, languageConfig_js);
+                        const semanticProvider = {
+                            onDidChange: semanticTokensEmitter.event,
+                            getLegend() {
+                                return semanticState.legend || { tokenTypes: [], tokenModifiers: [] };
+                            },
+                            provideDocumentSemanticTokens() {
+                                if (!semanticState.data || !semanticState.legend) {
+                                    return null;
+                                }
+                                return { data: new Uint32Array(semanticState.data), resultId: undefined };
+                            },
+                            releaseDocumentSemanticTokens() {}
+                        };
+
+                        semanticLanguages.forEach(lang => {
+                            monaco.languages.registerDocumentSemanticTokensProvider(lang, semanticProvider);
                         });
-
-                        // 为 JavaScript 定义自定义 token 提供器
-                        monaco.languages.setMonarchTokensProvider('javascript', languageConfig_js);
-                        monaco.languages.setMonarchTokensProvider('typescript', languageConfig_js);
-
-                        // 为 C/C++ 定义自定义 token 提供器
-                        monaco.languages.setMonarchTokensProvider('cpp', languageConfig_cpp);
-                        monaco.languages.setMonarchTokensProvider('c', languageConfig_cpp);
-
-                        monaco.languages.setMonarchTokensProvider('csharp', languageConfig_cs);
-                        monaco.languages.setMonarchTokensProvider('go', languageConfig_go);
                     }
 
                     // 为 C++, C, C# 注册 Document Symbol Provider（从 languageConfig.js 导入）
@@ -602,7 +641,8 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         applyIndentationForModel,
                         forcePointerCursor,
                         showCursor,
-                        hideCursor
+                        hideCursor,
+                        semanticState
                     });
 
                     // === 禁用 Monaco 内置的跳转 / Peek / 查找引用能力 ===
@@ -642,7 +682,8 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         fileContentCache,
                         vscode,
                         updateEditorContent,
-                        clearDefinitionList
+                        clearDefinitionList,
+                        applySemanticTokens
                     });
 
                     window.addEventListener('blur', () => {
@@ -704,9 +745,17 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     }
                                     break;
                                 case 'updateTheme':
-                                    // 更新编辑器主题
-                                    if (editor && message.theme) {
-                                        //monaco.editor.setTheme(message.theme);
+                                    // 主题切换：更新主题名与解析出的语义配色，并重建 Monaco 自定义主题，使配色实时跟随 VSCode
+                                    if (message.theme) {
+                                        window.vsCodeEditorConfiguration.theme = message.theme;
+                                        if (Array.isArray(message.themeSemanticRules)) {
+                                            window.vsCodeEditorConfiguration.themeSemanticRules = message.themeSemanticRules;
+                                        }
+                                        const ctxCfg = window.vsCodeEditorConfiguration.contextEditorCfg || {};
+                                        applyMonacoTheme(window.vsCodeEditorConfiguration, ctxCfg, isLightTheme());
+                                        if (editor) {
+                                            monaco.editor.setTheme('custom-vs');
+                                        }
                                     }
                                     break;
                                 case 'noSymbolFound':

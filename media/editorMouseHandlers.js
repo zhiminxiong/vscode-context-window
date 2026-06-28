@@ -9,7 +9,7 @@
 import { getTokenColorFromDOM } from './colorUtils.js';
 import { requestTokenStyle } from './tokenStyleClient.js';
 import { pickTokenStyle } from './tokenPicker.js';
-import { tokenAtPosition } from './tokenize.js';
+import { tokenAtPosition, semanticTokenAtPosition } from './tokenize.js';
 
 export function setupEditorMouseHandlers(ctx) {
     const {
@@ -20,7 +20,8 @@ export function setupEditorMouseHandlers(ctx) {
         applyIndentationForModel,
         forcePointerCursor,
         showCursor,
-        hideCursor
+        hideCursor,
+        semanticState
     } = ctx;
 
     // 悬停高亮的可变状态
@@ -110,15 +111,38 @@ export function setupEditorMouseHandlers(ctx) {
                     if (e.event.rightButton) {
                         //console.log('[definition] start to mid + jump definition: ', word);
                         if (window.pickTokenStyle) {
-                            let tokenInfo = tokenAtPosition(model, editor, position);
+                            // 优先用后端语义 token 识别（右键即可知道该标识符的语义类型，如 variable/function/class）；
+                            // 该位置无语义 token（如关键字/操作符走基础层）时，回退到 Monaco 基础 tokenizer。
+                            let tokenInfo = (semanticState && semanticState.data)
+                                ? semanticTokenAtPosition(position, semanticState)
+                                : null;
+                            if (!tokenInfo || !tokenInfo.token) {
+                                tokenInfo = tokenAtPosition(model, editor, position);
+                            }
                             if (tokenInfo && tokenInfo.token) {
                                 //console.log('[definition] pickColor action for token:', tokenInfo);
                                 try {
-                                    const style = await requestTokenStyle(tokenInfo.token);
-                                    let token = tokenInfo.token;
-                                    if (!style || !style.found) {
-                                        const lastDot = tokenInfo.token.lastIndexOf('.');
-                                        token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
+                                    // 语义 token 会带 modifiers 数组；Monarch 回退 token 不带
+                                    const isSemantic = Array.isArray(tokenInfo.modifiers);
+                                    let token, style;
+                                    if (isSemantic) {
+                                        // 与 Monaco 内部 getTokenStyleMetadata 一致：
+                                        // 把「类型 + 修饰符」拼成 "type.mod1.mod2"（如 parameter.declaration），
+                                        // 右键即可看到带修饰符的完整身份，并能针对它单独配色。
+                                        // requestTokenStyle 内部已按最长前缀匹配用户规则、并回退到前端默认语义规则
+                                        // （含 *.declaration 系列），故此处直接取其结果作初值，写回目标仍是完整名。
+                                        token = tokenInfo.modifiers.length
+                                            ? [tokenInfo.token].concat(tokenInfo.modifiers).join('.')
+                                            : tokenInfo.token;
+                                        style = await requestTokenStyle(token);
+                                    } else {
+                                        // Monarch 基础 token：保留原行为——无规则时去掉语言后缀
+                                        style = await requestTokenStyle(tokenInfo.token);
+                                        token = tokenInfo.token;
+                                        if (!style || !style.found) {
+                                            const lastDot = tokenInfo.token.lastIndexOf('.');
+                                            token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
+                                        }
                                     }
                                     //console.log('[definition] token style:', style);
                                     const newStyle = await pickTokenStyle({
