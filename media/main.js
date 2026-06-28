@@ -592,6 +592,30 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         }, true);
                     }
 
+                    // 精准兜底原生 Cut/Copy/Paste 菜单：
+                    // 上面的 editorDomNode 监听只挂在「主 .monaco-editor 节点」上，漏掉了 Monaco 为
+                    // 跟随光标的隐藏输入框/overflow widget 挂到 document.body 的另一个 .monaco-editor 容器，
+                    // 这正是「能识别语义 token 的标识符(如 vscode.Disposable)右键必现原生菜单」的根因
+                    // （此时 contextmenu 的 target 在主节点子树之外，原监听收不到，无法 preventDefault）。
+                    // 这里在 document 捕获阶段统一处理：仅当右键落在「任意编辑器相关 UI」上时屏蔽原生菜单，
+                    // 其它区域一律放行，保留插件右键能力；shift/ctrl/meta+右键 放行给 Monaco 菜单逻辑。
+                    if (!window.__ctxMenuSuppressorInstalled) {
+                        window.__ctxMenuSuppressorInstalled = true;
+                        document.addEventListener('contextmenu', (e) => {
+                            if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                                return;
+                            }
+                            const t = e.target;
+                            const inEditor = t && typeof t.closest === 'function' && t.closest('.monaco-editor');
+                            const isEditorTextarea = t && t.tagName === 'TEXTAREA' &&
+                                (t.classList.contains('inputarea') || t.classList.contains('input'));
+                            if (inEditor || isEditorTextarea) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }
+                        }, true);
+                    }
+
                     editorDomNode.addEventListener('selectstart', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
