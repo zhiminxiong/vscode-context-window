@@ -32,7 +32,11 @@ const KEYWORD_BUCKETS = [
     { scope: 'storage.type.namespace', prop: 'ctxStNamespace', words: ['namespace', 'module'] },
     { scope: 'storage.type', prop: 'ctxStorageType', words: ['const', 'let', 'var', 'val', 'type', 'trait', 'impl', 'record', 'constructor', 'union', 'template'] },
     { scope: 'storage.modifier', prop: 'ctxStorageMod', words: ['public', 'private', 'protected', 'readonly', 'static', 'abstract', 'final', 'virtual', 'override', 'async', 'declare', 'extern', 'inline', 'unsafe', 'mutable', 'volatile', 'sealed', 'partial', 'internal', 'synchronized', 'transient', 'native', 'register', 'friend', 'explicit', 'constexpr'] },
-    { scope: 'constant.language', prop: 'ctxConstLang', words: ['true', 'false', 'null', 'nil', 'none', 'undefined', 'nan'] },
+    // 布尔值精确细分到 constant.language.boolean.true / .false（对齐 VSCode 的 TextMate scope），
+    // 主题常把布尔色精确挂到 true/false 这一层，与 null/undefined 共用的 constant.language 不同。
+    { scope: 'constant.language.boolean.true', prop: 'ctxConstBoolTrue', words: ['true'] },
+    { scope: 'constant.language.boolean.false', prop: 'ctxConstBoolFalse', words: ['false'] },
+    { scope: 'constant.language', prop: 'ctxConstLang', words: ['null', 'nil', 'none', 'undefined', 'nan'] },
     { scope: 'variable.language', prop: 'ctxVarLang', words: ['this', 'self', 'super', 'base'] },
 ];
 

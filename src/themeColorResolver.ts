@@ -397,6 +397,11 @@ function resolveSemanticRulesInner(): SemanticRule[] | undefined {
         { token: 'storage.type.namespace', scopes: ['storage.type.namespace', 'storage.type', 'keyword'] },
         { token: 'storage.type', scopes: ['storage.type', 'keyword'] },
         { token: 'storage.modifier', scopes: ['storage.modifier', 'storage.type', 'keyword'] },
+        // 布尔值在前端被精确细分为 constant.language.boolean.true / .false，需逐一解析：
+        // 主题常把布尔色精确挂到该层级，与 null/undefined 共用的 constant.language 不同。
+        // 逐级回退（精确 → boolean → language → constant → keyword）保证至少有合理颜色。
+        { token: 'constant.language.boolean.true', scopes: ['constant.language.boolean.true', 'constant.language.boolean', 'constant.language', 'constant', 'keyword'] },
+        { token: 'constant.language.boolean.false', scopes: ['constant.language.boolean.false', 'constant.language.boolean', 'constant.language', 'constant', 'keyword'] },
         { token: 'constant.language', scopes: ['constant.language', 'constant', 'keyword'] },
         { token: 'variable.language', scopes: ['variable.language', 'variable', 'keyword'] },
     ];
