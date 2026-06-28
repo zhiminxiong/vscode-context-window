@@ -4,11 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [1.0.1] 2026.06.27
+## [1.0.1] 2026.06.28
 
 #### Changed
 
 - Reworked the frontend cache eviction into a size-aware recency score so larger files (more expensive to reload) are kept longer, while no file lives forever.
+- Reworked token parsing: when `useDefaultTokenizer` is enabled (default), highlighting uses Monaco Editor's built-in tokenizer; when disabled, it is driven by VS Code's semantic tokens (resolved from the language server) plus a small amount of Monaco-based custom supplementation. The legacy hand-written Monarch grammars were removed accordingly.
 
 #### Added
 
