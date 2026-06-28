@@ -1,7 +1,7 @@
 //@ts-check
 
 // 导入语言配置与各功能模块
-import { createDocumentSymbolProvider } from './languageConfig.js';
+import { createDocumentSymbolProvider } from './documentSymbolProvider.js';
 import { resetPickColorPosition } from './tokenPicker.js';
 import { applyMonacoTheme, isLightTheme } from './editorTheme.js';
 import { patchControlKeywords, installControlKeywordPatch } from './controlKeywords.js';
@@ -502,7 +502,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         });
                     }
 
-                    // 为 C++, C, C# 注册 Document Symbol Provider（从 languageConfig.js 导入）
+                    // 为 C++, C, C# 注册 Document Symbol Provider（从 documentSymbolProvider.js 导入）
                     if (contextEditorCfg.fixStickyScroll) {
                         monaco.languages.registerDocumentSymbolProvider('cpp', createDocumentSymbolProvider(monaco));
                         monaco.languages.registerDocumentSymbolProvider('c', createDocumentSymbolProvider(monaco));
