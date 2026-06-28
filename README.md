@@ -31,9 +31,9 @@ Please check out that extension if you just want documentation in the panel or s
 - `contextView.contextWindow.updateMode` — Controls how the documentation view is updated when the cursor moves. Possible values:
     - `live` — (default) The context always tracks the current cursor position.
     - `sticky` — The context tracks the current cursor position. However if there is no symbol at the current position, it continues showing the previous context.
-- `contextView.contextWindow.useDefaultTokenizer` — Using the default tokenizer of Monaco Editor
-    - Checked by default to use the default tokenizer.
-    - When unchecked, the custom tokenizer will be used—primarily for token  highlighting—and it must be used together with lightThemeRules or darkThemeRules.
+- `contextView.contextWindow.useDefaultTokenizer` — Selects how tokens are highlighted in the context view.
+    - Checked by default: Monaco Editor's built-in tokenizer is used for syntax highlighting.
+    - When unchecked: highlighting is driven by VS Code's semantic tokens (resolved from the language server) plus a small amount of Monaco-based custom supplementation. In this mode it should be used together with `lightThemeRules` or `darkThemeRules`.
 - `contextView.contextWindow.lightThemeRules` — Color rules for the light theme
     - Default colors are provided—modify them as needed; leaving the fields empty will fall back to the default tokenizer.
 - `contextView.contextWindow.cacheSizeLimit` — Maximum number of files cached in the frontend (webview). Default `30`.
