@@ -362,18 +362,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             }
         };
 
-        // 根据当前主题类型获取对应的自定义主题规则
-        if (!config.contextEditorCfg.useDefaultTokenizer) {
-            if (currentTheme === 'vs') {
-                // light主题
-                config.customThemeRules = contextWindowConfig.get('lightThemeRules', []);
-            } else {
-                // dark或hc-black主题
-                config.customThemeRules = contextWindowConfig.get('darkThemeRules', []);
-            }
-        } else {
-            config.customThemeRules = [];
-        }
+        // 自定义主题规则：始终下发当前主题对应的用户规则（右键改色保存的内容），
+        // 不再受 useDefaultTokenizer 门控——无论默认 tokenizer 还是语义模式，保存的配色都应生效。
+        config.customThemeRules = this.getThemeRules();
 
         // 从当前 VSCode 主题解析出的语义 token 真实配色，作为 Monaco 的默认色（前端可被用户规则覆盖）。
         // 解析失败时为 undefined，前端回退到硬编码兜底色。
@@ -657,6 +648,20 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             const prev = this.getThemeRules();
             const next = this.upsertRule(prev, token, patch);
             await this.setThemeRules(next);
+
+            // 立即把最新规则下发前端并重建主题，使保存的配色即时生效
+            // （不依赖 onDidChangeConfiguration 的异步回调，避免延迟或丢失）
+            const cfg = this._getVSCodeEditorConfiguration();
+            this.postMessageToWebview({
+                type: 'updateContextEditorCfg',
+                contextEditorCfg: cfg.contextEditorCfg,
+                customThemeRules: cfg.customThemeRules
+            });
+            this.postMessageToWebview({
+                type: 'tokenStyle.set.result',
+                ok: true,
+                token,
+            });
         } catch (err) {
             this.postMessageToWebview({
                 type: 'tokenStyle.set.result',

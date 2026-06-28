@@ -53,7 +53,11 @@ export async function pickTokenStyle(options = {
             container.style.display = 'flex';
             container.style.flexDirection = 'column';
             container.style.overflow = 'hidden';
-            container.style.width = '300px';
+            // 宽度自适应内容：内容短时保持最小宽度，内容长时撑开，超过上限再换行
+            container.style.width = 'auto';
+            container.style.minWidth = '300px';
+            container.style.maxWidth = '90vw';
+            container.style.boxSizing = 'border-box';
 
             // 使用上次记录的位置，如果没有则居中显示
             if (lastPickColorPosition) {
@@ -121,6 +125,7 @@ export async function pickTokenStyle(options = {
             const tokenLabel = document.createElement('div');
             tokenLabel.style.display = 'flex';
             tokenLabel.style.alignItems = 'flex-end';
+            tokenLabel.style.flexWrap = 'wrap';  // 内容过长时换行，避免被裁切
             tokenLabel.style.gap = '5px';
             tokenLabel.style.alignSelf = 'flex-start';
             tokenLabel.style.width = '100%';
@@ -152,6 +157,8 @@ export async function pickTokenStyle(options = {
             tokenValue.style.display = 'inline-block';
             tokenValue.style.verticalAlign = 'bottom';
             tokenValue.style.lineHeight = '1';
+            tokenValue.style.maxWidth = '100%';        // 不超出容器
+            tokenValue.style.overflowWrap = 'anywhere'; // 超长 scope 自动断行
 
             tokenLabel.appendChild(tokenPrefix);
             tokenLabel.appendChild(tokenValue);

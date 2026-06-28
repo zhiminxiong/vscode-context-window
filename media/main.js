@@ -731,10 +731,8 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     });
                                     break;
                                 case 'PickTokenStyle':
-                                    if (!contextEditorCfg.useDefaultTokenizer) {
-                                        window.pickTokenStyle = !window.pickTokenStyle;
-                                        resetPickColorPosition();
-                                    }
+                                    window.pickTokenStyle = !window.pickTokenStyle;
+                                    resetPickColorPosition();
                                     break;
                                 case 'pinState':
                                     window.isPinned = message.pinned;
