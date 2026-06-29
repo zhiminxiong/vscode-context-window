@@ -48,10 +48,9 @@ function build(): void {
         for (const g of grammars) {
             if (!g || typeof g.scopeName !== 'string' || typeof g.path !== 'string') { continue; }
             const abs = path.join(ext.extensionPath, g.path);
-            // 同一 scope 可能被多个扩展贡献：先到先得，避免被同名覆盖
-            if (!scopeToFile.has(g.scopeName)) {
-                scopeToFile.set(g.scopeName, abs);
-            }
+            // 同一 scope 被多个扩展贡献时，与 VSCode 核心保持一致：后注册的覆盖前者（last wins），
+            // 确保插件取到的语法与 VSCode 实际渲染用的那份一致（例如同时装了多份 source.cs C# 语法时）。
+            scopeToFile.set(g.scopeName, abs);
             // 收集该 language 的所有候选 scope，稍后挑主语法（排除 embedded/injection、取层级最浅）
             if (typeof g.language === 'string' && g.language) {
                 (langCandidates[g.language] = langCandidates[g.language] || []).push(g.scopeName);
