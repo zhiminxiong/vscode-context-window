@@ -84,7 +84,7 @@ function getBaseSemanticRules(light) {
     return withDeclarationRules(light ? DEFAULT_SEMANTIC_RULES_LIGHT : DEFAULT_SEMANTIC_RULES_DARK);
 }
 
-// 方案 B：扩展端下发的「全部 textmate scope → 颜色」规则（仅 useTextmateGrammar 启用时存在）。
+// 扩展端下发的「全部 textmate scope → 颜色」规则（仅在非默认模式 / useDefaultTokenizer 关闭、TextMate 接管基础层时下发）。
 // 用于真实 TextMate 分词后，让 Monaco 主题 trie 能为任意 scope（keyword.control.flow.cpp、
 // string.quoted.double.cpp 等）着色。未启用时返回空数组，完全不影响原有行为。
 function getBaseTextmateRules() {
@@ -102,6 +102,21 @@ function mergeThemeRules(userRules, light) {
     const defaults = getBaseSemanticRules(light);
     const user = Array.isArray(userRules) ? userRules : [];
     return [...textmate, ...defaults, ...user];
+}
+
+// 规整主题规则的 foreground 为 Monaco 接受的格式：去掉前导 '#'，并把带 alpha 的 8 位 hex 截断为 6 位
+// （Monaco 的 token 规则颜色为不含 '#' 的 hex，且不支持 alpha）。非 hex 字符串保持原样。
+// 必须规整的原因：右键取色弹窗的 <input type=color> 返回 "#rrggbb"（带 '#'），若直接喂给
+// monaco.editor.defineTheme，Monaco 会判其非法而丢弃该 foreground、仅保留 fontStyle，使该 token 颜色
+// 回退继承父 scope（表现为"加粗对、颜色错"，如 if 渲染成蓝色加粗而非自定义红色）。
+function sanitizeRuleColors(rules) {
+    return rules.map(r => {
+        if (!r || typeof r.foreground !== 'string') { return r; }
+        let fg = r.foreground.trim();
+        if (fg.startsWith('#')) { fg = fg.slice(1); }
+        if (/^[0-9a-fA-F]{8}$/.test(fg)) { fg = fg.slice(0, 6); }
+        return fg === r.foreground ? r : { ...r, foreground: fg };
+    });
 }
 
 // 按 Monaco 主题 trie 的「最长前缀匹配」规则，查询某个 token（如 "enum.declaration"）
@@ -232,11 +247,14 @@ export function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, li
         if (typeof val === 'string') colors[k] = val; // 仅保留有效字符串
     }
 
+    const finalThemeRules = sanitizeRuleColors(mergeThemeRules(vsCodeEditorConfiguration.customThemeRules, light));
+
     monaco.editor.defineTheme('custom-vs', {
         base: light ? 'vs' : 'vs-dark',
         inherit: true,
-        // 语义 token 类型默认色 + 用户自定义规则（用户覆盖默认）
-        rules: mergeThemeRules(vsCodeEditorConfiguration.customThemeRules, light),
+        // 语义 token 类型默认色 + 用户自定义规则（用户覆盖默认）；
+        // sanitizeRuleColors 规整颜色为 Monaco 接受的无 '#' hex，避免右键取色保存的 "#rrggbb" 被丢弃。
+        rules: finalThemeRules,
         colors
     });
 }

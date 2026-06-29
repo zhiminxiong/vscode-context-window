@@ -150,10 +150,26 @@ export function ensureGrammar(languageId) {
             if (grammar) {
                 _grammarByLang.set(languageId, grammar);
                 if (!_registeredLang.has(languageId)) {
-                    // 注册后 Monaco 会失效该语言现有模型的分词并按新 provider 重新着色
                     _monaco.languages.setTokensProvider(languageId, makeProvider(grammar));
                     _registeredLang.add(languageId);
                     console.log('[context-window] TextMate grammar registered:', languageId, scope);
+                    // 关键：setTokensProvider 对「注册前就已存在的 model」不保证自动重新分词。
+                    // 首屏竞态下（grammar 异步加载晚于内容到达 / setModel，如首次安装、reload 窗口时 wasm 加载较慢），
+                    // 该 model 会停留在 Monaco 内置 Monarch 的回退着色——这正是「reload 窗口后着色不正确、
+                    // 重开工程才正常」的根因。这里显式让该语言的现有 model 重新分词，切换到真实 TextMate 着色。
+                    try {
+                        for (const m of _monaco.editor.getModels()) {
+                            if (m.getLanguageId() !== languageId) { continue; }
+                            if (typeof m.resetTokenization === 'function') {
+                                m.resetTokenization();
+                            } else {
+                                // 兜底：同语言重设也会重建 tokenization（取到新注册的 TextMate provider）
+                                _monaco.editor.setModelLanguage(m, languageId);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[context-window] reset tokenization after grammar register failed:', e);
+                    }
                 }
             } else {
                 console.warn('[context-window] TextMate grammar not found for:', languageId, scope);

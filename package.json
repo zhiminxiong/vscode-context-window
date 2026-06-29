@@ -175,11 +175,6 @@
           "default": true,
           "description": "Using the default tokenizer of Monaco Editor.\nTake effect when VSCode starts."
         },
-        "contextView.contextWindow.useTextmateGrammar": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use real TextMate grammars (harvested from your installed VSCode language extensions) for base syntax highlighting, instead of Monaco's built-in Monarch tokenizer. This aligns keywords/strings/comments/operators with VSCode. Semantic tokens are still layered on top. Takes effect when VSCode starts."
-        },
         "contextView.contextWindow.fixToken": {
           "type": "boolean",
           "default": false,

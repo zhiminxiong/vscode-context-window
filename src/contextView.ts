@@ -332,11 +332,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
-    // 方案 B 是否启用：使用真实 TextMate 语法做基础语法层着色
+    // 基础语法层是否用真实 TextMate：仅在非默认模式（useDefaultTokenizer 关闭）下启用，
+    // 默认模式纯用 Monaco 内置 Monarch。原 useTextmateGrammar 开关已移除，非默认模式直接走 TextMate。
     private _isTextmateEnabled(): boolean {
-        return vscode.workspace
+        return !vscode.workspace
             .getConfiguration('contextView.contextWindow')
-            .get<boolean>('useTextmateGrammar', false);
+            .get<boolean>('useDefaultTokenizer', true);
     }
 
     // 获取 VS Code 编辑器完整配置
@@ -370,7 +371,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 fontFamily: contextWindowConfig.get('fontFamily', 'Consolas, monospace'),
                 minimap: contextWindowConfig.get('minimap', true),
                 useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
-                useTextmateGrammar: contextWindowConfig.get('useTextmateGrammar', false),
                 cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 30),
                 fixStickyScroll: contextWindowConfig.get('fixStickyScroll', false),
             }
@@ -652,7 +652,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             const patch: { foreground?: string; fontStyle?: string } = {};
 
             if (message.newStyle && typeof message.newStyle.foreground === 'string' && message.newStyle.foreground.trim()) {
-                patch.foreground = message.newStyle.foreground.trim();
+                // Monaco 主题规则要求颜色不含 '#'（与 themeColorResolver 下发的规则一致）；
+                // 取色弹窗的 <input type=color> 返回 "#rrggbb"，这里统一去掉前导 '#' 再持久化，避免渲染时颜色被丢弃。
+                patch.foreground = message.newStyle.foreground.trim().replace(/^#/, '');
             }
             if (message.newStyle && (message.newStyle.bold || message.newStyle.italic)) {
                 if (message.newStyle.bold && message.newStyle.italic) {
