@@ -8,7 +8,58 @@
 export function createUpdateEditorContent(ctx) {
     const { editor, state, applyIndentationForModel, updateFilenameDisplay, hideCursor, ensureGrammar } = ctx;
 
-    return function updateEditorContent(newContent, options) {
+    // 强制当前 model 用「已注册的 TextMate provider」重新分词。
+    //
+    // 背景与根因：TextMate 语法是异步加载的，常常晚于内容到达（setModel）。内容先到时 model 已被 Monaco
+    // 内置 Monarch 分词并缓存（if → keyword → 蓝、非粗），等 grammar 注册后，仅靠 setTokensProvider 不会让
+    // 「已存在并已缓存分词的 model」重新分词——这就是「重载窗口时若 context 已有内容则 if 必现蓝色，
+    // 而重载后无内容、之后再点击则正确显示」的根因（点击时 grammar 已就绪，新内容直接走 TextMate）。
+    //
+    // 修复方式：Monaco 0.55 没有可用的 model.resetTokenization()，「同语言重设 / 语言 bounce」对已缓存
+    // 分词的 model 也不可靠。最稳妥且版本无关的做法是「重建 model」——新建的 model 必定用当前已注册的
+    // TextMate provider 重新分词。这里同时保留滚动/光标（viewState）与高亮行 / 符号高亮装饰（按范围重建），
+    // 保证用户无感知。
+    function forceRetokenize(languageId) {
+        const old = editor.getModel();
+        if (!old) { return; }
+        const lang = languageId || old.getLanguageId();
+        if (old.getLanguageId() !== lang) { return; }
+        try {
+            const value = old.getValue();
+            const viewState = editor.saveViewState();
+            // 快照现有装饰范围，重建后按原样恢复（装饰 id 绑定旧 model，dispose 后失效）
+            const activeRanges = (state.activeLineDecorations || [])
+                .map(id => old.getDecorationRange(id)).filter(Boolean);
+            const symbolRanges = (state.symboleDecorations || [])
+                .map(id => old.getDecorationRange(id)).filter(Boolean);
+
+            const fresh = monaco.editor.createModel(value, lang);
+            applyIndentationForModel(fresh);
+            editor.setModel(fresh);
+            if (viewState) { editor.restoreViewState(viewState); }
+
+            state.activeLineDecorations = activeRanges.length
+                ? editor.deltaDecorations([], activeRanges.map(r => ({
+                    range: r,
+                    options: { isWholeLine: true, className: 'highlighted-line', glyphMarginClassName: 'highlighted-glyph' }
+                })))
+                : [];
+            state.symboleDecorations = symbolRanges.length
+                ? editor.deltaDecorations([], symbolRanges.map(r => ({
+                    range: r,
+                    options: { className: 'highlighted-symbol-range', inlineClassName: 'highlighted-symbol-inline', zIndex: 100 }
+                })))
+                : [];
+
+            old.dispose();
+            // 重建后按新 token 类型重新着色（主题对象已含 textmate scope 规则与用户自定义规则）
+            try { monaco.editor.setTheme('custom-vs'); } catch (_) {}
+        } catch (e) {
+            console.warn('[context-window] forceRetokenize failed:', e);
+        }
+    }
+
+    const updateEditorContent = function updateEditorContent(newContent, options) {
         //console.log('[definition] Updating editor content with options:', options);
         const {
             newUri,
@@ -38,8 +89,10 @@ export function createUpdateEditorContent(ctx) {
             state.content = newContent;
             state.language = languageId;
 
-            // 方案 B：确保该语言的真实 TextMate 语法已加载并接管分词。
-            // 异步加载完成后会通过 setTokensProvider 触发 Monaco 重新着色（首次有短暂回退着色，随后对齐 VSCode）。
+            // 方案 B：确保该语言的真实 TextMate 语法已加载并接管分词（fire-and-forget）。
+            // grammar 异步就绪、setTokensProvider 注册完成后，会经 textmateClient 的注册回调
+            // （main.js 里 setOnGrammarRegistered）对当前同语言 model 触发一次可靠重分词（重建 model），
+            // 故此处无需自行重分词；已注册语言的后续内容更新会直接走 TextMate provider。
             if (typeof ensureGrammar === 'function' && languageId) {
                 try { ensureGrammar(languageId); } catch (_) {}
             }
@@ -206,4 +259,9 @@ export function createUpdateEditorContent(ctx) {
 
         document.querySelector('.progress-container').style.display = 'none';
     };
+
+    // 暴露 forceRetokenize，供 main.js 在 setupTextmate 完成（grammar 注册）后，对「首屏即已渲染、
+    // 当时 grammar 未就绪」的当前 model 触发一次可靠重分词（覆盖内容先于 textmate 初始化到达的竞态）。
+    updateEditorContent.forceRetokenize = forceRetokenize;
+    return updateEditorContent;
 }

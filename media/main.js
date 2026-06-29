@@ -9,7 +9,7 @@ import { createDefinitionList } from './definitionList.js';
 import { createUpdateEditorContent } from './editorContent.js';
 import { createMessageHandlers } from './messageHandlers.js';
 import { setupEditorMouseHandlers } from './editorMouseHandlers.js';
-import { setupTextmate, ensureGrammar as tmEnsureGrammar, updateThemeScopes as tmUpdateThemeScopes } from './textmateClient.js';
+import { setupTextmate, ensureGrammar as tmEnsureGrammar, updateThemeScopes as tmUpdateThemeScopes, setOnGrammarRegistered as tmSetOnGrammarRegistered } from './textmateClient.js';
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
@@ -123,7 +123,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                 let light = isLightTheme();
 
                 // 诊断：打印从扩展端解析到的「当前主题语义配色」。若为 undefined，说明未读到主题文件（多半是扩展宿主未重载）。
-                console.log('[context-window] themeSemanticRules:', window.vsCodeEditorConfiguration?.themeSemanticRules);
+                log('themeSemanticRules:', window.vsCodeEditorConfiguration?.themeSemanticRules);
 
                 // 如果有自定义主题规则
                 if (window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.customThemeRules) {
@@ -693,11 +693,20 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // 初始化真实 TextMate 高亮：仅在非默认模式（useDefaultTokenizer 关闭）下启用，
                     // 启用与否由扩展端注入的 ctxTextmate.enabled 决定（= !useDefaultTokenizer）。
                     // 语法源加载失败时 Monaco 自动回退到内置 Monarch，tmEnsureGrammar 返回 null，editorContent 调用无害。
-                    console.log('[context-window] ctxTextmate config =', window.ctxTextmate);
+                    log('ctxTextmate config =', window.ctxTextmate);
                     if (window.ctxTextmate && window.ctxTextmate.enabled) {
+                        // 确定性刷新：grammar 注册完成时回调，对当前同语言 model 做一次可靠重分词（重建 model）。
+                        // 无论「首屏已带内容（grammar 后到）」还是「grammar 先到、内容后到」，注册一旦完成必刷新，
+                        // 彻底消除 if 停留在 Monaco Monarch 蓝色着色的竞态。
+                        tmSetOnGrammarRegistered((langId) => {
+                            const m = editor.getModel();
+                            if (m && m.getLanguageId() === langId && typeof updateEditorContent.forceRetokenize === 'function') {
+                                updateEditorContent.forceRetokenize(langId);
+                            }
+                        });
                         setupTextmate({ monaco, vscode, cfg: window.ctxTextmate })
                             .then(() => {
-                                // 预加载当前模型语言，尽快接管分词
+                                // 尽早为当前模型语言触发 grammar 加载（加载完成后会经上面的回调自动重分词）
                                 const m = editor.getModel();
                                 if (m) { tmEnsureGrammar(m.getLanguageId()); }
                             })

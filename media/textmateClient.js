@@ -28,6 +28,18 @@ const _pendingByLang = new Map();      // languageId -> Promise<grammar|null>
 const _registeredLang = new Set();     // 已 setTokensProvider 的语言
 const _grammarWaiters = new Map();     // scopeName -> { resolve, promise }
 
+// 某语言的 TextMate grammar 完成 setTokensProvider 注册时的回调（应用层据此对当前同语言 model 触发重分词）。
+let _onGrammarRegistered = null;
+export function setOnGrammarRegistered(cb) {
+    _onGrammarRegistered = (typeof cb === 'function') ? cb : null;
+}
+
+// 统一调试日志开关：默认关闭，排查问题（如 wasm/语法加载、provider 注册时序）时置为 true 即可恢复全部输出。
+const DEBUG = false;
+function log(...args) {
+    if (DEBUG) { console.log('[context-window]', ...args); }
+}
+
 // ===== 主题 scope 集合：用于挑选「主题能着色的最深 scope」=====
 // 重建可着色 scope 集合：纳入「主题全部 tokenColors」+「用户自定义规则（右键取色保存的）」。
 // 把用户自定义规则也算进来，使用户为某个深层 scope（如 storage.type.struct.cpp）配色后，
@@ -150,25 +162,33 @@ export function ensureGrammar(languageId) {
             if (grammar) {
                 _grammarByLang.set(languageId, grammar);
                 if (!_registeredLang.has(languageId)) {
-                    _monaco.languages.setTokensProvider(languageId, makeProvider(grammar));
-                    _registeredLang.add(languageId);
-                    console.log('[context-window] TextMate grammar registered:', languageId, scope);
-                    // 关键：setTokensProvider 对「注册前就已存在的 model」不保证自动重新分词。
-                    // 首屏竞态下（grammar 异步加载晚于内容到达 / setModel，如首次安装、reload 窗口时 wasm 加载较慢），
-                    // 该 model 会停留在 Monaco 内置 Monarch 的回退着色——这正是「reload 窗口后着色不正确、
-                    // 重开工程才正常」的根因。这里显式让该语言的现有 model 重新分词，切换到真实 TextMate 着色。
+                    const provider = makeProvider(grammar);
+
+                    // 关键（消除偶现回到 Monarch 蓝色的根因）：Monaco 内置语言的 Monarch 分词器是经
+                    // registerTokensProviderFactory 惰性异步加载的。首屏内容到达时会触发该 factory 的 resolve()
+                    // （异步 import Monarch chunk）。即便我们随后用 setTokensProvider 注册了 TextMate，
+                    // 那个 pending 的 Monarch _create() 一旦 resolve 完成，会**无条件** register 覆盖我们的 provider
+                    // （见 tokenizationRegistry.js: _create 里 `if (value && !this._isDisposed) register(...)`），
+                    // 并触发重分词 → if 回到蓝色。谁的异步先完成不确定，故偶现。
+                    //
+                    // 修复：再注册一个「返回 TextMate provider」的 factory。registerFactory 会先 dispose 掉已存在的
+                    // 内置 Monarch factory（见 registerFactory: `_factories.get(id)?.dispose()`），使其 _isDisposed=true，
+                    // 那个 pending 的 Monarch resolve 完成时便不再 register —— TextMate 由此永久胜出。
                     try {
-                        for (const m of _monaco.editor.getModels()) {
-                            if (m.getLanguageId() !== languageId) { continue; }
-                            if (typeof m.resetTokenization === 'function') {
-                                m.resetTokenization();
-                            } else {
-                                // 兜底：同语言重设也会重建 tokenization（取到新注册的 TextMate provider）
-                                _monaco.editor.setModelLanguage(m, languageId);
-                            }
-                        }
+                        _monaco.languages.registerTokensProviderFactory(languageId, { create: () => provider });
                     } catch (e) {
-                        console.warn('[context-window] reset tokenization after grammar register failed:', e);
+                        console.warn('[context-window] registerTokensProviderFactory failed:', languageId, e);
+                    }
+                    // 直接注册一份 support，使当前已存在的 model 立即（经 onDidChange）切换到 TextMate。
+                    _monaco.languages.setTokensProvider(languageId, provider);
+                    _registeredLang.add(languageId);
+                    log('TextMate grammar registered:', languageId, scope);
+
+                    // 注册完成的确定性触发点：由应用层对「当前同语言 model」做一次可靠重分词（重建 model），
+                    // 覆盖「首屏已带内容、grammar 后到」时已缓存 Monarch 分词不自动刷新的情况。
+                    if (typeof _onGrammarRegistered === 'function') {
+                        try { _onGrammarRegistered(languageId); }
+                        catch (e) { console.warn('[context-window] onGrammarRegistered callback failed:', e); }
                     }
                 }
             } else {
@@ -251,20 +271,20 @@ export async function setupTextmate({ monaco, vscode, cfg }) {
     updateThemeScopes();
 
     // 1) 动态加载打包好的 textmate 运行时
-    console.log('[context-window] textmate: importing bundle ./textmate.bundle.js ...');
+    log('textmate: importing bundle ./textmate.bundle.js ...');
     const tm = await import('./textmate.bundle.js');
-    console.log('[context-window] textmate: bundle loaded');
+    log('textmate: bundle loaded');
     _parseRawGrammar = tm.parseRawGrammar;
     _INITIAL = tm.INITIAL;
 
     // 2) 加载 oniguruma WASM
-    console.log('[context-window] textmate: fetching wasm', cfg.wasmUri);
+    log('textmate: fetching wasm', cfg.wasmUri);
     const resp = await fetch(cfg.wasmUri);
-    console.log('[context-window] textmate: wasm fetch status =', resp.status, 'ok =', resp.ok);
+    log('textmate: wasm fetch status =', resp.status, 'ok =', resp.ok);
     const wasmBuf = await resp.arrayBuffer();
-    console.log('[context-window] textmate: wasm bytes =', wasmBuf.byteLength);
+    log('textmate: wasm bytes =', wasmBuf.byteLength);
     const onigLib = await tm.loadOnig(wasmBuf);
-    console.log('[context-window] textmate: oniguruma loaded');
+    log('textmate: oniguruma loaded');
 
     // 3) 创建 Registry：loadGrammar 通过消息向扩展端按需取语法文件
     _registry = tm.createRegistry({
@@ -289,7 +309,7 @@ export async function setupTextmate({ monaco, vscode, cfg }) {
     });
 
     _enabled = true;
-    console.log('[context-window] TextMate runtime ready');
+    log('TextMate runtime ready');
     return { ensureGrammar, updateThemeScopes };
 }
 
