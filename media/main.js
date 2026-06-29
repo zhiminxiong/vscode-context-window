@@ -277,7 +277,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         range: null,
                         curLine: -1,
                         activeLineDecorations: [],
-                        symboleDecorations: []
+                        symboleDecorations: [],
+                        // #include/#pragma/#region/#endregion 等指令高亮的装饰 id
+                        directiveDecorations: []
                     };
 
                     // 添加ResizeObserver来监听容器大小变化（仅用于拖拽分隔条时重新布局）
@@ -796,6 +798,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                             // 触发 onDidColorThemeChange 重新着色，使右键取色的改动即时生效（修复"取到的对、渲染没刷新"）。
                                             monaco.editor.setTheme('custom-vs');
                                             editor.layout();
+                                        }
+                                        // 同步指令高亮（#include 等）：fixToken 开关或配色/字重变化后即时重算
+                                        if (typeof updateEditorContent.applyDirectiveDecorations === 'function') {
+                                            updateEditorContent.applyDirectiveDecorations();
                                         }
                                     }
                                     break;

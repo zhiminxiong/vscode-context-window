@@ -8,6 +8,67 @@
 export function createUpdateEditorContent(ctx) {
     const { editor, state, applyIndentationForModel, updateFilenameDisplay, hideCursor, ensureGrammar } = ctx;
 
+    // ===== #include / #pragma / #region / #endregion 等预处理指令高亮 =====
+    // 与扩展端 VSCode 编辑器的装饰（extension.ts: registerDirectiveDecorations）同源：
+    // 同样的语言范围、同样的正则、同样从 editor.tokenColorCustomizations 解析出的配色与字重，
+    // 由 contextEditorCfg.fixToken 开关控制，使 Monaco 上下文窗口内的指令着色与主编辑器一致。
+    const DIRECTIVE_LANGS = ['c', 'cc', 'cpp', 'h', 'hpp', 'csharp'];
+
+    // 注入/刷新指令高亮的样式（颜色 + 字重 + 斜体），随配置变化即时更新
+    function refreshDirectiveStyle() {
+        const cfg = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
+        const color = cfg.directiveColor || '#0000FF';
+        const fontWeight = String(window.vsCodeEditorConfiguration?.editorOptions?.fontWeight || 'normal');
+        // 对齐扩展端：字重为 bold 时用 oblique 斜体强调
+        const fontStyle = fontWeight === 'bold' ? 'oblique' : 'normal';
+        let styleEl = document.getElementById('cw-directive-style');
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = 'cw-directive-style';
+            document.head.appendChild(styleEl);
+        }
+        styleEl.textContent = `.cw-directive-token { color: ${color} !important; font-weight: ${fontWeight}; font-style: ${fontStyle}; }`;
+    }
+
+    // 逐行匹配行首（允许前导空白）的 # 指令，返回从 '#' 到关键字结束的范围
+    function computeDirectiveRanges(model) {
+        const ranges = [];
+        const lineCount = model.getLineCount();
+        const re = /^([ \t]*)#[ \t]*(include|pragma|region|endregion)\b/;
+        for (let line = 1; line <= lineCount; line++) {
+            const text = model.getLineContent(line);
+            const m = re.exec(text);
+            if (m) {
+                const hashCol = m[1].length + 1; // '#' 所在列（1-based）
+                const endCol = m[0].length + 1;  // 关键字结束后的列
+                ranges.push(new monaco.Range(line, hashCol, line, endCol));
+            }
+        }
+        return ranges;
+    }
+
+    // 应用（或在关闭/语言不符时清除）指令高亮装饰
+    function applyDirectiveDecorations() {
+        const model = editor.getModel();
+        const prev = state.directiveDecorations || [];
+        if (!model) { state.directiveDecorations = []; return; }
+
+        const cfg = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
+        const lang = model.getLanguageId();
+        if (!cfg.fixToken || !DIRECTIVE_LANGS.includes(lang)) {
+            // 开关关闭或语言不匹配：清除已有装饰
+            state.directiveDecorations = prev.length ? editor.deltaDecorations(prev, []) : [];
+            return;
+        }
+
+        refreshDirectiveStyle();
+        const ranges = computeDirectiveRanges(model);
+        state.directiveDecorations = editor.deltaDecorations(
+            prev,
+            ranges.map(r => ({ range: r, options: { inlineClassName: 'cw-directive-token' } }))
+        );
+    }
+
     // 强制当前 model 用「已注册的 TextMate provider」重新分词。
     //
     // 背景与根因：TextMate 语法是异步加载的，常常晚于内容到达（setModel）。内容先到时 model 已被 Monaco
@@ -54,6 +115,9 @@ export function createUpdateEditorContent(ctx) {
             old.dispose();
             // 重建后按新 token 类型重新着色（主题对象已含 textmate scope 规则与用户自定义规则）
             try { monaco.editor.setTheme('custom-vs'); } catch (_) {}
+            // 模型已重建，旧装饰 id 失效：重置后按当前内容重新计算指令高亮
+            state.directiveDecorations = [];
+            applyDirectiveDecorations();
         } catch (e) {
             console.warn('[context-window] forceRetokenize failed:', e);
         }
@@ -253,6 +317,8 @@ export function createUpdateEditorContent(ctx) {
 
                 hideCursor();
             }
+            // 内容/语言更新完成后，按当前开关与语言重算指令高亮（#include 等）
+            applyDirectiveDecorations();
         } else {
             console.error('[definition] Editor not initialized');
         }
@@ -263,5 +329,7 @@ export function createUpdateEditorContent(ctx) {
     // 暴露 forceRetokenize，供 main.js 在 setupTextmate 完成（grammar 注册）后，对「首屏即已渲染、
     // 当时 grammar 未就绪」的当前 model 触发一次可靠重分词（覆盖内容先于 textmate 初始化到达的竞态）。
     updateEditorContent.forceRetokenize = forceRetokenize;
+    // 暴露指令高亮重算入口，供 main.js 在 fixToken 开关 / 配色变更（updateContextEditorCfg）后即时刷新
+    updateEditorContent.applyDirectiveDecorations = applyDirectiveDecorations;
     return updateEditorContent;
 }

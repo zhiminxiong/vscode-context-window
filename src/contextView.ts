@@ -83,6 +83,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         type: 'updateEditorConfiguration',
                         configuration: updatedConfig
                     });
+                // 指令高亮（#include 等）的配色来自 editor.tokenColorCustomizations、字重来自 editor.fontWeight，
+                // 这两类变更时同步最新 contextEditorCfg，使 webview 内的指令着色与 VSCode 保持一致。
+                if (e.affectsConfiguration('editor.tokenColorCustomizations') ||
+                    e.affectsConfiguration('editor.fontWeight')) {
+                    this.postMessageToWebview({
+                        type: 'updateContextEditorCfg',
+                        contextEditorCfg: updatedConfig.contextEditorCfg,
+                        customThemeRules: updatedConfig.customThemeRules
+                    });
+                }
             }
             if (e.affectsConfiguration('contextView.contextWindow')) {
                 // 重新获取配置并发送给webview
@@ -340,6 +350,22 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             .get<boolean>('useDefaultTokenizer', true);
     }
 
+    // 从 editor.tokenColorCustomizations 读取 #include 等预处理指令的前景色。
+    // 与扩展端 VSCode 装饰（registerDirectiveDecorations）取色保持一致，使 webview Monaco 高亮同源。
+    private _readDirectiveColor(): string {
+        const config = vscode.workspace.getConfiguration('editor.tokenColorCustomizations');
+        const textMateRules = (config?.get('textMateRules') || []) as Array<{
+            scope: string;
+            settings: { foreground?: string };
+        }>;
+        for (const rule of textMateRules) {
+            if (rule.scope === 'keyword.control.directive.include') {
+                return rule.settings.foreground || '#0000FF';
+            }
+        }
+        return '#0000FF'; // 默认颜色
+    }
+
     // 获取 VS Code 编辑器完整配置
     private _getVSCodeEditorConfiguration(): any {
         // 获取所有编辑器相关配置
@@ -373,6 +399,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
                 cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 30),
                 fixStickyScroll: contextWindowConfig.get('fixStickyScroll', false),
+                // #include/#pragma/#region/#endregion 等指令高亮：开关与配色同步给 webview，
+                // 使 Monaco 编辑器内做与 VSCode 编辑器一致的指令着色。
+                fixToken: contextWindowConfig.get('fixToken', false),
+                directiveColor: this._readDirectiveColor(),
             }
         };
 
