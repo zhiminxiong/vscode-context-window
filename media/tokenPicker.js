@@ -14,7 +14,8 @@ export async function pickTokenStyle(options = {
     token: '',
     foreground: '#ff0000',
     fontStyle: '',
-    description: ''
+    description: '',
+    source: ''
 }, domColor = '#808080', word = '') {
     // Monaco 主题规则的 foreground 不带 '#'（如 "267f99"），但 <input type=color> 与 CSS color
     // 都要求 "#rrggbb"，否则会被当非法值显示为黑色。这里统一规整，使面板显示与编辑器实际渲染一致。
@@ -353,11 +354,36 @@ export async function pickTokenStyle(options = {
             italicOption.appendChild(italicCheckbox);
             italicOption.appendChild(italicLabel);
 
+            // 当前生效 token 的来源标签：monaco（仅基础分词）/ sematic / textmate / custom。
+            // 展示用户右键所取 token 的样式实际由哪种机制决定，便于判断为何是该配色。
+            const SOURCE_LABELS = {
+                monaco: 'monaco',
+                semantic: 'semantic',
+                textmate: 'textmate',
+                custom: 'custom'
+            };
+            const sourceBadge = document.createElement('span');
+            sourceBadge.textContent = SOURCE_LABELS[options.source] || '';
+            sourceBadge.title = '当前生效 token 来源';
+            sourceBadge.style.marginLeft = 'auto';        // 推到该行最右侧（红框位置）
+            sourceBadge.style.alignSelf = 'center';
+            sourceBadge.style.padding = '2px 8px';
+            sourceBadge.style.fontSize = '12px';
+            sourceBadge.style.fontFamily = 'var(--vscode-font-family)';
+            sourceBadge.style.borderRadius = '3px';
+            sourceBadge.style.whiteSpace = 'nowrap';
+            sourceBadge.style.color = 'var(--vscode-badge-foreground)';
+            sourceBadge.style.background = 'var(--vscode-badge-background)';
+            sourceBadge.style.border = '1px solid var(--vscode-contrastBorder, transparent)';
+
             // 组装样式容器（颜色选择器和样式选项在同一行）
             styleContainer.appendChild(colorContainer);
             styleContainer.appendChild(noColorButton);
             styleContainer.appendChild(boldOption);
             styleContainer.appendChild(italicOption);
+            if (sourceBadge.textContent) {
+                styleContainer.appendChild(sourceBadge);
+            }
 
             // 组装按钮容器
             buttonContainer.appendChild(confirmButton);

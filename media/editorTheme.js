@@ -196,6 +196,49 @@ export function getEffectiveTokenStyle(token, light, isSemantic) {
     return { found: false };
 }
 
+// 判断某 token 当前生效的样式是否来自「用户自定义规则」（customThemeRules）。
+// - 语义 token（isSemantic=true）：按 VSCode 选择器匹配（类型相同、规则修饰符是 token 修饰符子集）。
+// - 基础语法层 token：按最长前缀匹配（enum.declaration → enum）。
+// 只要在用户规则中命中即返回 true（无论是否同时存在默认/textmate 规则），表示该 token「被用户自定义过色」。
+export function isCustomRuleMatched(token, isSemantic) {
+    const userRules = window.vsCodeEditorConfiguration?.customThemeRules;
+    if (!Array.isArray(userRules) || !userRules.length) { return false; }
+    if (isSemantic) {
+        const parts = String(token || '').split('.');
+        const type = parts[0];
+        const mods = parts.slice(1);
+        for (const r of userRules) {
+            if (!r || typeof r.token !== 'string') { continue; }
+            const rp = r.token.split('.');
+            if (rp[0] !== type) { continue; }
+            const rMods = rp.slice(1);
+            let subset = true;
+            for (const m of rMods) { if (mods.indexOf(m) < 0) { subset = false; break; } }
+            if (subset) { return true; }
+        }
+        return false;
+    }
+    let t = String(token || '');
+    while (t) {
+        if (userRules.some(r => r && r.token === t)) { return true; }
+        const i = t.lastIndexOf('.');
+        if (i <= 0) { break; }
+        t = t.slice(0, i);
+    }
+    return false;
+}
+
+// 判断某 token 当前「生效样式」的来源类别，用于取色面板展示。
+// 优先级：自定义 > 语义/textmate > monaco —— 只要用户为该 token 配过色，即视为「自定义」；
+// 否则按识别它的分词机制返回：语义 token → 'semantic'，真实 TextMate scope → 'textmate'，
+// 其余（Monaco 内置 Monarch 基础分词）→ 'monaco'。
+export function getTokenStyleSource(token, isSemantic, isTextmate) {
+    if (isCustomRuleMatched(token, isSemantic)) { return 'custom'; }
+    if (isSemantic) { return 'semantic'; }
+    if (isTextmate) { return 'textmate'; }
+    return 'monaco';
+}
+
 export function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, light) {
     // 性能优化：一次性读取所有需要的 CSS 变量，避免每个颜色键各自触发一次 getComputedStyle
     const v = getCssVars([

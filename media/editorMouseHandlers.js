@@ -11,6 +11,7 @@ import { requestTokenStyle } from './tokenStyleClient.js';
 import { pickTokenStyle } from './tokenPicker.js';
 import { tokenAtPosition, semanticTokenAtPosition } from './tokenize.js';
 import { getScopeAtPosition } from './textmateClient.js';
+import { getTokenStyleSource } from './editorTheme.js';
 
 export function setupEditorMouseHandlers(ctx) {
     const {
@@ -174,11 +175,15 @@ export function setupEditorMouseHandlers(ctx) {
                                         }
                                     }
                                     //console.log('[definition] token style:', style);
+                                    // 计算当前生效 token 的来源：自定义 > 语义/textmate > monaco，
+                                    // 供取色面板展示（monaco/语义/textmate/自定义）。
+                                    const source = getTokenStyleSource(token, isSemantic, !!tokenInfo.textmate);
                                     const newStyle = await pickTokenStyle({
                                         token,
                                         foreground: style?.foreground,
                                         fontStyle: style?.fontStyle,
-                                        description: style?.description
+                                        description: style?.description,
+                                        source
                                     }, getTokenColorFromDOM(editor, lookupPosition) || '#808080', word.word);
                                     //console.log('[definition] picked new style:', newStyle);
                                     if (newStyle) {
