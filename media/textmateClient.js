@@ -202,12 +202,14 @@ export function getScopeAtPosition(model, position) {
         return null;
     }
 
-    const CONTEXT_LINES = 100;
-    const startLine = Math.max(1, position.lineNumber - CONTEXT_LINES);
+    // 必须从文档第 1 行开始分词，与渲染（Monaco 经 setTokensProvider 从文档顶部逐行维护 ruleStack）
+    // 保持完全一致的上下文。若改用 position-N 的窗口，起点可能落在多行构造（块注释 / 模板字符串 /
+    // JSX / 跨行类型等）中间，导致起始 ruleStack 错误、同一位置取到与渲染不同的 scope
+    // （例如把修饰符 public 误判为 variable.other.readwrite.ts）。取色为低频操作，全量逐行可接受。
     let ruleStack = _INITIAL;
     let target = null;
     let targetText = '';
-    for (let ln = startLine; ln <= position.lineNumber; ln++) {
+    for (let ln = 1; ln <= position.lineNumber; ln++) {
         const text = model.getLineContent(ln);
         let r;
         try {

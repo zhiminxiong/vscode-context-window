@@ -55,10 +55,10 @@ export function semanticTokenAtPosition(pos, semanticState) {
 
 export function tokenAtPosition(model, editor, pos) {
     const lang = model.getLanguageId();
-    // Tokenize from line 1 up to the target line together, so cross-line
-    // state (open parens, template strings, etc.) is correctly maintained.
-    const CONTEXT_LINES = 100;
-    const startLine = Math.max(1, pos.lineNumber - CONTEXT_LINES);
+    // 必须从文档第 1 行开始分词，与渲染（Monaco 从文档顶部逐行维护分词状态）保持一致的上下文。
+    // 若只取目标行附近的窗口，起点可能落在多行构造（块注释 / 模板字符串等）中间，导致分词状态错误、
+    // 同一位置取到与渲染不同的 token。取色为低频操作，全量逐行（到目标行）可接受。
+    const startLine = 1;
     const lines = [];
     for (let ln = startLine; ln <= pos.lineNumber; ln++) {
         lines.push(model.getLineContent(ln));
