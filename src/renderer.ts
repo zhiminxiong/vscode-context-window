@@ -93,6 +93,16 @@ export class Renderer {
         this._fileCache.clear();
     }
 
+    // 判断某文档对应语言是否启用了语义高亮（对齐 VSCode：读取 editor.semanticHighlighting.enabled，
+    // 并按文档语言解析 "[languageId]": {...} 这类按语言覆盖）。
+    // 取值规则与 VSCode 一致：仅当显式为 false 时禁用；true / "configuredByTheme" / 未设置 均视为启用。
+    private isSemanticHighlightingEnabled(doc: vscode.TextDocument): boolean {
+        const val = vscode.workspace
+            .getConfiguration('editor', doc)
+            .get<boolean | string>('semanticHighlighting.enabled');
+        return val !== false;
+    }
+
     public async renderDefinition(languageId: string, def: vscode.Location | vscode.LocationLink): Promise<FileContentInfo> {
         if (def instanceof vscode.Location) {
             return await this.getFileContents(def.uri, def.range, languageId);
@@ -144,9 +154,12 @@ export class Renderer {
         const currentVersion = doc.version;
         // 仅在非默认 tokenizer 模式（useDefaultTokenizer 关闭）下才向语言服务器索取语义 token：
         // 此时基础语法层由真实 TextMate 接管、语义层叠加其上。默认模式纯用 Monaco 内置 tokenizer，无需多一次较贵的语义请求。
+        // 同时尊重 VSCode 的 editor.semanticHighlighting.enabled（含按语言覆盖，如 "[csharp]": {...}）：
+        // 某语言显式关闭语义高亮时，与主编辑器一致——完全不取、不下发语义 token，纯靠 TextMate 着色。
         const needSemantic = !vscode.workspace
             .getConfiguration('contextView.contextWindow')
-            .get<boolean>('useDefaultTokenizer', true);
+            .get<boolean>('useDefaultTokenizer', true)
+            && this.isSemanticHighlightingEnabled(doc);
 
         // 命中后端大文件缓存且版本一致：直接返回，并把条目移到末尾（O(1) LRU）
         const cached = this._fileCache.get(cacheKey);
