@@ -5,3 +5,5 @@ out/
 dist/
 .vs
 /*.vsix
+# Webpack 为 webview 端 textmate 运行时生成的 source map（输出在 media/ 下，属构建产物，不入库）
+media/textmate.bundle.js.map

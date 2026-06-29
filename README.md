@@ -32,8 +32,8 @@ Please check out that extension if you just want documentation in the panel or s
     - `live` — (default) The context always tracks the current cursor position.
     - `sticky` — The context tracks the current cursor position. However if there is no symbol at the current position, it continues showing the previous context.
 - `contextView.contextWindow.useDefaultTokenizer` — Selects how tokens are highlighted in the context view.
-    - Checked by default: Monaco Editor's built-in tokenizer is used for syntax highlighting.
-    - When unchecked: highlighting is driven by VS Code's semantic tokens (resolved from the language server) plus a small amount of Monaco-based custom supplementation. In this mode it should be used together with `lightThemeRules` or `darkThemeRules`.
+    - Checked by default: Monaco Editor's built-in (Monarch) tokenizer is used for syntax highlighting.
+    - When unchecked: the base syntax layer is highlighted by real **TextMate** grammars (harvested from your installed VS Code language extensions, so it matches the main editor), with VS Code **semantic** tokens (resolved from the language server) overlaid on top for precise identifier classification. Semantic highlighting honors your `editor.semanticHighlighting.enabled` setting, including per-language overrides such as `"[csharp]": { "editor.semanticHighlighting.enabled": false }` — languages with it disabled fall back to TextMate only, exactly like the main editor. In this mode you can also use `lightThemeRules` / `darkThemeRules` to customize colors.
 - `contextView.contextWindow.lightThemeRules` — Color rules for the light theme
     - Default colors are provided—modify them as needed; leaving the fields empty will fall back to the default tokenizer.
 - `contextView.contextWindow.cacheSizeLimit` — Maximum number of files cached in the frontend (webview). Default `30`.
