@@ -249,6 +249,7 @@ export function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, li
 
     const finalThemeRules = sanitizeRuleColors(mergeThemeRules(vsCodeEditorConfiguration.customThemeRules, light));
 
+
     monaco.editor.defineTheme('custom-vs', {
         base: light ? 'vs' : 'vs-dark',
         inherit: true,

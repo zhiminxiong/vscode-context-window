@@ -206,8 +206,16 @@ export async function pickTokenStyle(options = {
 
             disabledIndicator.appendChild(slash);
 
+            // 修复：点击 <input type=color> 会弹出系统原生取色器，导致 webview 失焦并触发 window 的 blur，
+            // 进而被下方 blurHandler 误判为"放弃"而关闭弹窗并 resolve(null)，使颜色修改永远无法保存
+            // （这正是"改色后不生效、customThemeRules 一直为空"的根因）。
+            // 用 colorPicking 标记取色中，让 blurHandler 跳过这一次失焦关闭。
+            let colorPicking = false;
+            input.addEventListener('mousedown', () => { colorPicking = true; });
+
             // ⭐ 添加颜色选择事件处理
             input.addEventListener('input', () => {
+                colorPicking = false;
                 // 当用户选择颜色时，隐藏斜线
                 disabledIndicator.style.display = 'none';
                 input.style.opacity = '1';
@@ -215,6 +223,7 @@ export async function pickTokenStyle(options = {
 
             // ⭐ 添加颜色选择完成事件
             input.addEventListener('change', () => {
+                colorPicking = false;
                 // 确保斜线保持隐藏
                 disabledIndicator.style.display = 'none';
                 input.style.opacity = '1';
@@ -467,6 +476,8 @@ export async function pickTokenStyle(options = {
             document.addEventListener('keydown', escHandler);
 
             blurHandler = () => {
+                // 系统原生取色器导致的 webview 失焦：忽略本次，不关闭弹窗（否则改色无法保存）。
+                if (colorPicking) { colorPicking = false; return; }
                 cleanup();
                 resolve(null);
             };

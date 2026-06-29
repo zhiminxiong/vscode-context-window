@@ -112,17 +112,27 @@ export function setupEditorMouseHandlers(ctx) {
                     if (e.event.rightButton) {
                         //console.log('[definition] start to mid + jump definition: ', word);
                         if (window.pickTokenStyle) {
+                            // 取色一律按「用户看到的高亮单词」的起始列做 token 查找，而非鼠标原始点击列。
+                            // 原因：getWordAtPosition 对词尾边界是包含的（点在 if 右边缘仍判定为 if），
+                            // 而各 token 查找用的是右开区间 [startIndex, endIndex)，原始点击列若落在词尾边界，
+                            // 会命中相邻的空白/标点 token，取到其容器 scope（如 meta.block.ts）而非关键字本身
+                            // （keyword.control.conditional.ts）——这正是「偶现取错 token、改色后无变化」的根因。
+                            // 用 word.startColumn（单词首字符列）可确定性命中单词自身的 token。
+                            const lookupPosition = {
+                                lineNumber: position.lineNumber,
+                                column: word.startColumn
+                            };
                             // 优先用后端语义 token 识别（右键即可知道该标识符的语义类型，如 variable/function/class）；
                             // 该位置无语义 token（如关键字/操作符走基础层）时，回退到 Monaco 基础 tokenizer。
                             let tokenInfo = (semanticState && semanticState.data)
-                                ? semanticTokenAtPosition(position, semanticState)
+                                ? semanticTokenAtPosition(lookupPosition, semanticState)
                                 : null;
                             if (!tokenInfo || !tokenInfo.token) {
                                 // 方案 B：优先用真实 TextMate 语法取该位置的 scope（如 storage.type.struct.cpp），
                                 // 与编辑器渲染同源；grammar 未就绪/未启用时回退到 Monaco 基础 tokenizer。
                                 let tm = null;
                                 if (window.ctxTextmate && window.ctxTextmate.enabled) {
-                                    const sc = getScopeAtPosition(model, position);
+                                    const sc = getScopeAtPosition(model, lookupPosition);
                                     if (sc && sc.picked) {
                                         tm = {
                                             token: sc.picked,
@@ -133,7 +143,7 @@ export function setupEditorMouseHandlers(ctx) {
                                         };
                                     }
                                 }
-                                tokenInfo = tm || tokenAtPosition(model, editor, position);
+                                tokenInfo = tm || tokenAtPosition(model, editor, lookupPosition);
                             }
                             if (tokenInfo && tokenInfo.token) {
                                 //console.log('[definition] pickColor action for token:', tokenInfo);
@@ -169,7 +179,7 @@ export function setupEditorMouseHandlers(ctx) {
                                         foreground: style?.foreground,
                                         fontStyle: style?.fontStyle,
                                         description: style?.description
-                                    }, getTokenColorFromDOM(editor, position) || '#808080', word.word);
+                                    }, getTokenColorFromDOM(editor, lookupPosition) || '#808080', word.word);
                                     //console.log('[definition] picked new style:', newStyle);
                                     if (newStyle) {
                                         // 回传扩展端，后续用于更新规则
