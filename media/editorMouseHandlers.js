@@ -31,6 +31,15 @@ export function setupEditorMouseHandlers(ctx) {
     // 记录上一次高亮的单词，范围未变则跳过 deltaDecorations，避免在同一单词上抖动时反复重画
     let lastWordKey = '';
 
+    // 兼容读取点击次数：优先 Monaco IMouseEvent.detail，回退到原生 browserEvent.detail。
+    // 用它在 onMouseUp 里识别双击——原生 DOM dblclick 在 Monaco 虚拟化内容上常因两次点击落在
+    // 被重渲染替换的不同 DOM 节点而无法合成；而 detail（点击计数）来自输入层，不受 DOM 重建影响。
+    const getClickCount = (e) => {
+        const ev = e && e.event;
+        if (!ev) { return 1; }
+        return ev.detail || (ev.browserEvent && ev.browserEvent.detail) || 1;
+    };
+
     // 性能优化：mouseleave 监听只在初始化时绑定一次，避免每次移动到新单词都堆叠 once 监听器（监听器泄漏）
     const editorDomForLeave = editor.getDomNode();
     if (editorDomForLeave) {
@@ -225,6 +234,14 @@ export function setupEditorMouseHandlers(ctx) {
             if (e.event.rightButton) {
                 editor.focus();
                 showCursor();
+            } else if (e.event.leftButton && getClickCount(e) >= 2) {
+                // 在「空白处」（非文本：CONTENT_EMPTY 等）双击 → 让 VSCode 主编辑区定位到当前上下文行。
+                // 空白处没有单词，天然不会进入上面的 jumpDefinition 分支，故无需防抖即可与单击跳转共存。
+                // 走 Monaco 的 onMouseUp（点击计数可靠），替代此前失效的原生 DOM dblclick。
+                vscode.postMessage({
+                    type: 'doubleClick',
+                    location: 'bottomArea'
+                });
             }
         }
         return true;
