@@ -399,9 +399,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
                 cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 30),
                 fixStickyScroll: contextWindowConfig.get('fixStickyScroll', false),
-                // 是否启用自定义 hover 提示（右键菜单可切换，默认 true）。
+                // 是否启用自定义 hover 提示（右键菜单可切换，默认 false）。
                 // webview 启动/运行期读取该值决定是否注册低延迟、复用主编辑区 LSP 的 hover provider。
-                enableHover: contextWindowConfig.get('enableHover', true),
+                enableHover: contextWindowConfig.get('enableHover', false),
                 // #include/#pragma/#region/#endregion 等指令高亮：开关与配色同步给 webview，
                 // 使 Monaco 编辑器内做与 VSCode 编辑器一致的指令着色。
                 fixToken: contextWindowConfig.get('fixToken', false),

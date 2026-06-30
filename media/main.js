@@ -24,11 +24,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
     window.isPinned = false;
     window.pickTokenStyle = false;
     window.stickyScroll = false;
-    // Hover Tips 初值：从后端下发的 contextEditorCfg.enableHover 读取，不存在时默认 true。
+    // Hover Tips 初值：从后端下发的 contextEditorCfg.enableHover 读取，不存在时默认 false。
     // 右键菜单 "Hover Tips" 切换后反转该值，同时以 'setEnableHover' 消息告知后端持久化。
     {
         const cfg0 = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
-        window.enableHover = (cfg0 && typeof cfg0.enableHover === 'boolean') ? cfg0.enableHover : true;
+        window.enableHover = (cfg0 && typeof cfg0.enableHover === 'boolean') ? cfg0.enableHover : false;
     }
 
     // 统一调试日志开关：默认关闭，排查问题时置为 true 即可恢复所有调试输出，

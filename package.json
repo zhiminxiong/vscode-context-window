@@ -212,7 +212,7 @@
         },
         "contextView.contextWindow.enableHover": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Show hover tooltips (parameter signatures, JSDoc, etc.) in the Context Window. Hover requests are forwarded to the active language servers of the main editor."
         }
       }
