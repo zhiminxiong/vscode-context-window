@@ -4,6 +4,11 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.2] 2026.06.30
+
+#### Changed
+
+- Some bug fixes.
 
 ## [1.0.1] 2026.06.29
 
