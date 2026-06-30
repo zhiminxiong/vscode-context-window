@@ -225,30 +225,90 @@ function styleFromTokenColors(tokenColors: TokenColorRule[], candidateScopes: st
     return undefined;
 }
 
+// 一条 semanticTokenColors 规则对各样式位的「贡献」：undefined 表示该规则未定义此位。
+// 对齐 VSCode TokenStyle.fromSettings 语义：
+//   - 字符串简写（"#rrggbb"）：仅定义 foreground；
+//   - 对象的 fontStyle 字符串（如 "italic bold" / "none" / ""）：定义全部 4 个样式位
+//     （出现的词为 true，未出现的为 false）——这点最关键，"bold" 同时意味着 italic=false；
+//   - 对象的布尔字段（bold/italic/underline/strikethrough）：只定义出现的那几位。
+interface StyleBits {
+    foreground?: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strikethrough?: boolean;
+}
+
+function parseStyleContribution(val: any): StyleBits {
+    if (typeof val === 'string') {
+        return { foreground: val };
+    }
+    const out: StyleBits = {};
+    if (typeof val?.foreground === 'string') { out.foreground = val.foreground; }
+    if (typeof val?.fontStyle === 'string') {
+        const fs = val.fontStyle.trim();
+        if (fs === 'none' || fs === '') {
+            out.bold = out.italic = out.underline = out.strikethrough = false;
+        } else {
+            // 字符串形态定义全部 4 位：出现=true，未出现=false（VSCode 语义）
+            out.bold = /\bbold\b/.test(fs);
+            out.italic = /\bitalic\b/.test(fs);
+            out.underline = /\bunderline\b/.test(fs);
+            out.strikethrough = /\bstrikethrough\b/.test(fs);
+        }
+    } else {
+        // 布尔对象形态：仅定义显式给出的位
+        if (typeof val?.bold === 'boolean') { out.bold = val.bold; }
+        if (typeof val?.italic === 'boolean') { out.italic = val.italic; }
+        if (typeof val?.underline === 'boolean') { out.underline = val.underline; }
+        if (typeof val?.strikethrough === 'boolean') { out.strikethrough = val.strikethrough; }
+    }
+    return out;
+}
+
 // 解析 semanticTokenColors 选择器（type.mod.mod:lang），与目标 token（type[.mod...]）匹配。
-// 收集所有命中项并按特异性升序合并：高特异性覆盖同名属性，不同属性可叠加
-// （如 method 给颜色+加粗、*.declaration 给加粗，最终都体现）。
+// 完全对齐 VSCode 的语义着色解析：
+//   1) 打分 score = (类型匹配 ? 100 : 0) + 修饰符数 * 100 —— 类型匹配与「每个修饰符」等权（各 100），
+//      故修饰符数量主导特异性：*.static（1 修饰符=100）与 method（类型=100）打平，靠后出现者覆盖。
+//      这是修复「method 的 fontStyle:'bold' 把 *.static 的 'italic bold' 整体盖掉、丢失 italic」的关键。
+//   2) foreground 与 bold/italic/underline/strikethrough 各自「独立」取分数最高（同分取后出现）的规则，
+//      而非把 fontStyle 当整串覆盖 —— 这样 foreground 来自 method、样式位来自 *.static，与 VSCode 一致。
 function styleFromSemanticColors(semanticTokenColors: Record<string, any>, token: string): SemanticStyle | undefined {
     const [tType, ...tMods] = token.split('.');
-    const matches: { score: number; val: any }[] = [];
+    let fg: string | undefined;
+    let fgScore = -1;
+    const bits: StyleBits = {};
+    const bitScore = { bold: -1, italic: -1, underline: -1, strikethrough: -1 };
+    let matched = false;
+
     for (const rawSelector of Object.keys(semanticTokenColors)) {
         if (rawSelector === 'enabled') { continue; }
         const selector = rawSelector.split(':')[0]; // 去掉 :language
         const [sType, ...sMods] = selector.split('.');
         if (sType !== '*' && sType !== tType) { continue; }
         if (!sMods.every(m => tMods.includes(m))) { continue; }
-        const score = (sType === '*' ? 0 : 100) + sMods.length;
-        matches.push({ score, val: semanticTokenColors[rawSelector] });
+        const score = (sType === '*' ? 0 : 100) + sMods.length * 100;
+        const c = parseStyleContribution(semanticTokenColors[rawSelector]);
+        matched = true;
+        // >= 使同分时「配置中后出现者」覆盖（与 VSCode 一致）；Object.keys 保序、Node 排序稳定
+        if (c.foreground !== undefined && score >= fgScore) { fg = c.foreground; fgScore = score; }
+        for (const p of ['bold', 'italic', 'underline', 'strikethrough'] as const) {
+            if (c[p] !== undefined && score >= bitScore[p]) { bits[p] = c[p]; bitScore[p] = score; }
+        }
     }
-    if (!matches.length) { return undefined; }
-    matches.sort((a, b) => a.score - b.score);
+    if (!matched) { return undefined; }
+
     const out: SemanticStyle = {};
-    for (const m of matches) {
-        const st: SemanticStyle = typeof m.val === 'string'
-            ? { foreground: m.val }
-            : { foreground: m.val?.foreground, fontStyle: normalizeFontStyle(m.val) };
-        if (st.foreground) { out.foreground = st.foreground; }
-        if (st.fontStyle !== undefined) { out.fontStyle = st.fontStyle; }
+    if (fg !== undefined) { out.foreground = fg; }
+    // 只要有任一样式位被定义，就产出 fontStyle 串（可能为 '' 表示「显式无样式」，用于覆盖底层）
+    if (bits.bold !== undefined || bits.italic !== undefined ||
+        bits.underline !== undefined || bits.strikethrough !== undefined) {
+        const parts: string[] = [];
+        if (bits.bold) { parts.push('bold'); }
+        if (bits.italic) { parts.push('italic'); }
+        if (bits.underline) { parts.push('underline'); }
+        if (bits.strikethrough) { parts.push('strikethrough'); }
+        out.fontStyle = parts.join(' ');
     }
     return out;
 }
