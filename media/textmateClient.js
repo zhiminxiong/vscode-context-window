@@ -28,6 +28,12 @@ const _pendingByLang = new Map();      // languageId -> Promise<grammar|null>
 const _registeredLang = new Set();     // 已 setTokensProvider 的语言
 const _grammarWaiters = new Map();     // scopeName -> { resolve, promise }
 
+// 右键取色用的逐行结束状态缓存：把「从第 1 行逐行分词」的成本摊销到多次取色。
+// 结构：WeakMap<model, { versionId, states: ruleStack[] }>，states[ln] = 第 ln 行分词后的 ruleStack
+// （states[0] 恒为 _INITIAL，即第 1 行的起始状态）。仅在 getScopeAtPosition（右键 pick）里按需生长，
+// 渲染等高频路径不碰它。model 内容变化（versionId 变）即整体失效重建；model 销毁后由 WeakMap 自动回收。
+const _stateCacheByModel = new WeakMap();
+
 // 某语言的 TextMate grammar 完成 setTokensProvider 注册时的回调（应用层据此对当前同语言 model 触发重分词）。
 let _onGrammarRegistered = null;
 export function setOnGrammarRegistered(cb) {
@@ -222,14 +228,26 @@ export function getScopeAtPosition(model, position) {
         return null;
     }
 
-    // 必须从文档第 1 行开始分词，与渲染（Monaco 经 setTokensProvider 从文档顶部逐行维护 ruleStack）
-    // 保持完全一致的上下文。若改用 position-N 的窗口，起点可能落在多行构造（块注释 / 模板字符串 /
-    // JSX / 跨行类型等）中间，导致起始 ruleStack 错误、同一位置取到与渲染不同的 scope
-    // （例如把修饰符 public 误判为 variable.other.readwrite.ts）。取色为低频操作，全量逐行可接受。
-    let ruleStack = _INITIAL;
+    // TextMate 分词是有状态的：第 ln 行需要第 ln-1 行结束时的 ruleStack 作为起点，故起点必须是真正的
+    // 文档顶层（_INITIAL）才能与渲染（Monaco 从文档顶部逐行维护 ruleStack）保持一致；用 position-N 的窗口
+    // 起点可能落在多行构造（块注释 / 模板字符串 / JSX / 跨行类型等）中间，导致取到与渲染不同的 scope。
+    // 为避免每次都从第 1 行重算，这里缓存逐行结束状态：首次取色仍逐行算到目标行（并缓存沿途状态），
+    // 之后往下点只增量补算、往回点直接命中，近 O(1)；model 内容变化则整体重建，准确性与全量一致。
+    const targetLine = position.lineNumber;
+    const versionId = model.getVersionId();
+
+    let cache = _stateCacheByModel.get(model);
+    if (!cache || cache.versionId !== versionId) {
+        cache = { versionId, states: [_INITIAL] }; // states[0] = 第 1 行的起始状态
+        _stateCacheByModel.set(model, cache);
+    }
+
     let target = null;
     let targetText = '';
-    for (let ln = 1; ln <= position.lineNumber; ln++) {
+    // states.length 表示「下一行要算的行号」(1-based)；states[ln-1] 即第 ln 行的起始 ruleStack。
+    let ln = cache.states.length;
+    let ruleStack = cache.states[ln - 1];
+    for (; ln <= targetLine; ln++) {
         const text = model.getLineContent(ln);
         let r;
         try {
@@ -237,8 +255,20 @@ export function getScopeAtPosition(model, position) {
         } catch (_) {
             return null;
         }
-        if (ln === position.lineNumber) { target = r; targetText = text; }
+        if (ln === targetLine) { target = r; targetText = text; }
         ruleStack = r.ruleStack;
+        cache.states[ln] = ruleStack; // 缓存第 ln 行结束后的状态
+    }
+
+    // 目标行此前已被缓存（之前点过更靠下的行）：用其起始状态补算一次，仅为拿到该行 tokens。
+    if (!target) {
+        const text = model.getLineContent(targetLine);
+        try {
+            target = grammar.tokenizeLine(text, cache.states[targetLine - 1]);
+            targetText = text;
+        } catch (_) {
+            return null;
+        }
     }
     if (!target) { return null; }
 
