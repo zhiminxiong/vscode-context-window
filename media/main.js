@@ -622,18 +622,20 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         return false;
                     }, true);
 
-                    // 处理鼠标侧键
-                    editor.getDomNode().addEventListener('auxclick', (e) => {
-                        //console.log('[definition] auxclick:', e);
-                        // 阻止默认行为
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (e.button === 3) { // 鼠标后退键
+                    // 处理鼠标侧键（前进/后退）
+                    // 关键：必须走 Monaco 自身的鼠标事件 API（与双击的修复同源），而不是在 DOM 节点上
+                    // addEventListener。本版 Monaco 内容区基于 pointer 事件，会拦截/消费原生 mouse 事件，
+                    // 导致挂在 DOM 上的 auxclick / mousedown 监听器都收不到侧键；而 editor.onMouseDown
+                    // 由 Monaco 自身派发，能稳定拿到侧键——通过 e.event.browserEvent.button 识别 3/4。
+                    editor.onMouseDown((e) => {
+                        const be = e && e.event && e.event.browserEvent;
+                        const btn = be && be.button;
+                        if (btn === 3) { // 鼠标后退键
                             vscode.postMessage({
                                 type: 'navigate',
                                 direction: 'back'
                             });
-                        } else if (e.button === 4) { // 鼠标前进键
+                        } else if (btn === 4) { // 鼠标前进键
                             vscode.postMessage({
                                 type: 'navigate',
                                 direction: 'forward'
