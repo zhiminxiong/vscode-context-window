@@ -228,10 +228,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             // 其他有效选项
                             ...otherOptions,
                             hover: {
-                                enabled: true,
-                                above: true,
-                                delay: 200,
-                                sticky: true
+                                enabled: false
                             },
                             // 启用快速建议
                             quickSuggestions: true,
