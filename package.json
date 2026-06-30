@@ -209,6 +209,11 @@
           "type": "boolean",
           "default": false,
           "description": "Extend sticky scroll parsing for C, C++, and C#.\nTake effect when VSCode starts."
+        },
+        "contextView.contextWindow.enableHover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show hover tooltips (parameter signatures, JSDoc, etc.) in the Context Window. Hover requests are forwarded to the active language servers of the main editor."
         }
       }
     }

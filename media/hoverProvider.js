@@ -16,7 +16,7 @@
 //   4) 调试日志：构造 reqId、收到回包、超时三处都打日志，便于定位链路问题。
 
 const HOVER_TIMEOUT_MS = 1500;
-const DEBUG = true; // 排障期打开
+const DEBUG = false; // 关闭调试日志（排障时改为 true 即可恢复）
 
 function dlog(...args) {
     if (DEBUG) {
@@ -27,6 +27,7 @@ function dlog(...args) {
 let _vscode = null;
 let _state = null; // editorState：{ uri, content, language, ... }
 let _registered = false;
+let _disposable = null; // monaco.languages.registerHoverProvider 返回的 IDisposable，便于动态关闭
 let _seq = 0;
 const _pending = new Map(); // reqId -> { resolve, timer }
 
@@ -38,7 +39,7 @@ export function ensureHoverProvider(_languageIdIgnored) {
     }
     _registered = true;
 
-    monaco.languages.registerHoverProvider('*', {
+    _disposable = monaco.languages.registerHoverProvider('*', {
         provideHover: (model, position, token) => {
             if (!_vscode || !model) { return null; }
 
@@ -96,6 +97,24 @@ export function ensureHoverProvider(_languageIdIgnored) {
         }
     });
     dlog('hover provider registered for "*"');
+}
+
+// 注销 hover provider（运行时关闭 Hover Tips 用）。可与 ensureHoverProvider 反复配对。
+// 已 resolve 出去的浮窗 Monaco 自行管理；本次注销只让后续 hover 不再触发我们的 provider。
+// 若用户已禁用 Monaco 内置 TS/JS provider，关闭后 ts/js 文件 hover 将完全无任何来源（浮窗根本不出现），符合预期。
+export function disposeHoverProvider() {
+    if (_disposable && typeof _disposable.dispose === 'function') {
+        try { _disposable.dispose(); } catch (e) { dlog('dispose failed', e); }
+    }
+    _disposable = null;
+    _registered = false;
+    // 清掉尚未结束的 pending：返回最小空 Hover，避免遗留浮窗卡 Loading。
+    for (const [reqId, p] of _pending) {
+        clearTimeout(p.timer);
+        try { p.resolve({ contents: [{ value: '' }] }); } catch (_) { /* noop */ }
+        _pending.delete(reqId);
+    }
+    dlog('hover provider disposed');
 }
 
 // 接收扩展端的 hover 回包（main.js 在 message 分发里调用）。

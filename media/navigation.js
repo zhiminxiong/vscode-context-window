@@ -141,6 +141,11 @@
                 checked: window.pickTokenStyle,
                 action: () => window.postMessage({ type: 'PickTokenStyle' })
             },
+            {
+                label: 'Hover Tips',
+                checked: window.enableHover,
+                action: () => window.postMessage({ type: 'EnableHover' })
+            },
             { type: 'separator' }, // 分割条
             {
                 label: 'Sticky Scroll',

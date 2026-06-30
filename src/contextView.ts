@@ -399,6 +399,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
                 cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 30),
                 fixStickyScroll: contextWindowConfig.get('fixStickyScroll', false),
+                // 是否启用自定义 hover 提示（右键菜单可切换，默认 true）。
+                // webview 启动/运行期读取该值决定是否注册低延迟、复用主编辑区 LSP 的 hover provider。
+                enableHover: contextWindowConfig.get('enableHover', true),
                 // #include/#pragma/#region/#endregion 等指令高亮：开关与配色同步给 webview，
                 // 使 Monaco 编辑器内做与 VSCode 编辑器一致的指令着色。
                 fixToken: contextWindowConfig.get('fixToken', false),
@@ -603,6 +606,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'requestHover':
                     this.handleRequestHover(message);
+                    break;
+                case 'setEnableHover':
+                    await this.handleSetEnableHover(message);
                     break;
                 case 'doubleClick':
                     await this.handleDoubleClick(message);
@@ -812,7 +818,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const reqId = message?.reqId;
         const empty = () => this.postMessageToWebview({ type: 'hoverResult', reqId, contents: [] });
         if (typeof reqId !== 'number' || !message?.uri || !message?.position) {
-            console.log('[context-window] requestHover: invalid params', message);
             empty();
             return;
         }
@@ -823,15 +828,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 Math.max(0, message.position.character | 0)
             );
 
-            console.log('[context-window] requestHover ->', { reqId, uri: message.uri, line: pos.line, col: pos.character });
-
             const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
                 'vscode.executeHoverProvider',
                 targetUri,
                 pos
             );
-
-            console.log('[context-window] requestHover <- result', { reqId, count: hovers?.length ?? 0 });
 
             if (!hovers || !hovers.length) {
                 empty();
@@ -872,6 +873,18 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this.postMessageToWebview({ type: 'hoverResult', reqId, contents, range });
         } catch (e) {
             empty();
+        }
+    }
+
+    // 持久化 Hover Tips 开关：右键菜单切换时由 webview 发来，此处写入用户全局配置；
+    // 写入后 onDidChangeConfiguration 回调会自动通过 updateContextEditorCfg 把最新值广播回 webview。
+    private async handleSetEnableHover(message: any) {
+        try {
+            const value = !!message?.value;
+            const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+            await cfg.update('enableHover', value, true);
+        } catch (err) {
+            console.error('[context-window] setEnableHover failed:', err);
         }
     }
 

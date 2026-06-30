@@ -10,7 +10,7 @@ import { createUpdateEditorContent } from './editorContent.js';
 import { createMessageHandlers } from './messageHandlers.js';
 import { setupEditorMouseHandlers } from './editorMouseHandlers.js';
 import { setupTextmate, ensureGrammar as tmEnsureGrammar, updateThemeScopes as tmUpdateThemeScopes, setOnGrammarRegistered as tmSetOnGrammarRegistered } from './textmateClient.js';
-import { setupHoverProvider, ensureHoverProvider, handleHoverResult, disableMonacoBuiltinTsJsProviders } from './hoverProvider.js';
+import { setupHoverProvider, ensureHoverProvider, handleHoverResult, disableMonacoBuiltinTsJsProviders, disposeHoverProvider } from './hoverProvider.js';
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
@@ -24,6 +24,12 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
     window.isPinned = false;
     window.pickTokenStyle = false;
     window.stickyScroll = false;
+    // Hover Tips 初值：从后端下发的 contextEditorCfg.enableHover 读取，不存在时默认 true。
+    // 右键菜单 "Hover Tips" 切换后反转该值，同时以 'setEnableHover' 消息告知后端持久化。
+    {
+        const cfg0 = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
+        window.enableHover = (cfg0 && typeof cfg0.enableHover === 'boolean') ? cfg0.enableHover : true;
+    }
 
     // 统一调试日志开关：默认关闭，排查问题时置为 true 即可恢复所有调试输出，
     // 避免历史遗留的 [definition] 前缀散落各处且无法集中控制。
@@ -697,7 +703,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // 直接注册到 '*'（所有语言），无需在语言切换时补注册；
                     // 真实文档 URI 通过 editorState.uri 取得（扩展端 updateMetadata 下发并保存）。
                     setupHoverProvider(vscode, editorState);
-                    ensureHoverProvider();
+                    // 仅在 enableHover=true 时注册 provider；关闭时不注册，叠加 disableMonacoBuiltinTsJsProviders
+                    // 后 ts/js 文件 hover 完全无任何源 → 浮窗根本不出现。
+                    if (window.enableHover) {
+                        ensureHoverProvider();
+                    }
                     // 关闭 Monaco 内置 ts/js 模块自动注册的 hover/signatureHelp/completion 等依赖 worker 的 provider，
                     // 避免浮窗顶部已有我们的内容、下方又追加 "Loading..." （来自 Monaco 自带 ts hover provider）。
                     disableMonacoBuiltinTsJsProviders();
@@ -783,6 +793,16 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     window.pickTokenStyle = !window.pickTokenStyle;
                                     resetPickColorPosition();
                                     break;
+                                case 'EnableHover':
+                                    // 右键菜单切换：反转状态、按需 register/dispose provider、并告知后端持久化。
+                                    window.enableHover = !window.enableHover;
+                                    if (window.enableHover) {
+                                        ensureHoverProvider();
+                                    } else {
+                                        disposeHoverProvider();
+                                    }
+                                    vscode.postMessage({ type: 'setEnableHover', value: window.enableHover });
+                                    break;
                                 case 'pinState':
                                     window.isPinned = message.pinned;
                                     if (doubleClickArea) {
@@ -797,6 +817,18 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     if (message.contextEditorCfg) {
                                         window.vsCodeEditorConfiguration.contextEditorCfg = message.contextEditorCfg;
                                         window.vsCodeEditorConfiguration.customThemeRules = message.customThemeRules;
+
+                                        // Hover Tips 开关同步：用户在「设置」UI 改了 enableHover、或多窗口同步时，
+                                        // 这里需要按最新值调整 provider 的注册状态，并刷新 window.enableHover 以驱动右键菜单的勾选。
+                                        if (typeof message.contextEditorCfg.enableHover === 'boolean'
+                                            && window.enableHover !== message.contextEditorCfg.enableHover) {
+                                            window.enableHover = message.contextEditorCfg.enableHover;
+                                            if (window.enableHover) {
+                                                ensureHoverProvider();
+                                            } else {
+                                                disposeHoverProvider();
+                                            }
+                                        }
 
                                         // 方案 B：用户自定义规则变化后，刷新可着色 scope 集合，
                                         // 使新配色的深层 scope 也能被 pickScope 选中（弹窗所见 === 编辑器所染）
