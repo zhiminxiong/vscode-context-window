@@ -69,26 +69,32 @@ export function createUpdateEditorContent(ctx) {
         );
     }
 
-    // 刷新 sticky scroll（顶部粘附的函数/类标题行）。
+    // 按当前文件语言选择 sticky scroll 模型并刷新（顶部粘附的函数/类标题行）。
     //
-    // 背景与根因：Monaco 的 sticky 控制器在 model 被「整体替换」（forceRetokenize 重建 model）后，
-    // 不会自动重建粘附渲染——新 model 的符号树（OutlineModel，来自 DocumentSymbolProvider）需异步重算，
-    // 而控制器没有被重新触发，导致 TS/JS 等语言顶部粘附行彻底消失。
+    // 关键背景：stickyScroll.defaultModel 是【全局】编辑器选项，无法按语言分别设置；但本面板每次只显示
+    // 单一文件、单一语言，因此可在每次内容更新时根据 languageId 动态切换全局 defaultModel，等价于「按语言选模型」：
+    //   · TS/JS：其 outline 依赖内置 worker 的 documentSymbol，而 worker 在 webview 中长期 pending（与 hover 卡
+    //     Loading 同源）；自定义同步 provider 的符号又不被 sticky 的 OutlineModel 采用 → outlineModel 对 TS/JS
+    //     始终空。故 TS/JS 改用 indentationModel（纯缩进，实测可稳定显示）。
+    //   · 其它语言（C/C++/C# 等有可用的同步 symbol provider）：用 outlineModel，粘附行显示函数/类名
+    //     （indentationModel 对 C/C++ 的 Allman 风格会把孤立的 '{' 当标题，不可用）。
     //
-    // 注意：不能同步「disable→enable」——同一帧内连续两次 updateOptions 会被 Monaco 的选项 diff 合并，
-    // 净值不变即视为无变化，刷新无效。必须跨一个渲染帧再 enable，让控制器真正重建并重新向符号 provider 取数。
+    // 注意：不能同步「disable→enable」——同一帧内两次 updateOptions 会被 Monaco 选项 diff 合并、视为无变化、
+    // 刷新无效。必须跨一个渲染帧再 enable，让控制器真正重建并重新取数。
     function refreshStickyScroll() {
         const cur = editor.getOption(monaco.editor.EditorOption.stickyScroll);
         if (!cur || !cur.enabled) { return; }
+        const model = editor.getModel();
+        const lang = model ? model.getLanguageId() : '';
+        const defaultModel = (lang === 'typescript' || lang === 'javascript') ? 'indentationModel' : 'outlineModel';
         editor.updateOptions({ stickyScroll: { enabled: false } });
         setTimeout(() => {
-            // 保留原有子选项（maxLineCount / defaultModel / scrollWithEditor），仅借开关重建控制器
             editor.updateOptions({
                 stickyScroll: {
                     enabled: true,
-                    maxLineCount: cur.maxLineCount,
-                    defaultModel: cur.defaultModel,
-                    scrollWithEditor: cur.scrollWithEditor
+                    defaultModel: defaultModel,
+                    maxLineCount: cur.maxLineCount || 5,
+                    scrollWithEditor: cur.scrollWithEditor !== false
                 }
             });
             editor.layout();
