@@ -69,6 +69,32 @@ export function createUpdateEditorContent(ctx) {
         );
     }
 
+    // 刷新 sticky scroll（顶部粘附的函数/类标题行）。
+    //
+    // 背景与根因：Monaco 的 sticky 控制器在 model 被「整体替换」（forceRetokenize 重建 model）后，
+    // 不会自动重建粘附渲染——新 model 的符号树（OutlineModel，来自 DocumentSymbolProvider）需异步重算，
+    // 而控制器没有被重新触发，导致 TS/JS 等语言顶部粘附行彻底消失。
+    //
+    // 注意：不能同步「disable→enable」——同一帧内连续两次 updateOptions 会被 Monaco 的选项 diff 合并，
+    // 净值不变即视为无变化，刷新无效。必须跨一个渲染帧再 enable，让控制器真正重建并重新向符号 provider 取数。
+    function refreshStickyScroll() {
+        const cur = editor.getOption(monaco.editor.EditorOption.stickyScroll);
+        if (!cur || !cur.enabled) { return; }
+        editor.updateOptions({ stickyScroll: { enabled: false } });
+        setTimeout(() => {
+            // 保留原有子选项（maxLineCount / defaultModel / scrollWithEditor），仅借开关重建控制器
+            editor.updateOptions({
+                stickyScroll: {
+                    enabled: true,
+                    maxLineCount: cur.maxLineCount,
+                    defaultModel: cur.defaultModel,
+                    scrollWithEditor: cur.scrollWithEditor
+                }
+            });
+            editor.layout();
+        }, 0);
+    }
+
     // 强制当前 model 用「已注册的 TextMate provider」重新分词。
     //
     // 背景与根因：TextMate 语法是异步加载的，常常晚于内容到达（setModel）。内容先到时 model 已被 Monaco
@@ -118,6 +144,9 @@ export function createUpdateEditorContent(ctx) {
             // 模型已重建，旧装饰 id 失效：重置后按当前内容重新计算指令高亮
             state.directiveDecorations = [];
             applyDirectiveDecorations();
+            // 关键：model 被整体替换后，sticky scroll 控制器不会自动重建粘附渲染，必须主动刷新，
+            // 否则 TextMate 模式下（grammar 就绪触发重建）TS/JS 顶部粘附行会彻底消失。
+            refreshStickyScroll();
         } catch (e) {
             console.warn('[context-window] forceRetokenize failed:', e);
         }
@@ -193,19 +222,8 @@ export function createUpdateEditorContent(ctx) {
             const requiredChars = Math.max(1, lineCount.toString().length);
 
             editor.updateOptions({ lineNumbersMinChars: requiredChars });
-            // 强制刷新 sticky scroll 以更新装饰器显示
-            // 获取当前 sticky scroll 设置
-            const currentStickyScroll = editor.getOption(monaco.editor.EditorOption.stickyScroll);
-            if (currentStickyScroll && currentStickyScroll.enabled) {
-                // 先禁用
-                editor.updateOptions({
-                    stickyScroll: { enabled: false }
-                });
-                // 立即重新启用，触发重新渲染
-                editor.updateOptions({
-                    stickyScroll: currentStickyScroll
-                });
-            }
+            // 强制刷新 sticky scroll（跨渲染帧 disable→enable），更新顶部粘附行显示
+            refreshStickyScroll();
             editor.layout();
 
             // const existingDecorations = editor.getDecorationsInRange(new monaco.Range(

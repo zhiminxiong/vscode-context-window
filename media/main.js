@@ -258,7 +258,20 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     });
 
                     const currentStickyScroll = editor.getOption(monaco.editor.EditorOption.stickyScroll);
-                    window.stickyScroll = currentStickyScroll?.enabled;
+
+                    // sticky scroll 默认用 outlineModel，其符号来自内置 TS worker 的 documentSymbol，
+                    // 而 worker 在 webview 中常 pending（与 hover 卡 Loading 同源），sticky 会一直等 outline、
+                    // 不回退，导致 TS/JS 粘附行永不出现。改用 indentationModel：纯按缩进层级计算粘附行，
+                    // 不依赖任何语言 worker，全语言稳定可用。
+                    editor.updateOptions({
+                        stickyScroll: {
+                            enabled: true,
+                            defaultModel: 'indentationModel',
+                            maxLineCount: (currentStickyScroll && currentStickyScroll.maxLineCount) || 5,
+                            scrollWithEditor: true
+                        }
+                    });
+                    window.stickyScroll = true;
 
                     // 让语义着色渲染按 VSCode 选择器匹配「类型+修饰符」组合规则（如 class.constructorOrDestructor），
                     // 而非 Monaco 默认的 TextMate 前缀匹配。须在语义 token 到达前安装。
