@@ -10,6 +10,7 @@ import { createUpdateEditorContent } from './editorContent.js';
 import { createMessageHandlers } from './messageHandlers.js';
 import { setupEditorMouseHandlers } from './editorMouseHandlers.js';
 import { setupTextmate, ensureGrammar as tmEnsureGrammar, updateThemeScopes as tmUpdateThemeScopes, setOnGrammarRegistered as tmSetOnGrammarRegistered } from './textmateClient.js';
+import { setupHoverProvider, ensureHoverProvider, handleHoverResult, disableMonacoBuiltinTsJsProviders } from './hoverProvider.js';
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
@@ -227,8 +228,13 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             tokenColorCustomizations,
                             // 其他有效选项
                             ...otherOptions,
+                            // 自定义 Hover Provider 走扩展端 LSP（vscode.executeHoverProvider），
+                            // 不依赖 Monaco 内置 Worker，规避了「webview 中 Worker 长期 pending → 浮窗一直 loading」。
+                            // 见 hoverProvider.js / contextView.ts 的 requestHover 处理。
                             hover: {
-                                enabled: false
+                                enabled: true,
+                                delay: 300,
+                                sticky: true
                             },
                             // 启用快速建议
                             quickSuggestions: true,
@@ -310,6 +316,8 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         links: false,  // 禁用所有链接功能
                         quickSuggestions: false,  // 禁用快速建议
                         keyboardHandler: null,       // 禁用键盘处理
+                        // 与 createEditorOptions 保持一致：自定义 hover 走扩展端 LSP，启用浮窗
+                        hover: { enabled: true, delay: 300, sticky: true },
                         find: {                     // 禁用查找功能
                             addExtraSpaceOnTop: false,
                             autoFindInSelection: 'never',
@@ -684,6 +692,16 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                     //console.log('[definition] Monaco editor created');
 
+                    // 自定义 Hover Provider：所有 hover 请求转发给扩展端，复用 VSCode 已就绪的 LSP，
+                    // 避免 Monaco 自带 Worker 在 webview 里长期 pending 导致浮窗一直 loading。
+                    // 直接注册到 '*'（所有语言），无需在语言切换时补注册；
+                    // 真实文档 URI 通过 editorState.uri 取得（扩展端 updateMetadata 下发并保存）。
+                    setupHoverProvider(vscode, editorState);
+                    ensureHoverProvider();
+                    // 关闭 Monaco 内置 ts/js 模块自动注册的 hover/signatureHelp/completion 等依赖 worker 的 provider，
+                    // 避免浮窗顶部已有我们的内容、下方又追加 "Loading..." （来自 Monaco 自带 ts hover provider）。
+                    disableMonacoBuiltinTsJsProviders();
+
                     // 通知扩展编辑器已准备好
                     vscode.postMessage({ type: 'editorReady' });
                     //console.log('[definition] Editor ready message sent');
@@ -874,6 +892,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     break;
                                 case 'noContent':
                                     handleNoContent(message);
+                                    break;
+                                case 'hoverResult':
+                                    handleHoverResult(message);
                                     break;
                                 //default:
                                     //console.log('[definition] Unknown message type:', message.type);

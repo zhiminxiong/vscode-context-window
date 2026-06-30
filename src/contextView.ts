@@ -601,6 +601,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 case 'jumpDefinition':
                     this.handleJumpDefinition(message, editor);
                     break;
+                case 'requestHover':
+                    this.handleRequestHover(message);
+                    break;
                 case 'doubleClick':
                     await this.handleDoubleClick(message);
                     break;
@@ -800,6 +803,76 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 });
             }
         })();
+    }
+
+    // Webview hover：转发到主编辑区已就绪的 LSP（vscode.executeHoverProvider），
+    // 把 markdown 内容回传给前端 hoverProvider，由其 resolve monaco.languages.Hover。
+    // 使用 reqId 配对避免乱序串扰；拿到结果即可，超时由前端兜底 resolve(null)。
+    private async handleRequestHover(message: any) {
+        const reqId = message?.reqId;
+        const empty = () => this.postMessageToWebview({ type: 'hoverResult', reqId, contents: [] });
+        if (typeof reqId !== 'number' || !message?.uri || !message?.position) {
+            console.log('[context-window] requestHover: invalid params', message);
+            empty();
+            return;
+        }
+        try {
+            const targetUri = vscode.Uri.parse(message.uri);
+            const pos = new vscode.Position(
+                Math.max(0, message.position.line | 0),
+                Math.max(0, message.position.character | 0)
+            );
+
+            console.log('[context-window] requestHover ->', { reqId, uri: message.uri, line: pos.line, col: pos.character });
+
+            const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+                'vscode.executeHoverProvider',
+                targetUri,
+                pos
+            );
+
+            console.log('[context-window] requestHover <- result', { reqId, count: hovers?.length ?? 0 });
+
+            if (!hovers || !hovers.length) {
+                empty();
+                return;
+            }
+
+            // 把 (vscode.MarkdownString | { language, value } | string)[] 统一展平为 markdown 字符串数组
+            const contents: string[] = [];
+            let mergedRange: vscode.Range | undefined;
+            for (const h of hovers) {
+                if (!h) { continue; }
+                if (h.range) {
+                    mergedRange = mergedRange ? mergedRange.union(h.range) : h.range;
+                }
+                for (const c of (h.contents || [])) {
+                    if (typeof c === 'string') {
+                        if (c.trim()) { contents.push(c); }
+                    } else if (c && typeof (c as vscode.MarkdownString).value === 'string') {
+                        const v = (c as vscode.MarkdownString).value;
+                        if (v.trim()) { contents.push(v); }
+                    } else if (c && typeof (c as { language?: string; value?: string }).value === 'string') {
+                        // { language, value } 形式：包成代码块
+                        const cb = c as { language?: string; value?: string };
+                        const lang = cb.language || '';
+                        contents.push('```' + lang + '\n' + (cb.value ?? '') + '\n```');
+                    }
+                }
+            }
+
+            const range = mergedRange ? {
+                // Monaco 1-based
+                startLine: mergedRange.start.line + 1,
+                startCol: mergedRange.start.character + 1,
+                endLine: mergedRange.end.line + 1,
+                endCol: mergedRange.end.character + 1
+            } : undefined;
+
+            this.postMessageToWebview({ type: 'hoverResult', reqId, contents, range });
+        } catch (e) {
+            empty();
+        }
     }
 
     // 方案 B：webview 按 scopeName 请求语法文件原始内容，这里读文件并回包。
