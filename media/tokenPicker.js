@@ -139,21 +139,20 @@ export async function pickTokenStyle(options = {
                 displayWord = displayWord.slice(0, maxWordLen - 3) + '...';
             }
             tokenPrefix.textContent = displayWord + ' : ';
-            tokenPrefix.style.color = 'var(--vscode-editor-foreground)';
-            tokenPrefix.style.fontSize = '13px';
+            tokenPrefix.style.color = hasInitialColor ? initialColor : domColor;
+            tokenPrefix.style.fontSize = '16px';
             tokenPrefix.style.fontFamily = 'var(--vscode-font-family)';
-            tokenPrefix.style.fontStyle = 'italic';
             tokenPrefix.style.display = 'inline-block';
             tokenPrefix.style.verticalAlign = 'bottom';
             tokenPrefix.style.lineHeight = '1';
+            if (style.italic) tokenPrefix.style.fontStyle = 'italic';
+            if (style.bold) tokenPrefix.style.fontWeight = '500';
 
             const tokenValue = document.createElement('span');
             tokenValue.textContent = tokenText || '(none)';
-            tokenValue.style.color = hasInitialColor ? initialColor : domColor;// || 'var(--vscode-editor-foreground)';//'#000080';  // 蓝黑色
-            tokenValue.style.fontSize = '16px';   // 比前缀大一号
+            tokenValue.style.color = 'var(--vscode-editor-foreground)';
+            tokenValue.style.fontSize = '13px';   // 比前缀小一号
             tokenValue.style.fontFamily = 'var(--vscode-font-family)';
-            if (style.italic) tokenValue.style.fontStyle = 'italic';
-            if (style.bold) tokenValue.style.fontWeight = '500';
             //tokenValue.style.fontWeight = '500';  // 稍微加粗
             tokenValue.style.display = 'inline-block';
             tokenValue.style.verticalAlign = 'bottom';
