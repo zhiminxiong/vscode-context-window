@@ -441,6 +441,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this._initialUpdateTimer = undefined;
         }
 
+        // 取消并释放正在进行的更新加载
+        // 否则 CancellationTokenSource 与其内部 emitter 会随 provider 实例长驻，
+        // 且未 cancel 的异步链仍可能在 dispose 后触发 postMessageToWebview。
+        if (this._loading) {
+            try { this._loading.cts.cancel(); } catch (_) { /* noop */ }
+            try { this._loading.cts.dispose(); } catch (_) { /* noop */ }
+            this._loading = undefined;
+        }
+
         // 确保关闭定义选择面板
         if (this._currentPanel) {
             this._currentPanel.dispose();
@@ -458,6 +467,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this._themeListener.dispose();
             this._themeListener = undefined;
         }
+
+        // 释放对大对象的强引用：历史里每条 HistoryInfo.content 含整文件文本，
+        // 多次跳转后可达 MB 级；provider 实例自身可能被外部弱引用滞留，主动清空有助 GC。
+        this._history = [];
+        this._historyIndex = 0;
+        this._lastContent = undefined;
+        this._lastContentHash = undefined;
+        this._pickItems = undefined;
+        this._lastUpdateEditor = undefined;
+        this._view = undefined;
     }
 
     private navigate(direction: 'back' | 'forward') {
@@ -1349,6 +1368,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //console.log('[definition] update no view');
             return;
         }
+
+        // 上一次 showDefinitionPicker 缓存的多定义条目（含 vscode.Location 引用）可能滞留；
+        // 在新一轮 update 起始处清空，避免随 provider 实例长期持有不再用到的对象。
+        // showDefinitionPicker 命中多定义分支时会立即重新赋值；单定义分支天然无需保留。
+        this._pickItems = undefined;
 
         this.updateTitle();
 
