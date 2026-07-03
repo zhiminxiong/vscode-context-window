@@ -197,10 +197,10 @@ export function activate(context: vscode.ExtensionContext) {
     registerBracketPairSelectionOnDoubleClick(context);
 }
 
-// 开括号 → 对应闭括号
-const BRACKET_PAIRS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}' };
+// 开括号 → 对应闭括号（含尖括号 <>，用于模板/泛型 如 vector<int>）
+const BRACKET_PAIRS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}', '<': '>' };
 // 闭括号 → 对应开括号（用于「双击紧贴闭括号左侧」时向左回溯匹配的开括号）
-const CLOSE_TO_OPEN: Readonly<Record<string, string>> = { ')': '(', ']': '[', '}': '{' };
+const CLOSE_TO_OPEN: Readonly<Record<string, string>> = { ')': '(', ']': '[', '}': '{', '>': '<' };
 // 括号对配对时最多扫描的行数：足够覆盖绝大多数函数/初始化块，又避免超大文件里无匹配时空扫到头/尾
 const BRACKET_SCAN_MAX_LINES = 2000;
 
