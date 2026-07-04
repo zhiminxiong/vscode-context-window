@@ -204,6 +204,38 @@ const CLOSE_TO_OPEN: Readonly<Record<string, string>> = { ')': '(', ']': '[', '}
 // 注：括号匹配（跨行 / 嵌套 / 语言感知，正确处理字符串与注释里的括号）交给 VSCode 内置命令
 // editor.action.selectToBracket 处理；本扩展只负责判定「双击是否紧挨括号」并把光标定位到括号内侧。
 
+// 引号字符：开闭同形（双引号 / 单引号 / 反引号），VSCode 无对应的 selectToBracket，需自行扫描配对。
+const QUOTES: ReadonlySet<string> = new Set(['"', "'", '`']);
+
+// 判断 text[i] 是否被反斜杠转义（前导连续反斜杠为奇数个 → 被转义，如 \" 不是字符串边界）。
+function isEscapedAt(text: string, i: number): boolean {
+    let backslashes = 0;
+    for (let j = i - 1; j >= 0 && text.charAt(j) === '\\'; j--) { backslashes++; }
+    return backslashes % 2 === 1;
+}
+
+// 在同一行内为 quoteCol 处的引号 q 找配对引号，返回 [开引号列, 闭引号列]（含两端），找不到返回 undefined。
+// 开/闭判定：统计该引号之前（同行）未转义的同种引号个数——偶数 ⇒ 此为开引号（向右找闭），奇数 ⇒ 此为闭引号（向左找开）。
+// 仅在同一行内匹配：普通字符串通常不跨行；跨行模板字符串等找不到配对时放弃，回退到 VSCode 默认选词。
+function findMatchingQuoteOnLine(lineText: string, quoteCol: number, q: string): [number, number] | undefined {
+    let count = 0;
+    for (let i = 0; i < quoteCol; i++) {
+        if (lineText.charAt(i) === q && !isEscapedAt(lineText, i)) { count++; }
+    }
+    if (count % 2 === 0) {
+        // 开引号：向右找下一个未转义的同种引号作为闭引号
+        for (let i = quoteCol + 1; i < lineText.length; i++) {
+            if (lineText.charAt(i) === q && !isEscapedAt(lineText, i)) { return [quoteCol, i]; }
+        }
+    } else {
+        // 闭引号：向左回溯上一个未转义的同种引号作为开引号
+        for (let i = quoteCol - 1; i >= 0; i--) {
+            if (lineText.charAt(i) === q && !isEscapedAt(lineText, i)) { return [i, quoteCol]; }
+        }
+    }
+    return undefined;
+}
+
 // 「紧挨括号」允许的列容差：从双击落点向右查找括号的最大字符距离。
 // 0 = 落点右邻必须就是括号（严格紧挨）；放大可容忍落点与括号之间夹少量空白。
 const NEAR_BRACKET_TOLERANCE = 0;
@@ -268,27 +300,40 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
             //   foo( 双击紧贴 ( 处、` (` 括号左侧是空格、`)(` 内层括号左侧是 )、以及「紧贴 ) 左侧」双击等。
             const clickLine = caret.position.line;
             const lineText = doc.lineAt(clickLine).text;
-            let bracketCol = -1;
-            let bracketChar = '';
+            let hitCol = -1;
+            let hitChar = '';
             for (let d = 0; d <= NEAR_BRACKET_TOLERANCE; d++) {
                 const c = lineText.charAt(caret.position.character + d);
-                if (BRACKET_PAIRS[c] || CLOSE_TO_OPEN[c]) { bracketCol = caret.position.character + d; bracketChar = c; break; }
-                // 容差内若遇到非空白的实义字符则停止（避免把落点误判为远处括号的紧挨）
+                // 括号（成对异形）或引号（成对同形）都视为可触发的「紧挨字符」
+                if (BRACKET_PAIRS[c] || CLOSE_TO_OPEN[c] || QUOTES.has(c)) { hitCol = caret.position.character + d; hitChar = c; break; }
+                // 容差内若遇到非空白的实义字符则停止（避免把落点误判为远处括号/引号的紧挨）
                 if (c !== '' && c !== ' ' && c !== '\t') { break; }
             }
-            if (bracketCol < 0) { return; }
+            if (hitCol < 0) { return; }
 
-            // 命中「双击紧挨括号」：把光标定位到括号所在列（其左边界，右邻即目标括号），交给 VSCode 内置命令
-            // selectToBracket 选中整对括号（selectBrackets:true = 连同括号一起选）。VSCode 匹配是语言感知的。
-            // 关键：光标放 bracketCol 而非 bracketCol+1——对连续括号（如 map(( ）+1 会落到第二个 ( 上，
-            // 导致 selectToBracket 选中第二个括号对；放在括号左边界则右邻明确是本括号，选中的就是它这一对。
-            const insidePos = new vscode.Position(clickLine, bracketCol);
             busy = true;
             try {
-                editor.selection = new vscode.Selection(insidePos, insidePos);
-                await vscode.commands.executeCommand('editor.action.selectToBracket', { selectBrackets: true });
+                if (QUOTES.has(hitChar)) {
+                    // 命中「双击紧挨引号」：同行扫描配对引号，选中整对引号内容（含两端引号，与括号行为一致）。
+                    // selectToBracket 不认引号，故这里自行计算区间；同步一次性改选区，无需 await。
+                    const pair = findMatchingQuoteOnLine(lineText, hitCol, hitChar);
+                    if (pair) {
+                        editor.selection = new vscode.Selection(
+                            new vscode.Position(clickLine, pair[0]),
+                            new vscode.Position(clickLine, pair[1] + 1)
+                        );
+                    }
+                } else {
+                    // 命中「双击紧挨括号」：把光标定位到括号所在列（其左边界，右邻即目标括号），交给 VSCode 内置命令
+                    // selectToBracket 选中整对括号（selectBrackets:true = 连同括号一起选）。VSCode 匹配是语言感知的。
+                    // 关键：光标放 hitCol 而非 hitCol+1——对连续括号（如 map(( ）+1 会落到第二个 ( 上，
+                    // 导致 selectToBracket 选中第二个括号对；放在括号左边界则右邻明确是本括号，选中的就是它这一对。
+                    const insidePos = new vscode.Position(clickLine, hitCol);
+                    editor.selection = new vscode.Selection(insidePos, insidePos);
+                    await vscode.commands.executeCommand('editor.action.selectToBracket', { selectBrackets: true });
+                }
             } catch (err) {
-                console.error('[context-window] selectToBracket failed:', err);
+                console.error('[context-window] bracket/quote selection failed:', err);
             } finally {
                 busy = false;
             }

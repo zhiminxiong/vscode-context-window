@@ -213,7 +213,7 @@
         "contextView.contextWindow.selectBracketPairOnDoubleClick": {
           "type": "boolean",
           "default": false,
-          "description": "When double-clicking a word immediately to the left of an opening bracket ( [ { in the editor, select the whole matching bracket pair (including the brackets) instead of only the word."
+          "description": "When double-clicking right next to a bracket ( [ { < or a quote \" ' ` in the editor, select the whole matching pair (including the brackets/quotes) instead of only the word."
         },
         "contextView.contextWindow.enableHover": {
           "type": "boolean",
