@@ -240,9 +240,33 @@ function findMatchingQuoteOnLine(lineText: string, quoteCol: number, q: string):
 // 0 = 落点右邻必须就是括号（严格紧挨）；放大可容忍落点与括号之间夹少量空白。
 const NEAR_BRACKET_TOLERANCE = 0;
 
+function rangeEqualsSelection(range: vscode.Range, sel: vscode.Selection): boolean {
+    return range.start.isEqual(sel.start) && range.end.isEqual(sel.end);
+}
+
+function getWordRangeNearPosition(doc: vscode.TextDocument, pos: vscode.Position): vscode.Range | undefined {
+    const direct = doc.getWordRangeAtPosition(pos);
+    if (direct) { return direct; }
+
+    if (pos.character > 0) {
+        return doc.getWordRangeAtPosition(pos.translate(0, -1));
+    }
+
+    return undefined;
+}
+
+function isLikelyWordDoubleClickSelection(
+    doc: vscode.TextDocument,
+    caretPos: vscode.Position,
+    sel: vscode.Selection
+): boolean {
+    const wordRange = getWordRangeNearPosition(doc, caretPos);
+    return !!wordRange && rangeEqualsSelection(wordRange, sel);
+}
+
 /**
- * 扩展编辑器双击行为：仅当「双击落点紧挨括号（开括号右侧 / 闭括号左侧）」时，选中整对匹配括号（含括号）——
- * 即 foo(...) 中点在紧贴 ( 或紧贴 ) 处双击，选中 (...)；而点在 foo 靠左处双击，仍是 VSCode 默认选词。
+ * 扩展编辑器双击行为：仅当「鼠标非空选区看起来是 VSCode 双击选词结果，且双击落点紧挨括号/引号」时，选中整对匹配括号/引号（含括号/引号）——
+ * 即 foo(...) 中点在紧贴 ( 处双击 foo，选中 (...)；而点在 foo 靠左处双击，仍是 VSCode 默认选词。
  *
  * 为什么要「跟踪光标当前位置」而不是「记录上一次单击」：
  * 双击选词无论点在词的哪个字符，选区都是整个词，单凭选区无法区分「点在词靠左」还是「点在紧贴括号处」，
@@ -294,10 +318,12 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
             const caret = lastCaret;
             if (!caret || caret.uri !== uri) { return; }
 
+            // 只接受 VSCode 双击选词产生的选区形态：当前选区必须等于双击落点附近的完整单词范围。
+            // 鼠标按住拖动时选区由「按下点 → 当前点」决定，通常不会等于单个落点推导出的 word range，因而被排除。
+            if (!isLikelyWordDoubleClickSelection(doc, caret.position, sel)) { return; }
+
             // 关键：以「双击落点」为基准，向右在容差内查找紧挨的括号（容差 0 = 落点右邻必须就是括号）。
             // 落点右邻既可以是开括号（向右找闭括号），也可以是闭括号（向左回溯开括号）——两种都触发。
-            // 不再要求「落点处是单词」——因此括号左边是空格 / 符号 / 另一个括号（没有单词）时也能触发，例如：
-            //   foo( 双击紧贴 ( 处、` (` 括号左侧是空格、`)(` 内层括号左侧是 )、以及「紧贴 ) 左侧」双击等。
             const clickLine = caret.position.line;
             const lineText = doc.lineAt(clickLine).text;
             let hitCol = -1;
