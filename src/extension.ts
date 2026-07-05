@@ -256,13 +256,27 @@ const NEAR_BRACKET_TOLERANCE = 0;
  * 唯一的鼠标信号是 onDidChangeTextEditorSelection 的 kind===Mouse，且在选词「之后」触发。命中时我们
  * 【同步、一次性】改选区（不 await 内置命令），让中间那次选词几乎无感；不命中则完全不动。
  * 程序化改选区 kind 不是 Mouse，只会更新光标跟踪、不会进入双击判定，天然防循环。
+ *
+ * 如何区分「双击」与「从括号左侧按下不松往右拖拽」（二者事件形态一致，无法就单个事件区分）：
+ * 采用「即时命中 + 滞后释放」——首个事件立即选中括号对（手感与纯双击版完全一致，零延迟）；
+ * 之后真双击不再产生鼠标选区事件、括号选区自然保持；而拖拽会持续产生新事件，我们在「锁定窗口」内
+ * 稳定重申括号选区以抵抗轻微抖动/误触，一旦持续移动超过窗口（BRACKET_LOCK_MS）即判定为拖拽，
+ * 放手交还 VSCode 原生拖拽选择，并在本手势剩余时间不再干预。
  */
 function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionContext) {
-    // 持续跟踪「光标当前所在的单点位置」，作为紧接而来的双击选词的真实点击点。
+    // 括号选定「锁定窗口」(ms)：即时选中括号对后，此窗口内若鼠标继续移动，则保持括号选定（抵抗抖动/误触）；
+    // 超过此窗口仍在持续移动 → 判定为拖拽，交还原生拖拽选择。调大 = 更“黏”、更不易被误拖散；
+    // 调小 = 从括号处发起拖拽时更快脱离括号选定。按手感调整即可。
+    const BRACKET_LOCK_MS = 200;
+
+    // 持续跟踪「光标当前所在的单点位置」+ 记录时间，作为紧接而来的双击选词的真实点击点。
     // 关键：即便双击时光标未移动（第一击不产生事件），这里也已是该位置。
-    let lastCaret: { uri: string; position: vscode.Position } | undefined;
+    let lastCaret: { uri: string; position: vscode.Position; time: number } | undefined;
     // 程序化操作（定位光标 + selectToBracket）期间置真：忽略由此引发的事件，避免污染 lastCaret / 重入判定
     let busy = false;
+    // 本手势（自上次空选区起）的状态：是否已即时触发过括号选定、触发时刻、已触发的选区、以及是否已判定为拖拽。
+    let gesture: { fired: boolean; firedTime: number; range?: vscode.Selection; isDrag: boolean }
+        = { fired: false, firedTime: 0, isDrag: false };
 
     context.subscriptions.push(
         vscode.window.onDidChangeTextEditorSelection(async (e) => {
@@ -276,13 +290,18 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
 
             // 跟踪单点光标位置：任何来源（鼠标单击 / 键盘移动 / 程序化定位）的空选区都视为「光标现在在这」。
             // 这是解决「光标未移动则双击第一击无事件」的核心——点击点始终有值。
+            // 空选区 = 新一轮手势的起点（如 mousedown 落点）：重置手势状态并记录时间。
             if (sel.isEmpty) {
-                lastCaret = { uri, position: sel.active };
+                lastCaret = { uri, position: sel.active, time: Date.now() };
+                gesture = { fired: false, firedTime: 0, isDrag: false };
                 return;
             }
 
             // 非空选区：只有鼠标触发才可能是「双击选词」；键盘/程序化选择一律忽略（也天然防循环）。
             if (e.kind !== vscode.TextEditorSelectionChangeKind.Mouse) { return; }
+
+            // 本手势已判定为拖拽 → 全部放行，让 VSCode 原生拖拽选择生效，不再干预。
+            if (gesture.isDrag) { return; }
 
             const enabled = vscode.workspace
                 .getConfiguration('contextView.contextWindow')
@@ -293,6 +312,21 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
             // 以支持「在同一位置重复双击」——重复时第一击可能不产生事件，仍需复用该落点。
             const caret = lastCaret;
             if (!caret || caret.uri !== uri) { return; }
+
+            // 已即时触发过括号选定，却又来了新的鼠标选区事件 → 鼠标仍在移动（真双击不会再有事件）。
+            if (gesture.fired) {
+                if (Date.now() - gesture.firedTime > BRACKET_LOCK_MS) {
+                    // 超过锁定窗口仍在移动 → 判定为拖拽：放手，让本次(拖拽)选区保留，且本手势剩余时间不再干预。
+                    gesture.isDrag = true;
+                    return;
+                }
+                // 仍在锁定窗口内 → 稳定重申已选中的括号/引号对，抵抗轻微抖动/误触（同步直接设选区，不重跑命令）。
+                if (gesture.range) {
+                    busy = true;
+                    try { editor.selection = gesture.range; } finally { busy = false; }
+                }
+                return;
+            }
 
             // 关键：以「双击落点」为基准，向右在容差内查找紧挨的括号（容差 0 = 落点右邻必须就是括号）。
             // 落点右邻既可以是开括号（向右找闭括号），也可以是闭括号（向左回溯开括号）——两种都触发。
@@ -332,6 +366,10 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
                     editor.selection = new vscode.Selection(insidePos, insidePos);
                     await vscode.commands.executeCommand('editor.action.selectToBracket', { selectBrackets: true });
                 }
+                // 记录「本手势已即时触发括号选定」+ 触发时刻 + 结果选区（供锁定窗口内稳定重申）。
+                gesture.fired = true;
+                gesture.firedTime = Date.now();
+                gesture.range = editor.selection;
             } catch (err) {
                 console.error('[context-window] bracket/quote selection failed:', err);
             } finally {
