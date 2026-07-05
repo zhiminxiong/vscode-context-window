@@ -85,11 +85,15 @@ export function createDefinitionList(editor) {
             icon.textContent = '📄'; // 你想用的Unicode图标
             icon.style.display = 'inline-block';
             pathText.textContent = filePath;
+            // 有文件名显示时才显示底部 { } 指示器
+            document.body.classList.add('ctx-has-file');
         } else if (filenameDisplay) {
             filenameDisplay.querySelector('.filename-text').textContent = "";
             icon.textContent = "";
             icon.style.display = 'none';
             pathText.textContent = "";
+            // 无文件名显示时同时隐藏 { } 指示器
+            document.body.classList.remove('ctx-has-file');
         }
     }
 

@@ -86,6 +86,11 @@
         "command": "vscode-context-window.navigateUri",
         "title": "Navigate to the uri and line",
         "category": "Context View"
+      },
+      {
+        "command": "contextView.contextWindow.toggleSelectBracketPair",
+        "title": "Toggle: Double-Click Selects Whole Bracket/Quote Pair (incl. delimiters)",
+        "category": "Context View"
       }
     ],
     "keybindings": [
@@ -93,6 +98,9 @@
         "command": "vscode-context-window.float",
         "key": "ctrl+shift+9",
         "mac": "cmd+shift+9"
+      },
+      {
+        "command": "contextView.contextWindow.toggleSelectBracketPair"
       }
     ],
     "menus": {
@@ -210,10 +218,10 @@
           "default": false,
           "description": "Extend sticky scroll parsing for C, C++, and C#.\nTake effect when VSCode starts."
         },
-        "contextView.contextWindow.selectBracketPairOnDoubleClick": {
+        "contextView.contextWindow.doubleClickSelectsBracketPair": {
           "type": "boolean",
           "default": false,
-          "description": "When double-clicking right next to a bracket ( [ { < or a quote \" ' ` in the editor, select the whole matching pair (including the brackets/quotes) instead of only the word."
+          "description": "Double-clicking right next to a bracket ( [ { < or a quote \" ' ` selects the whole matching pair INCLUDING the brackets/quotes themselves. Complements VSCode's built-in editor.doubleClickSelectsBlock, which selects only the content inside. Toggle it from the status bar ({si}), the editor right-click menu, or the keyboard shortcut."
         },
         "contextView.contextWindow.enableHover": {
           "type": "boolean",

@@ -10,6 +10,41 @@
     function init() {
         setupNavigation();
         setupDoubleClickArea();
+        setupSiIndicator();
+    }
+
+    // 底部导航栏右侧 {si} 指示器：标识「双击选中整对括号/引号」开关状态，点击切换。
+    function setupSiIndicator() {
+        const siIndicator = document.getElementById('si-indicator');
+
+        // 依据下发的 contextEditorCfg.doubleClickSelectsBracketPair 刷新指示器开/关外观与提示。
+        // 暴露到 window，供 main.js 在收到 updateContextEditorCfg 时调用。
+        window.updateSiIndicator = function() {
+            const cfg = (window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg) || {};
+            const on = !!cfg.doubleClickSelectsBracketPair;
+            // 记录到 window，供底部栏右键菜单显示勾选状态
+            window.selectBracketPairEnabled = on;
+            if (!siIndicator) { return; }
+            // 一直显示指示器，用 .enabled 类区分开/关外观
+            siIndicator.classList.toggle('enabled', on);
+            siIndicator.title = on
+                ? 'Double-click selects the whole bracket/quote pair (including delimiters): ON — click to disable'
+                : 'Double-click selects the whole bracket/quote pair (including delimiters): OFF — click to enable';
+        };
+
+        if (siIndicator) {
+            siIndicator.addEventListener('click', () => {
+                window.vscode.postMessage({ type: 'toggleSelectBracketPair' });
+            });
+            // 该指示器区域禁用浏览器原生右键菜单，避免误触
+            siIndicator.addEventListener('contextmenu', e => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        }
+
+        // 用初始下发的配置渲染一次
+        window.updateSiIndicator();
     }
 
     function setupNavigation() {
@@ -145,6 +180,11 @@
                 label: 'Hover Tips',
                 checked: window.enableHover,
                 action: () => window.postMessage({ type: 'EnableHover' })
+            },
+            {
+                label: 'Select Bracket/Quote Pair (dbl-click)',
+                checked: window.selectBracketPairEnabled,
+                action: () => window.vscode.postMessage({ type: 'toggleSelectBracketPair' })
             },
             { type: 'separator' }, // 分割条
             {

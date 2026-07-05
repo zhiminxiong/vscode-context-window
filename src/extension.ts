@@ -195,7 +195,35 @@ export function activate(context: vscode.ExtensionContext) {
     
     registerDirectiveDecorations(context);
     registerBracketPairSelectionOnDoubleClick(context);
+    registerBracketPairSelectionToggle(context);
 }
+
+/**
+ * 「双击选中整对括号/引号」开关命令：contextView.contextWindow.toggleSelectBracketPair。
+ * 供快捷键、编辑器右键菜单、以及插件底部导航栏的 {si} 指示器点击调用——三者统一走此命令。
+ * 状态展示不在 VSCode 全局状态栏，而在插件自己的 Context Window 底部导航栏（{si} 指示器），
+ * 由 contextView 依据配置下发 / 回推刷新（配置变更时经 updateContextEditorCfg 广播到 webview）。
+ * 开关本身就是配置项 CONFIG_SELECT_BRACKET_PAIR，切换即写入全局配置，双击处理逻辑实时读取它。
+ */
+function registerBracketPairSelectionToggle(context: vscode.ExtensionContext) {
+    context.subscriptions.push(
+        vscode.commands.registerCommand('contextView.contextWindow.toggleSelectBracketPair', async () => {
+            const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
+            const next = !cfg.get<boolean>(CONFIG_SELECT_BRACKET_PAIR, false);
+            await cfg.update(CONFIG_SELECT_BRACKET_PAIR, next, vscode.ConfigurationTarget.Global);
+            vscode.window.setStatusBarMessage(
+                next ? 'Double-click selects the whole bracket/quote pair (including delimiters): ON — click to disable'
+                : 'Double-click selects the whole bracket/quote pair (including delimiters): OFF — click to enable',
+                1500
+            );
+        })
+    );
+}
+
+// 该功能的配置节 / 键名（重命名自旧的 selectBracketPairOnDoubleClick）。
+// 与 VSCode 内置 editor.doubleClickSelectsBlock（只选括号内内容）对照：本项选中「整对括号/引号，含定界符本身」。
+const CONFIG_SECTION = 'contextView.contextWindow';
+const CONFIG_SELECT_BRACKET_PAIR = 'doubleClickSelectsBracketPair';
 
 // 开括号 → 对应闭括号（含尖括号 <>，用于模板/泛型 如 vector<int>）
 const BRACKET_PAIRS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}', '<': '>' };
@@ -310,8 +338,8 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
             }
 
             const enabled = vscode.workspace
-                .getConfiguration('contextView.contextWindow')
-                .get<boolean>('selectBracketPairOnDoubleClick', true);
+                .getConfiguration(CONFIG_SECTION)
+                .get<boolean>(CONFIG_SELECT_BRACKET_PAIR, false);
             if (!enabled) { return; }
 
             // 双击点 = 双击前光标位置（lastCaret）。注意此处【不清除】lastCaret，

@@ -830,6 +830,12 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                             }
                                         }
 
+                                        // 「双击选中整对括号/引号」开关同步：无论来自快捷键、编辑器右键菜单、设置 UI 还是本栏 {si} 点击，
+                                        // 配置变更都会广播到这里，刷新底部导航栏 {si} 指示器的开/关外观。
+                                        if (typeof window.updateSiIndicator === 'function') {
+                                            window.updateSiIndicator();
+                                        }
+
                                         // 方案 B：用户自定义规则变化后，刷新可着色 scope 集合，
                                         // 使新配色的深层 scope 也能被 pickScope 选中（弹窗所见 === 编辑器所染）
                                         tmUpdateThemeScopes();

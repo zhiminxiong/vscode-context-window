@@ -406,6 +406,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 // 使 Monaco 编辑器内做与 VSCode 编辑器一致的指令着色。
                 fixToken: contextWindowConfig.get('fixToken', false),
                 directiveColor: this._readDirectiveColor(),
+                // 「双击选中整对括号/引号（含定界符）」开关：下发给 webview，用于底部导航栏 {si} 指示器的开/关显示。
+                doubleClickSelectsBracketPair: contextWindowConfig.get('doubleClickSelectsBracketPair', false),
             }
         };
 
@@ -628,6 +630,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'setEnableHover':
                     await this.handleSetEnableHover(message);
+                    break;
+                case 'toggleSelectBracketPair':
+                    // 底部导航栏 {si} 指示器点击：切换「双击选中整对括号/引号」开关。
+                    // 复用命令统一逻辑；配置变更会经 onDidChangeConfiguration 广播 updateContextEditorCfg 回推 webview 刷新指示器。
+                    await vscode.commands.executeCommand('contextView.contextWindow.toggleSelectBracketPair');
                     break;
                 case 'doubleClick':
                     await this.handleDoubleClick(message);
@@ -1308,6 +1315,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 <button class="nav-button" id="nav-back" title="Go Back">  </button>
                 <button class="nav-button" id="nav-forward" title="Go Forward">  </button>
                 <button class="nav-jump" id="nav-jump" title="Jump to definition"></button>
+                <!-- 开关指示器：放在跳转(上箭头)按钮之后，一直显示，标识「双击选中整对括号/引号（含定界符）」是否开启，点击可切换 -->
+                <div class="si-indicator" id="si-indicator" title="Double-click selects the whole bracket/quote pair (including delimiters)">{ }</div>
             </div>
 
             <script nonce="${nonce}" src="${navigationScriptUri}">

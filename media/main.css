@@ -378,11 +378,56 @@ body {
 .nav-jump:hover::before {
     opacity: 1;
 }
+/* 底部导航栏的开关指示器：纯文本，【一直显示】。字体颜色与底部文件名（contextView.ts）一致。
+   关闭 = 暗淡；开启 = 全不透明 + 加粗，以此区分开/关。 */
+.si-indicator {
+    display: none; /* 默认隐藏；仅当底部有文件名显示（body.ctx-has-file）时才显示 */
+    position: relative; /* 供开启态右下角 ✓ 定位 */
+    align-items: center;
+    height: 100%;
+    cursor: pointer;
+    user-select: none;
+    font-size: 15px;
+    /* 更细更瘦：用 UI 字体（支持细字重）+ 细字重 + 收紧字距，使 { } 笔画纤细、间距紧凑 */
+    font-family: var(--vscode-font-family, 'Segoe UI', system-ui, sans-serif);
+    font-weight: 400;
+    letter-spacing: -1px;
+    line-height: 1;
+    color: var(--vscode-descriptionForeground);
+    opacity: 0.45; /* 关闭态：暗淡 */
+    transition: color 0.15s ease, opacity 0.15s ease;
+}
+body.ctx-has-file .si-indicator {
+    display: flex; /* 有文件名显示时才显示 { } */
+}
+.si-indicator:hover {
+    opacity: 0.8;
+}
+.si-indicator.enabled {
+    /* 开启态：全不透明（保持纤细，不加粗） */
+    opacity: 1;
+    color: var(--vscode-descriptionForeground);
+}
+/* 开启态：在 { } 右下角叠加一个绿色对勾（仅对勾着色，其余透明），提高开/关辨识度 */
+.si-indicator.enabled::after {
+    content: '✓'; /* U+2713 文本型对勾，可被 color 染色，不会渲染成彩色表情方块 */
+    position: absolute;
+    right: -5px;
+    bottom: 0;
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0;
+    color: #12e02f; /* 鲜绿对勾 */
+    -webkit-text-stroke: 0.3px #12e02f; /* 略加描边让对勾更粗更显眼 */
+    pointer-events: none;
+}
 /* 添加双击区域样式 */
 .double-click-area {
     position: fixed;
     bottom: 0; /* 与导航栏高度一致 */
-    left: 120px;
+    /* 左侧留出：3 个导航按钮 + { } 指示器 的宽度即可，避免与文件名间隙过大 */
+    left: 136px;
     right: 0;
     height: 24px;
     z-index: 1001;
@@ -394,7 +439,7 @@ body {
     color: var(--vscode-descriptionForeground);
     font-size: 14px;
     font-style: italic;
-    padding-left: 10px;
+    padding-left: 6px;
 }
 /* 添加文件名显示样式 */
 .filename-display {
