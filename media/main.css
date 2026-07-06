@@ -399,8 +399,8 @@ body {
     opacity: 0.45; /* 关闭态：暗淡 */
     transition: color 0.15s ease, opacity 0.15s ease;
 }
-body.ctx-has-file .si-indicator.revealed {
-    display: flex; /* 需同时满足：有文件名 且 本会话曾开启过（.revealed）才显示 { } */
+.si-indicator.revealed {
+    display: flex; /* 与文件名显示无关：初始化时配置已开、或本会话曾开启过（.revealed）即显示 { } */
 }
 .si-indicator:hover {
     opacity: 0.8;
