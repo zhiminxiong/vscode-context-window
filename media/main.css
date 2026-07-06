@@ -378,11 +378,13 @@ body {
 .nav-jump:hover::before {
     opacity: 1;
 }
-/* 底部导航栏的开关指示器：纯文本，【一直显示】。字体颜色与底部文件名（contextView.ts）一致。
-   关闭 = 暗淡；开启 = 全不透明 + 加粗，以此区分开/关。 */
+/* 底部导航栏的开关指示器：纯文本。字体颜色与底部文件名（contextView.ts）一致。
+   显示策略：本会话「曾开启过」才显示（.revealed，见下）；关闭 = 暗淡，开启 = 全不透明 + 绿勾。 */
 .si-indicator {
     display: none; /* 默认隐藏；仅当底部有文件名显示（body.ctx-has-file）时才显示 */
     position: relative; /* 供开启态右下角 ✓ 定位 */
+    margin-left: auto;  /* 推到底部导航栏最右端 */
+    margin-right: 12px; /* 与窗口右边缘留出间距 */
     align-items: center;
     height: 100%;
     cursor: pointer;
@@ -397,8 +399,8 @@ body {
     opacity: 0.45; /* 关闭态：暗淡 */
     transition: color 0.15s ease, opacity 0.15s ease;
 }
-body.ctx-has-file .si-indicator {
-    display: flex; /* 有文件名显示时才显示 { } */
+body.ctx-has-file .si-indicator.revealed {
+    display: flex; /* 需同时满足：有文件名 且 本会话曾开启过（.revealed）才显示 { } */
 }
 .si-indicator:hover {
     opacity: 0.8;
@@ -426,8 +428,9 @@ body.ctx-has-file .si-indicator {
 .double-click-area {
     position: fixed;
     bottom: 0; /* 与导航栏高度一致 */
-    /* 左侧留出：3 个导航按钮 + { } 指示器 的宽度即可，避免与文件名间隙过大 */
-    left: 136px;
+    /* 文件名固定紧贴上箭头（{ } 指示器已移到导航栏最右端，不再占用此处空间）。
+       上箭头右缘约 108px，留出小间距。 */
+    left: 114px;
     right: 0;
     height: 24px;
     z-index: 1001;
@@ -440,6 +443,10 @@ body.ctx-has-file .si-indicator {
     font-size: 14px;
     font-style: italic;
     padding-left: 6px;
+}
+/* { } 指示器显示在导航栏最右端时：文件名区右侧让位，避免其铺满的透明区遮挡对 { } 的点击 */
+body.si-revealed .double-click-area {
+    right: 32px;
 }
 /* 添加文件名显示样式 */
 .filename-display {

@@ -24,8 +24,14 @@
             const on = !!cfg.doubleClickSelectsBracketPair;
             // 记录到 window，供底部栏右键菜单显示勾选状态
             window.selectBracketPairEnabled = on;
+            // 显示策略：启动时若配置未开则不显示；只要本次会话「开启过一次」，之后即使再关闭也保持显示，
+            // 直到 VSCode 重启（webview 重建时 window.siEverEnabled 自然重置为 undefined）。
+            if (on) { window.siEverEnabled = true; }
+            // body.si-revealed 同步给布局用：{ } 显示在导航栏最右端时，文件名区右侧让位以免遮挡其点击。
+            document.body.classList.toggle('si-revealed', !!window.siEverEnabled);
             if (!siIndicator) { return; }
-            // 一直显示指示器，用 .enabled 类区分开/关外观
+            // .revealed 作为显示闸门（配合 CSS）；.enabled 仅区分当前开/关外观
+            siIndicator.classList.toggle('revealed', !!window.siEverEnabled);
             siIndicator.classList.toggle('enabled', on);
             siIndicator.title = on
                 ? 'Double-click selects the whole bracket/quote pair (including delimiters): ON — click to disable'

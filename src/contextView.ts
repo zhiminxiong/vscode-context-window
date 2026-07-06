@@ -1315,7 +1315,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 <button class="nav-button" id="nav-back" title="Go Back">  </button>
                 <button class="nav-button" id="nav-forward" title="Go Forward">  </button>
                 <button class="nav-jump" id="nav-jump" title="Jump to definition"></button>
-                <!-- 开关指示器：放在跳转(上箭头)按钮之后，一直显示，标识「双击选中整对括号/引号（含定界符）」是否开启，点击可切换 -->
+                <!-- 开关指示器：靠 margin-left:auto 显示在导航栏最右端；本会话曾开启过才显示，标识「双击选中整对括号/引号（含定界符）」是否开启，点击可切换 -->
                 <div class="si-indicator" id="si-indicator" title="Double-click selects the whole bracket/quote pair (including delimiters)">{ }</div>
             </div>
 
