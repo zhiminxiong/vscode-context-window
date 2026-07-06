@@ -412,7 +412,9 @@ export function resolveRawTokenColors(): SemanticRule[] | undefined {
             if (!settings) { continue; }
             const fg = normalizeColor(settings.foreground);
             const fontStyle = normalizeFontStyle(settings);
-            if (!fg && (fontStyle === undefined || fontStyle === '')) { continue; }
+            // fontStyle 语义：undefined = 主题未设置（Monaco 继承父 scope）；'' = 主题显式「无样式/重置」（须覆盖父 scope）。
+            // 二者必须区分：只有当既无颜色、又未设置样式时才跳过；仅有 '' 重置（无颜色）也要保留，用于覆盖祖先的 bold/italic。
+            if (!fg && fontStyle === undefined) { continue; }
             for (const sc of normalizeScopes(rule.scope)) {
                 if (!sc) { continue; }
                 // 去重 key：同一 scope 后者覆盖前者（与主题文件顺序一致），故记录顺序即可，重复直接覆盖
@@ -424,7 +426,8 @@ export function resolveRawTokenColors(): SemanticRule[] | undefined {
                         out[idx] = {
                             token: sc,
                             ...(fg ? { foreground: fg } : {}),
-                            ...(fontStyle ? { fontStyle } : {}),
+                            // 保留显式 '' —— 用空串下发，Monaco 解析为 FontStyle.None（覆盖父 scope），与 VSCode 的「重置」一致。
+                            ...(fontStyle !== undefined ? { fontStyle } : {}),
                         };
                     }
                     continue;
@@ -433,7 +436,7 @@ export function resolveRawTokenColors(): SemanticRule[] | undefined {
                 out.push({
                     token: sc,
                     ...(fg ? { foreground: fg } : {}),
-                    ...(fontStyle ? { fontStyle } : {}),
+                    ...(fontStyle !== undefined ? { fontStyle } : {}),
                 });
             }
         }
@@ -474,7 +477,8 @@ function resolveSemanticRulesInner(): SemanticRule[] | undefined {
         rules.push({
             token,
             ...(fg ? { foreground: fg } : {}),
-            ...(fontStyle ? { fontStyle } : {}),
+            // 保留显式 ''（重置样式）：与 undefined（继承父 scope）区分，避免 Monaco 继承祖先的 bold/italic。
+            ...(fontStyle !== undefined ? { fontStyle } : {}),
         });
         return fg;
     };
@@ -525,13 +529,14 @@ function resolveSemanticRulesInner(): SemanticRule[] | undefined {
         // 基础（无语言后缀）颜色：按候选 scope 前缀回退。
         const base = styleFromTokenColors(themeData.tokenColors, ex.scopes);
         const baseFg = normalizeColor(base?.foreground);
-        const baseFontStyle = base?.fontStyle || '';
-        if (baseFg || baseFontStyle) {
+        // 保留 undefined（未设置=继承）与 ''（显式重置=覆盖）的区分，避免继承祖先 bold/italic。
+        const baseFontStyle = base?.fontStyle;
+        if (baseFg || baseFontStyle !== undefined) {
             produced = true;
             rules.push({
                 token: ex.token,
                 ...(baseFg ? { foreground: baseFg } : {}),
-                ...(baseFontStyle ? { fontStyle: baseFontStyle } : {}),
+                ...(baseFontStyle !== undefined ? { fontStyle: baseFontStyle } : {}),
             });
         }
         // 语言后缀变体：Monaco 里这些 token 实际带语言后缀（如 storage.type.class.ts），
@@ -542,13 +547,13 @@ function resolveSemanticRulesInner(): SemanticRule[] | undefined {
             const sp = styleFromTokenColors(themeData.tokenColors, [suffixedToken]);
             if (!sp) { continue; }
             const spFg = normalizeColor(sp.foreground);
-            const spFontStyle = sp.fontStyle || '';
-            if ((spFg || spFontStyle) && (spFg !== baseFg || spFontStyle !== baseFontStyle)) {
+            const spFontStyle = sp.fontStyle;
+            if ((spFg || spFontStyle !== undefined) && (spFg !== baseFg || spFontStyle !== baseFontStyle)) {
                 produced = true;
                 rules.push({
                     token: suffixedToken,
                     ...(spFg ? { foreground: spFg } : {}),
-                    ...(spFontStyle ? { fontStyle: spFontStyle } : {}),
+                    ...(spFontStyle !== undefined ? { fontStyle: spFontStyle } : {}),
                 });
             }
         }
