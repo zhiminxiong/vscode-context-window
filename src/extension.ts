@@ -264,6 +264,52 @@ function findMatchingQuoteOnLine(lineText: string, quoteCol: number, q: string):
     return undefined;
 }
 
+// 判断 col 处字符是否位于同一行的某个字符串字面量（一对未转义引号）内部。
+// 命中则返回该字符串的「内容区间」[start, end]（不含两端引号，闭区间）；不在字符串内返回 undefined。
+// 用途：字符串内的方括号/圆括号只是普通文本，VSCode 语言感知的 selectToBracket 会忽略它们、
+// 误匹配到字符串外层的语法括号（如 log('[x]') 双击 [ 却选中整个 (...)），故字符串内需改用纯文本配对。
+function stringContentRangeAt(lineText: string, col: number): { start: number; end: number } | undefined {
+    let quote = '';
+    let quoteStart = -1;
+    for (let i = 0; i < lineText.length; i++) {
+        const c = lineText.charAt(i);
+        if (!QUOTES.has(c) || isEscapedAt(lineText, i)) { continue; }
+        if (quote === '') {
+            quote = c; quoteStart = i;
+        } else if (c === quote) {
+            // 完整字符串 [quoteStart, i]：col 落在两引号之间的内容区即命中
+            if (quoteStart < col && col < i) { return { start: quoteStart + 1, end: i - 1 }; }
+            quote = ''; quoteStart = -1;
+        }
+    }
+    return undefined;
+}
+
+// 在同一行、限定区间 [lo, hi] 内，为 col 处的括号 ch 做纯文本配对（支持同类嵌套），
+// 返回 [开括号列, 闭括号列]；找不到返回 undefined。用于字符串内部的括号选定（不走语言感知的 selectToBracket）。
+function findMatchingBracketOnLine(lineText: string, col: number, ch: string, lo: number, hi: number): [number, number] | undefined {
+    if (BRACKET_PAIRS[ch]) {
+        // 开括号：向右找配对闭括号
+        const close = BRACKET_PAIRS[ch];
+        let depth = 0;
+        for (let i = col; i <= hi; i++) {
+            const c = lineText.charAt(i);
+            if (c === ch) { depth++; }
+            else if (c === close) { depth--; if (depth === 0) { return [col, i]; } }
+        }
+    } else {
+        // 闭括号：向左找配对开括号
+        const open = CLOSE_TO_OPEN[ch];
+        let depth = 0;
+        for (let i = col; i >= lo; i--) {
+            const c = lineText.charAt(i);
+            if (c === ch) { depth++; }
+            else if (c === open) { depth--; if (depth === 0) { return [i, col]; } }
+        }
+    }
+    return undefined;
+}
+
 // 「紧挨括号」允许的列容差：从双击落点向右查找括号的最大字符距离。
 // 0 = 落点右邻必须就是括号（严格紧挨）；放大可容忍落点与括号之间夹少量空白。
 const NEAR_BRACKET_TOLERANCE = 0;
@@ -377,13 +423,27 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
                         );
                     }
                 } else {
-                    // 命中「双击紧挨括号」：把光标定位到括号所在列（其左边界，右邻即目标括号），交给 VSCode 内置命令
-                    // selectToBracket 选中整对括号（selectBrackets:true = 连同括号一起选）。VSCode 匹配是语言感知的。
-                    // 关键：光标放 hitCol 而非 hitCol+1——对连续括号（如 map(( ）+1 会落到第二个 ( 上，
-                    // 导致 selectToBracket 选中第二个括号对；放在括号左边界则右邻明确是本括号，选中的就是它这一对。
-                    const insidePos = new vscode.Position(clickLine, hitCol);
-                    editor.selection = new vscode.Selection(insidePos, insidePos);
-                    await vscode.commands.executeCommand('editor.action.selectToBracket', { selectBrackets: true });
+                    // 命中「双击紧挨括号」。先判断该括号是否在字符串字面量内部：
+                    const strRange = stringContentRangeAt(lineText, hitCol);
+                    if (strRange) {
+                        // 字符串内：括号只是普通文本，selectToBracket（语言感知）会忽略它、误选外层语法括号
+                        // （如 log('[x]') 双击 [ 会选中整个 (...)）。改为在该字符串范围内做纯文本配对，选中 [...] 本身。
+                        const pair = findMatchingBracketOnLine(lineText, hitCol, hitChar, strRange.start, strRange.end);
+                        if (pair) {
+                            editor.selection = new vscode.Selection(
+                                new vscode.Position(clickLine, pair[0]),
+                                new vscode.Position(clickLine, pair[1] + 1)
+                            );
+                        }
+                    } else {
+                        // 非字符串内：把光标定位到括号所在列（其左边界，右邻即目标括号），交给 VSCode 内置命令
+                        // selectToBracket 选中整对括号（selectBrackets:true = 连同括号一起选），跨行/嵌套/语言感知都由它处理。
+                        // 关键：光标放 hitCol 而非 hitCol+1——对连续括号（如 map(( ）+1 会落到第二个 ( 上，
+                        // 导致 selectToBracket 选中第二个括号对；放在括号左边界则右邻明确是本括号，选中的就是它这一对。
+                        const insidePos = new vscode.Position(clickLine, hitCol);
+                        editor.selection = new vscode.Selection(insidePos, insidePos);
+                        await vscode.commands.executeCommand('editor.action.selectToBracket', { selectBrackets: true });
+                    }
                 }
                 // 即时选中已完成：标记已触发；此后一旦再来鼠标选区事件即单向切换到拖拽态、永久放手。
                 gesture.fired = true;
