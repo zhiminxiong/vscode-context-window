@@ -4,6 +4,15 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.3] 2026.07.09
+
+#### Changed
+
+- Fixed incorrect token style when picking via right-click.
+- Fixed incorrect hover tips.
+- Added an extended double-click selection mode, similar to Source Insight: double-clicking to the left of a bracket selects the bracket pair together with its contents.
+- Fixed incorrect keyword style settings.
+
 ## [1.0.2] 2026.06.30
 
 #### Changed
