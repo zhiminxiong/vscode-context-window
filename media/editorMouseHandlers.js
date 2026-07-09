@@ -12,6 +12,7 @@ import { pickTokenStyle } from './tokenPicker.js';
 import { tokenAtPosition, semanticTokenAtPosition } from './tokenize.js';
 import { getScopeAtPosition } from './textmateClient.js';
 import { getTokenStyleSource } from './editorTheme.js';
+import { trySelectBracketPairAt } from './bracketPairSelect.js';
 
 export function setupEditorMouseHandlers(ctx) {
     const {
@@ -112,6 +113,15 @@ export function setupEditorMouseHandlers(ctx) {
                 editor.setModel(model);
             }
             const position = e.target.position;
+
+            // 右键【双击】紧挨括号/引号 → 选中整对（含定界符）。移植自扩展主编辑器的双击选定，
+            // 此处严格要求「右键双击」；仅在非 pick token 且开关(doubleClickSelectsBracketPair)开启时生效。
+            // 未命中括号/引号时返回 false，继续走下方右键单击选词逻辑，故不干扰原有右键选词。
+            if (e.event.rightButton && getClickCount(e) >= 2 && !window.pickTokenStyle && window.selectBracketPairEnabled && model && position) {
+                const hit = await trySelectBracketPairAt(editor, position);
+                if (hit) { hideCursor(); return true; }
+            }
+
             // 检查点击位置是否在当前选择范围内
             const selection = editor.getSelection();
             const isClickedTextSelected = selection && !selection.isEmpty() && selection.containsPosition(position);
