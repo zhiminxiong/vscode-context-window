@@ -260,6 +260,19 @@ export function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, li
         '--vscode-editorIndentGuide-activeBackground',
         '--vscode-editor-lineHighlightBackground',
         '--vscode-editor-lineHighlightBorder',
+        '--vscode-minimap-background',
+        '--vscode-minimap-foregroundOpacity',
+        '--vscode-minimap-selectionHighlight',
+        '--vscode-minimap-findMatchHighlight',
+        '--vscode-minimap-selectionOccurrenceHighlight',
+        '--vscode-minimap-errorHighlight',
+        '--vscode-minimap-warningHighlight',
+        '--vscode-minimapSlider-background',
+        '--vscode-minimapSlider-hoverBackground',
+        '--vscode-minimapSlider-activeBackground',
+        '--vscode-minimapGutter-addedBackground',
+        '--vscode-minimapGutter-modifiedBackground',
+        '--vscode-minimapGutter-deletedBackground',
     ]);
 
     // 先收集候选颜色，然后清理 undefined
@@ -283,6 +296,19 @@ export function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, li
         'editorIndentGuide.activeBackground': v['--vscode-editorIndentGuide-activeBackground'],
         'editor.lineHighlightBackground': v['--vscode-editor-lineHighlightBackground'],
         'editor.lineHighlightBorder': v['--vscode-editor-lineHighlightBorder'],
+        'minimap.background': v['--vscode-minimap-background'] || v['--vscode-editor-background'],
+        'minimap.foregroundOpacity': v['--vscode-minimap-foregroundOpacity'],
+        'minimap.selectionHighlight': v['--vscode-minimap-selectionHighlight'],
+        'minimap.findMatchHighlight': v['--vscode-minimap-findMatchHighlight'],
+        'minimap.selectionOccurrenceHighlight': v['--vscode-minimap-selectionOccurrenceHighlight'],
+        'minimap.errorHighlight': v['--vscode-minimap-errorHighlight'],
+        'minimap.warningHighlight': v['--vscode-minimap-warningHighlight'],
+        'minimapSlider.background': v['--vscode-minimapSlider-background'],
+        'minimapSlider.hoverBackground': v['--vscode-minimapSlider-hoverBackground'],
+        'minimapSlider.activeBackground': v['--vscode-minimapSlider-activeBackground'],
+        'minimapGutter.addedBackground': v['--vscode-minimapGutter-addedBackground'],
+        'minimapGutter.modifiedBackground': v['--vscode-minimapGutter-modifiedBackground'],
+        'minimapGutter.deletedBackground': v['--vscode-minimapGutter-deletedBackground'],
     };
 
     const colors = {};
