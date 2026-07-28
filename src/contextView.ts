@@ -721,14 +721,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 // 取色弹窗的 <input type=color> 返回 "#rrggbb"，这里统一去掉前导 '#' 再持久化，避免渲染时颜色被丢弃。
                 patch.foreground = message.newStyle.foreground.trim().replace(/^#/, '');
             }
-            if (message.newStyle && (message.newStyle.bold || message.newStyle.italic)) {
-                if (message.newStyle.bold && message.newStyle.italic) {
-                    patch.fontStyle = "bold italic";
-                } else if (message.newStyle.bold) {
-                    patch.fontStyle = "bold";
-                } else if (message.newStyle.italic) {
-                    patch.fontStyle = "italic";
-                }
+            if (message.newStyle) {
+                // 始终按取色面板两个复选框「显式」写入 fontStyle（含都不勾时写空串 ""）。
+                // 关键：空串 = 显式「无粗体/斜体」，会覆盖主题默认样式；若像旧逻辑那样「都不勾就不写」，
+                // upsertRule 会删除 fontStyle 字段，token 便回退继承主题默认字体样式——如语义 token
+                // method.declaration.async 会继承 *.declaration 默认的 bold，表现为「去掉 italic 后 bold 又冒出来」。
+                // 显式写入后，复选框状态 === 存储 === 渲染，彻底消除样式泄漏与不一致。
+                const parts: string[] = [];
+                if (message.newStyle.bold) { parts.push('bold'); }
+                if (message.newStyle.italic) { parts.push('italic'); }
+                patch.fontStyle = parts.join(' ');
             }
             if (!token) {
                 throw new Error('token is required');
