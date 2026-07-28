@@ -4,6 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.4] 2026.07.28
+
+#### Changed
+
+- Fixed pick token style.
+
+
 ## [1.0.3] 2026.07.09
 
 #### Changed
