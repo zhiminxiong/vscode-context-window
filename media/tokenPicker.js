@@ -363,7 +363,7 @@ export async function pickTokenStyle(options = {
             };
             const sourceBadge = document.createElement('span');
             sourceBadge.textContent = SOURCE_LABELS[options.source] || '';
-            sourceBadge.title = '当前生效 token 来源';
+            sourceBadge.title = 'Active token source';
             sourceBadge.style.marginLeft = 'auto';        // 推到该行最右侧（红框位置）
             sourceBadge.style.alignSelf = 'center';
             sourceBadge.style.padding = '2px 8px';
