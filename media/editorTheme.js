@@ -260,6 +260,13 @@ export function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, li
         '--vscode-editorIndentGuide-activeBackground',
         '--vscode-editor-lineHighlightBackground',
         '--vscode-editor-lineHighlightBorder',
+        '--vscode-editorBracketHighlight-foreground1',
+        '--vscode-editorBracketHighlight-foreground2',
+        '--vscode-editorBracketHighlight-foreground3',
+        '--vscode-editorBracketHighlight-foreground4',
+        '--vscode-editorBracketHighlight-foreground5',
+        '--vscode-editorBracketHighlight-foreground6',
+        '--vscode-editorBracketHighlight-unexpectedBracket-foreground',
         '--vscode-minimap-background',
         '--vscode-minimap-foregroundOpacity',
         '--vscode-minimap-selectionHighlight',
@@ -309,6 +316,14 @@ export function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, li
         'minimapGutter.addedBackground': v['--vscode-minimapGutter-addedBackground'],
         'minimapGutter.modifiedBackground': v['--vscode-minimapGutter-modifiedBackground'],
         'minimapGutter.deletedBackground': v['--vscode-minimapGutter-deletedBackground'],
+        // 括号对着色的各层级色：同步自 VSCode 主题，使括号对着色开启时颜色与 VSCode 一致。
+        'editorBracketHighlight.foreground1': v['--vscode-editorBracketHighlight-foreground1'],
+        'editorBracketHighlight.foreground2': v['--vscode-editorBracketHighlight-foreground2'],
+        'editorBracketHighlight.foreground3': v['--vscode-editorBracketHighlight-foreground3'],
+        'editorBracketHighlight.foreground4': v['--vscode-editorBracketHighlight-foreground4'],
+        'editorBracketHighlight.foreground5': v['--vscode-editorBracketHighlight-foreground5'],
+        'editorBracketHighlight.foreground6': v['--vscode-editorBracketHighlight-foreground6'],
+        'editorBracketHighlight.unexpectedBracket.foreground': v['--vscode-editorBracketHighlight-unexpectedBracket-foreground'],
     };
 
     const colors = {};

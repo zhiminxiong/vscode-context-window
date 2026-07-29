@@ -202,6 +202,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             smoothScrolling,
                             tokenColorCustomizations,
                             detectIndentation,
+                            bracketPairColorization,
                             ...otherOptions
                         } = vsCodeConfig;
 
@@ -234,6 +235,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             tokenColorCustomizations,
                             // 其他有效选项
                             ...otherOptions,
+                            // 同步 VSCode 的括号对着色开关（覆盖 Monaco 默认的 enabled:true）。
+                            bracketPairColorization: {
+                                ...(bracketPairColorization || {}),
+                                enabled: contextEditorCfg.bracketPairColorization !== false
+                            },
                             // 自定义 Hover Provider 走扩展端 LSP（vscode.executeHoverProvider），
                             // 不依赖 Monaco 内置 Worker，规避了「webview 中 Worker 长期 pending → 浮窗一直 loading」。
                             // 见 hoverProvider.js / contextView.ts 的 requestHover 处理。
@@ -261,6 +267,15 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             //跟随 VS Code 明确配置
                             model.updateOptions({ insertSpaces: defaultInsertSpaces, tabSize: defaultTabSize });
                         }
+
+                        // createModel 默认强制开启 Monaco 括号对着色，需按 VSCode 设置显式覆盖。
+                        const cfg = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
+                        model.updateOptions({
+                            bracketColorizationOptions: {
+                                enabled: cfg.bracketPairColorization !== false,
+                                independentColorPoolPerBracketType: false
+                            }
+                        });
                     }
 
                     // 创建编辑器实例
@@ -852,6 +867,8 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                                     fontFamily: message.contextEditorCfg.fontFamily
                                                 }
                                             );
+                                            // VSCode 括号对着色开关变化时，即时同步到当前模型（applyIndentationForModel 内含该逻辑）。
+                                            applyIndentationForModel(editor.getModel());
                                             // 必须用 setTheme 显式重应用：主题名仍是 'custom-vs'，updateOptions({theme})
                                             // 会因字符串未变而短路、不重渲染；setTheme 能识别 defineTheme 生成的新主题对象并
                                             // 触发 onDidColorThemeChange 重新着色，使右键取色的改动即时生效（修复"取到的对、渲染没刷新"）。

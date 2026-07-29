@@ -83,10 +83,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         type: 'updateEditorConfiguration',
                         configuration: updatedConfig
                     });
-                // 指令高亮（#include 等）的配色来自 editor.tokenColorCustomizations、字重来自 editor.fontWeight，
-                // 这两类变更时同步最新 contextEditorCfg，使 webview 内的指令着色与 VSCode 保持一致。
+                // 指令高亮（#include 等）的配色/字重，或括号对着色开关变化时，同步最新 contextEditorCfg，
+                // 使 webview 内的对应样式与 VSCode 保持一致。
                 if (e.affectsConfiguration('editor.tokenColorCustomizations') ||
-                    e.affectsConfiguration('editor.fontWeight')) {
+                    e.affectsConfiguration('editor.fontWeight') ||
+                    e.affectsConfiguration('editor.bracketPairColorization.enabled')) {
                     this.postMessageToWebview({
                         type: 'updateContextEditorCfg',
                         contextEditorCfg: updatedConfig.contextEditorCfg,
@@ -397,6 +398,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 fontFamily: contextWindowConfig.get('fontFamily', 'Consolas, monospace'),
                 minimap: contextWindowConfig.get('minimap', true),
                 useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
+                // VSCode 的括号对着色开关：下发给 webview，使 Monaco 括号对着色行为与 VSCode 一致。
+                bracketPairColorization: editorConfig.get<boolean>('bracketPairColorization.enabled', true),
                 cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 30),
                 fixStickyScroll: contextWindowConfig.get('fixStickyScroll', false),
                 // 是否启用自定义 hover 提示（右键菜单可切换，默认 false）。
