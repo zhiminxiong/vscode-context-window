@@ -180,7 +180,7 @@
         },
         "contextView.contextWindow.useDefaultTokenizer": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Using the default tokenizer of Monaco Editor.\nTake effect when VSCode starts."
         },
         "contextView.contextWindow.fixToken": {
