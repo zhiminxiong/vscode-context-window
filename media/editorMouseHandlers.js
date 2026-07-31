@@ -14,6 +14,14 @@ import { getScopeAtPosition } from './textmateClient.js';
 import { getTokenStyleSource } from './editorTheme.js';
 import { trySelectBracketPairAt } from './bracketPairSelect.js';
 
+// Sticky Scroll（粘附行）相关的 Monaco 内部标识：
+// - 控制器 ID 见 monaco-editor/esm/vs/editor/contrib/stickyScroll/browser/stickyScrollController.js
+// - widget ID 是粘附行 overlay widget 的 id，鼠标落在粘附行上时 e.target.detail 即为它
+// 注意：这里读的是私有成员 _stickyScrollWidget（与本文件外已有的 editor._contextMenuService 等同类风险），
+// 升级 monaco-editor 时需复核。
+const STICKY_CONTROLLER_ID = 'store.contrib.stickyScrollController';
+const STICKY_WIDGET_ID = 'editor.contrib.stickyScrollWidget';
+
 export function setupEditorMouseHandlers(ctx) {
     const {
         editor,
@@ -32,6 +40,29 @@ export function setupEditorMouseHandlers(ctx) {
     // 记录上一次高亮的单词，范围未变则跳过 deltaDecorations，避免在同一单词上抖动时反复重画
     let lastWordKey = '';
 
+    // === Sticky Scroll（粘附行）Ctrl/Cmd 悬停下划线的可变状态 ===
+    // 粘附行不随 deltaDecorations 重绘（控制器只在滚动/tokens/配置/字体/行高变化时重渲染），
+    // 所以这里直接给命中的叶子 span 加 class，与 VSCode 自己在粘附行上写 style.textDecoration 同思路。
+    // stickyLinkEl：当前已加下划线的 span；lastStickyHoverEl：鼠标最近停留的可跳转 span
+    //（供「鼠标不动、后按下 Ctrl」时补加下划线，对齐 VSCode 的 onMouseMoveOrRelevantKeyDown）。
+    let stickyLinkEl = null;
+    let lastStickyHoverEl = null;
+    const STICKY_LINK_CLASS = 'cw-sticky-link';
+    const hasTriggerModifier = (ev) => !!ev && (ev.ctrlKey || ev.metaKey);
+    const setStickyLink = (el) => {
+        if (stickyLinkEl === el) { return; }
+        // 粘附行重渲染会整体替换 DOM，旧引用可能已脱离文档，isConnected 兜底避免无效写入
+        if (stickyLinkEl && stickyLinkEl.isConnected) {
+            stickyLinkEl.classList.remove(STICKY_LINK_CLASS);
+        }
+        stickyLinkEl = null;
+        if (el && el.isConnected) {
+            el.classList.add(STICKY_LINK_CLASS);
+            stickyLinkEl = el;
+        }
+    };
+    const clearStickyLink = () => setStickyLink(null);
+
     // 兼容读取点击次数：优先 Monaco IMouseEvent.detail，回退到原生 browserEvent.detail。
     // 用它在 onMouseUp 里识别双击——原生 DOM dblclick 在 Monaco 虚拟化内容上常因两次点击落在
     // 被重渲染替换的不同 DOM 节点而无法合成；而 detail（点击计数）来自输入层，不受 DOM 重建影响。
@@ -49,8 +80,52 @@ export function setupEditorMouseHandlers(ctx) {
                 currentDecorations = editor.deltaDecorations(currentDecorations, []);
             }
             lastWordKey = '';
+            // 鼠标离开编辑器：粘附行下划线一并清掉，且忘记「最近悬停的 span」，
+            // 否则之后在别处按下 Ctrl 会凭旧引用误加下划线
+            lastStickyHoverEl = null;
+            clearStickyLink();
         });
     }
+
+    // Ctrl/Cmd 的按下/抬起也要驱动粘附行下划线（对齐 VSCode：鼠标停在 token 上后再按 Ctrl 同样出现下划线）。
+    // Monaco 的 keyboardHandler 在本插件被置空，故直接在 document 上监听；window blur 时兜底清除，
+    // 避免切走窗口后修饰键状态丢失导致下划线残留。
+    document.addEventListener('keydown', (ev) => {
+        if (hasTriggerModifier(ev) && lastStickyHoverEl) {
+            setStickyLink(lastStickyHoverEl);
+        }
+    }, true);
+    document.addEventListener('keyup', (ev) => {
+        if (!hasTriggerModifier(ev)) {
+            clearStickyLink();
+        }
+    }, true);
+    window.addEventListener('blur', () => {
+        lastStickyHoverEl = null;
+        clearStickyLink();
+    });
+
+    // 把粘附行上的鼠标事件换算成模型位置。
+    // 粘附行是 renderViewLine 单独渲染的 DOM，字符偏移与模型列并不一一对应（tab / 空白渲染），
+    // 必须借 widget 内部的 characterMapping 换算——这与 VSCode 自己在粘附行上做 Ctrl+click 的实现同源。
+    const getStickyPositionFromEvent = (e) => {
+        const t = e && e.target;
+        if (!t || t.type !== monaco.editor.MouseTargetType.OVERLAY_WIDGET || t.detail !== STICKY_WIDGET_ID) {
+            return null;
+        }
+        const element = t.element;
+        if (!element) { return null; }
+        try {
+            const controller = editor.getContribution && editor.getContribution(STICKY_CONTROLLER_ID);
+            const widget = controller && controller._stickyScrollWidget;
+            if (!widget || typeof widget.getEditorPositionFromNode !== 'function') { return null; }
+            // 非叶子节点（如行号列、折叠图标、行尾空白）返回 null，此时不接管，交回 Monaco
+            const pos = widget.getEditorPositionFromNode(element);
+            return pos ? { lineNumber: pos.lineNumber, column: pos.column } : null;
+        } catch (_) {
+            return null;
+        }
+    };
 
     function handleEditorMouseMove(e) {
         // 默认使用默认光标
@@ -88,6 +163,20 @@ export function setupEditorMouseHandlers(ctx) {
             currentDecorations = editor.deltaDecorations(currentDecorations, []);
             lastWordKey = '';
         }
+
+        // Sticky Scroll（粘附行）：记录鼠标下的可跳转 token，并在按住 Ctrl/Cmd 时加下划线。
+        // 与 VSCode 一致——粘附行上「Ctrl/Cmd + 悬停」才提示可点击（普通悬停只是行高亮 + 手型）。
+        // getStickyPositionFromEvent 已排除行号列/折叠图标/非叶子节点，取不到词时不提示。
+        lastStickyHoverEl = null;
+        if (e.target.type === monaco.editor.MouseTargetType.OVERLAY_WIDGET && e.target.detail === STICKY_WIDGET_ID) {
+            const stickyPosition = getStickyPositionFromEvent(e);
+            const stickyWord = (model && stickyPosition) ? model.getWordAtPosition(stickyPosition) : null;
+            if (stickyWord) {
+                lastStickyHoverEl = e.target.element;
+            }
+        }
+        setStickyLink(hasTriggerModifier(e.event) ? lastStickyHoverEl : null);
+
         // 根据鼠标位置更新光标样式
         forcePointerCursor(isOverText);
         return true;
@@ -102,6 +191,34 @@ export function setupEditorMouseHandlers(ctx) {
         // 使用 e.event.buttons 判断鼠标按键
         //const isLeftClick = (e.event.buttons & 1) === 1; // 左键
         //const isRightClick = (e.event.buttons & 2) === 2; // 右键
+
+        // === Sticky Scroll（粘附行）左键：与 VSCode 保持一致 ===
+        // 普通左键（含 shift / 双击）不拦截，交给 Monaco 自带的 CLICK 监听（滚动并定位到该行）；
+        // 这里只补 Ctrl/Cmd + 左键跳定义：Monaco 原生这条路径走 languageFeaturesService.definitionProvider，
+        // 而 webview 内没有注册 definition provider，其 ClickLinkGesture.onExecute 会静默返回，
+        // 所以需要我们自己把跳转请求发回扩展端（与正文区 CONTENT_TEXT 的 jumpDefinition 同一消息）。
+        if (e.event.leftButton && (e.event.ctrlKey || e.event.metaKey)) {
+            const stickyPosition = getStickyPositionFromEvent(e);
+            if (stickyPosition) {
+                // 已经点击跳转，下划线提示不再需要（内容更新后粘附行 DOM 也会重建）
+                lastStickyHoverEl = null;
+                clearStickyLink();
+                const stickyModel = editor.getModel();
+                const stickyWord = stickyModel && stickyModel.getWordAtPosition(stickyPosition);
+                if (stickyWord) {
+                    vscode.postMessage({
+                        type: 'jumpDefinition',
+                        uri: state.uri,
+                        token: stickyWord.word,
+                        position: {
+                            line: stickyPosition.lineNumber - 1,
+                            character: stickyPosition.column - 1
+                        }
+                    });
+                }
+                return true;
+            }
+        }
 
         if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
             // 获取当前单词

@@ -31,6 +31,25 @@ body {
 .cw-cursor-pointer, .cw-cursor-pointer * { cursor: pointer !important; }
 .cw-cursor-default, .cw-cursor-default * { cursor: default !important; }
 
+/* Sticky Scroll（粘附行）悬停手型，与 VSCode 一致。
+   Monaco 自带 `.sticky-widget .sticky-line-content:hover { cursor: pointer }`，
+   但上面的 `.cw-cursor-default *` 带 !important 且作用于编辑器全部后代，会把粘附行压成箭头
+   （鼠标在粘附行上时 onMouseMove 的 isOverText 恒为 false，必然打上 cw-cursor-default）。
+   这里用更高特异性 + !important 让粘附行恢复手型；行号列不加规则，保持默认箭头（同 VSCode）。 */
+.monaco-editor .sticky-widget .sticky-line-content:hover,
+.monaco-editor .sticky-widget .sticky-line-content:hover * {
+    cursor: pointer !important;
+}
+
+/* Sticky Scroll：Ctrl/Cmd + 悬停粘附行 token 时的「可点击跳定义」下划线，对齐 VSCode
+   （VSCode 在粘附行上直接写 style.textDecoration = 'underline'）。
+   刻意只加下划线、不改字重/字号：粘附行由 renderViewLine 绝对定位渲染，
+   字宽一变就会与 characterMapping 错位、导致文字跳动和取词偏移。 */
+.monaco-editor .sticky-widget .cw-sticky-link {
+    text-decoration: underline !important;
+    text-underline-offset: 2px;
+}
+
 
 /* 专门针对 Monaco Editor 的滚动条样式 */
 .monaco-editor .monaco-scrollable-element .slider.horizontal {
