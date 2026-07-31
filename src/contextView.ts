@@ -664,6 +664,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 case 'closeDefinitionList':
                     this.postMessageToWebview({ type: 'clearDefinitionList' });
                     break;
+                case 'copyToClipboard':
+                    // 粘附行(sticky scroll)区域的选中内容不占用 Monaco 的 model 选区，
+                    // 故 Monaco 自带的复制命令拿不到它；而 webview 内的 navigator.clipboard
+                    // 受焦点/权限限制经常静默失败，因此统一交给扩展端用 VSCode 官方 API 写入。
+                    if (typeof message.text === 'string' && message.text.length > 0) {
+                        await vscode.env.clipboard.writeText(message.text);
+                    }
+                    break;
             }
         });
     }

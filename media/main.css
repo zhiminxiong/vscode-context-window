@@ -50,6 +50,22 @@ body {
     text-underline-offset: 2px;
 }
 
+/* Sticky Scroll：右键选词 / 左键拖选在粘附区的可见反馈。
+   粘附行不渲染 selection 层（选区由正文区的 selections 层画），所以自己插入绝对定位的覆盖层来画。
+   用覆盖层而非给 token span 上底色，才能做到字符级——选到 token 中间也能精确停住。
+   覆盖层挂在 .sticky-widget-lines 上（不能插进 .sticky-line-content：Monaco 靠 previousSibling
+   计数得出 partIndex，行内插节点会让列号错位）；left/width/top/height/z-index 均由 JS 按所属行算出
+   （各粘附行绝对定位且互相重叠、靠 z-index 分层，覆盖层必须跟随所属行的层级，否则会被上层行的
+   不透明背景整块盖住——那正是「只有最后一行的选中可见」的原因）。
+   pointer-events: none 保证不干扰命中判定。
+   颜色由 JS 写在粘附行根节点的 --cw-sticky-selection-bg 上，取自插件配置的 selectionBackground，
+   与正文区选中色同源（半透明，不挡文字）；变量缺失时回退到 VSCode 主题的选中色。 */
+.monaco-editor .sticky-widget .cw-sticky-selection {
+    position: absolute;
+    pointer-events: none;
+    background-color: var(--cw-sticky-selection-bg, var(--vscode-editor-selectionBackground));
+}
+
 
 /* 专门针对 Monaco Editor 的滚动条样式 */
 .monaco-editor .monaco-scrollable-element .slider.horizontal {

@@ -6,7 +6,7 @@
 // 通过 ctx 共享 editor 引用、可变会话状态（state）、主题色标志（light）、vscode 通信对象，
 // 以及缩进、光标显隐等回调。monaco / document / window 直接使用全局对象（与其它模块一致）。
 
-import { getTokenColorFromDOM } from './colorUtils.js';
+import { getTokenColorFromDOM, getCssVar } from './colorUtils.js';
 import { requestTokenStyle } from './tokenStyleClient.js';
 import { pickTokenStyle } from './tokenPicker.js';
 import { tokenAtPosition, semanticTokenAtPosition } from './tokenize.js';
@@ -105,27 +105,405 @@ export function setupEditorMouseHandlers(ctx) {
         clearStickyLink();
     });
 
-    // 把粘附行上的鼠标事件换算成模型位置。
-    // 粘附行是 renderViewLine 单独渲染的 DOM，字符偏移与模型列并不一一对应（tab / 空白渲染），
-    // 必须借 widget 内部的 characterMapping 换算——这与 VSCode 自己在粘附行上做 Ctrl+click 的实现同源。
-    const getStickyPositionFromEvent = (e) => {
-        const t = e && e.target;
-        if (!t || t.type !== monaco.editor.MouseTargetType.OVERLAY_WIDGET || t.detail !== STICKY_WIDGET_ID) {
-            return null;
-        }
-        const element = t.element;
-        if (!element) { return null; }
+    // 取 Monaco 的粘附行 widget（内部实现，升级需复核）。
+    // 它公开了 lineNumbers / getRenderedStickyLine()，可拿到每条粘附行的 lineDomNode 与 characterMapping，
+    // 这是做字符级坐标换算的基础。
+    const getStickyWidget = () => {
         try {
             const controller = editor.getContribution && editor.getContribution(STICKY_CONTROLLER_ID);
             const widget = controller && controller._stickyScrollWidget;
-            if (!widget || typeof widget.getEditorPositionFromNode !== 'function') { return null; }
-            // 非叶子节点（如行号列、折叠图标、行尾空白）返回 null，此时不接管，交回 Monaco
-            const pos = widget.getEditorPositionFromNode(element);
+            return (widget && typeof widget.getRenderedStickyLine === 'function') ? widget : null;
+        } catch (_) {
+            return null;
+        }
+    };
+
+    // 鼠标事件的视口坐标：StandardMouseEvent 的 posx/posy 是 page 坐标，拖选要用 client 坐标，
+    // 优先取原生事件的 clientX/clientY
+    const getClientPoint = (e) => {
+        const me = e && e.event;
+        const be = me && me.browserEvent;
+        if (be && typeof be.clientX === 'number') { return { x: be.clientX, y: be.clientY }; }
+        if (me && typeof me.posx === 'number') { return { x: me.posx, y: me.posy }; }
+        return null;
+    };
+
+    // 由粘附行内的任意 DOM 节点找到它所属的 RenderedStickyLine
+    //（含 lineNumber / lineDomNode / characterMapping）。
+    // 必须走 Monaco 的 data-sticky-line-index 属性，不能用 y 坐标比 getBoundingClientRect：
+    // 所有 .sticky-line-content 都是绝对定位、宽度为整条可滚动宽度、彼此完全重叠，
+    // 靠 z-index 分层（非末行 z-index:1、末行 0，见 stickyScrollWidget._updatePosition），
+    // 按 y 去比矩形只会命中被压在最上层的那一行——这正是「只有最后一行能操作」的原因。
+    const getRenderedStickyLineFromNode = (domNode) => {
+        const widget = getStickyWidget();
+        if (!widget || !domNode) { return null; }
+        try {
+            const lineNumber = widget.getLineNumberFromChildDomNode(domNode);
+            if (lineNumber === null || lineNumber === undefined) { return null; }
+            return widget.getRenderedStickyLine(lineNumber) || null;
+        } catch (_) {
+            return null;
+        }
+    };
+
+    // 按坐标找命中的粘附行：用 elementsFromPoint 拿到该点真实的元素栈（已按 z-index 排序），
+    // 再取其中第一条粘附行。拖动时鼠标不在 Monaco 的事件目标上也能正确定位。
+    const getRenderedStickyLineAtPoint = (clientX, clientY) => {
+        let stack = [];
+        try { stack = document.elementsFromPoint(clientX, clientY) || []; } catch (_) { stack = []; }
+        for (const el of stack) {
+            if (!el || typeof el.closest !== 'function') { continue; }
+            const lineEl = el.closest('.sticky-line-content');
+            if (!lineEl) { continue; }
+            const rendered = getRenderedStickyLineFromNode(lineEl);
+            if (rendered) { return rendered; }
+        }
+        return null;
+    };
+
+    // 空格宽度：characterMapping 的水平偏移以「空格宽」为单位，换算像素要乘它。
+    // 与 Monaco 内部一致（RenderLineInput.spaceWidth 即 fontInfo.spaceWidth）。
+    const getStickySpaceWidth = () => {
+        try {
+            const info = editor.getOption(monaco.editor.EditorOption.fontInfo);
+            if (info && info.spaceWidth > 0) { return info.spaceWidth; }
+        } catch (_) { /* 忽略，用下面的兜底 */ }
+        return 8;
+    };
+
+    // 按 x 坐标在指定粘附行内定位「模型列」——字符级，与绘制共用同一套坐标换算。
+    // characterMapping 的 _horizontalOffset 记录了每一列的水平偏移（单位：空格宽），
+    // 用它做二分/线性查找即可，无需读 DOM 量像素：既避免 tab、缩进带来的偏差，
+    // 也不会因为「鼠标没压在 token 上」而失效。
+    const getStickyColumnAtX = (rendered, clientX) => {
+        const cm = rendered && rendered.characterMapping;
+        const lineDomNode = rendered && rendered.lineDomNode;
+        if (!cm || !lineDomNode) { return 1; }
+        const maxColumn = cm.length > 0 ? cm.length : 1; // CharacterMapping.length === 行文本长度 + 1
+        // 内容原点：行 DOM 的左边缘（行 DOM 自身就是内容容器，缩进体现在渲染出的空白 part 里）
+        const lineLeft = lineDomNode.getBoundingClientRect().left;
+        const spaceWidth = getStickySpaceWidth();
+        const x = (clientX - lineLeft) / (spaceWidth || 1); // 换算成「空格宽」单位
+        if (x <= 0) { return 1; }
+        let prevOffset = 0;
+        try { prevOffset = cm.getHorizontalOffset(1); } catch (_) { prevOffset = 0; }
+        for (let column = 2; column <= maxColumn; column++) {
+            let offset = prevOffset;
+            try { offset = cm.getHorizontalOffset(column); } catch (_) { /* 保持上一个 */ }
+            if (x < offset) {
+                // 落在 [column-1, column) 区间内：按字符中点决定吸附到前一列还是当前列，
+                // 与编辑器里点击、拖选的手感一致
+                const mid = (prevOffset + offset) / 2;
+                return x <= mid ? column - 1 : column;
+            }
+            prevOffset = offset;
+        }
+        return maxColumn;
+    };
+
+    // 坐标 → 模型位置。先看是否落在某条粘附行；否则回落到正文区命中，
+    // 这样可以从粘附行一路拖到正文区连成一片选区（与编辑器内拖选一致）。
+    const resolveStickyDragPosition = (clientX, clientY) => {
+        const rendered = getRenderedStickyLineAtPoint(clientX, clientY);
+        if (rendered) {
+            return { lineNumber: rendered.lineNumber, column: getStickyColumnAtX(rendered, clientX) };
+        }
+        try {
+            const target = editor.getTargetAtClientPoint(clientX, clientY);
+            const pos = target && target.position;
             return pos ? { lineNumber: pos.lineNumber, column: pos.column } : null;
         } catch (_) {
             return null;
         }
     };
+
+    // 粘附行命中解析：position 一律走坐标换算（字符级），element/lineEl 供悬停下划线等 DOM 反馈使用。
+    // 注意不再要求命中叶子 token 节点——行尾空白、缩进留白也算命中（此处取不到词的场景由调用方自行判断）。
+    const getStickyTargetFromEvent = (e) => {
+        const t = e && e.target;
+        if (!t || t.type !== monaco.editor.MouseTargetType.OVERLAY_WIDGET || t.detail !== STICKY_WIDGET_ID) {
+            return null;
+        }
+        const element = t.element;
+        if (!element || typeof element.closest !== 'function') { return null; }
+        const lineEl = element.closest('.sticky-line-content');
+        if (!lineEl) { return null; }
+        const point = getClientPoint(e);
+        if (!point) { return null; }
+        // 用命中的 DOM 节点反查所属粘附行（Monaco 在节点上存了 data-sticky-line-index），
+        // 比按坐标猜更可靠：粘附行彼此重叠，坐标法会误判成最上层那一行
+        const rendered = getRenderedStickyLineFromNode(lineEl);
+        if (!rendered) { return null; }
+        return {
+            position: { lineNumber: rendered.lineNumber, column: getStickyColumnAtX(rendered, point.x) },
+            element,
+            lineEl
+        };
+    };
+
+    // === 粘附行「选中」的视觉反馈 ===
+    // 粘附行不渲染 selection 层（选区由正文区的 selections 层绘制），且不随装饰重绘，
+    // 所以只能自己画：按选区列区间量出像素范围，往粘附行里插入绝对定位的覆盖层。
+    // 用覆盖层而不是给 token span 上底色，才能做到字符级（选到 token 中间也能精确停住）。
+    //
+    // 重点：粘附区的选中【绝不能】落到 editor 的 model 选区上。
+    // 粘附行在模型里是不连续的（如第 19、66、68 行），setSelection(19,x → 69,y) 在正文区
+    // 会把中间几十行整片选中，完全不是用户要的效果。所以这里自建一套选区状态，
+    // 连拷贝也自己处理（见 handleStickyCopy）。
+    let stickySelectionOverlays = [];
+    // 与视觉严格对应的选区分段：[{ lineNumber, startColumn, endColumn }]，拷贝时直接按它取文本，
+    // 保证「看到的」和「拷到的」完全一致（不会把粘附行之间被折叠掉的内容也带上）。
+    let stickySelectionSegments = [];
+    let stickySelectionKey = '';
+    const STICKY_SELECTION_CLASS = 'cw-sticky-selection';
+
+    const clearStickySelection = () => {
+        for (const el of stickySelectionOverlays) {
+            if (el && el.isConnected) { el.remove(); }
+        }
+        stickySelectionOverlays = [];
+        stickySelectionSegments = [];
+        stickySelectionKey = '';
+    };
+
+    const applyStickySelectionColor = (widget) => {
+        const root = widget && widget.getDomNode && widget.getDomNode();
+        if (!root) { return; }
+        const cfg = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
+        const color = (cfg && cfg.selectionBackground)
+            || getCssVar('--vscode-editor-selectionBackground')
+            || '#07c2db71';
+        root.style.setProperty('--cw-sticky-selection-bg', color);
+    };
+
+    // 量取某条粘附行内某一列的像素偏移（相对该行 DOM 内容原点）。
+    // 直接用 characterMapping.getHorizontalOffset(column) —— 这正是 Monaco 自己算列像素偏移的方法
+    //（见 viewLine.js 的 _getColumnPixelOffset），单位是「空格宽度的倍数」，乘以空格宽即得像素。
+    // 这样 tab、缩进、行尾都天然正确，且与列换算共用同一坐标系，不会出现整体偏移。
+    const measureStickyColumnOffset = (rendered, column) => {
+        const cm = rendered && rendered.characterMapping;
+        if (!cm) { return 0; }
+        const maxColumn = cm.length > 0 ? cm.length : 1;
+        const clamped = Math.min(Math.max(column, 1), maxColumn);
+        let horizontalOffset = 0;
+        try { horizontalOffset = cm.getHorizontalOffset(clamped); } catch (_) { horizontalOffset = 0; }
+        return horizontalOffset * getStickySpaceWidth();
+    };
+
+    // 按选区范围重绘粘附区的选中态（可跨多条粘附行）。
+    // range 只用来表达「从哪到哪」，遍历的对象始终是当前渲染出来的粘附行，
+    // 因此模型里被折叠掉的中间行不会被选中——视觉上连续，语义上也只含粘附行。
+    const paintStickySelection = (range) => {
+        if (!range) { clearStickySelection(); return; }
+        // 拖选时 mousemove 很密集，范围没变就不重复量取/重建 DOM
+        const key = `${range.startLineNumber}:${range.startColumn}:${range.endLineNumber}:${range.endColumn}`;
+        if (key === stickySelectionKey && stickySelectionOverlays.every(el => el && el.isConnected)) { return; }
+        clearStickySelection();
+        const widget = getStickyWidget();
+        if (!widget) { return; }
+        applyStickySelectionColor(widget);
+        for (const lineNumber of (widget.lineNumbers || [])) {
+            if (lineNumber < range.startLineNumber || lineNumber > range.endLineNumber) { continue; }
+            let rendered = null;
+            try { rendered = widget.getRenderedStickyLine(lineNumber); } catch (_) { rendered = null; }
+            const lineDomNode = rendered && rendered.lineDomNode;
+            if (!lineDomNode || !lineDomNode.isConnected || !rendered.characterMapping) { continue; }
+            const maxColumn = rendered.characterMapping.length > 0 ? rendered.characterMapping.length : 1;
+            const startColumn = lineNumber === range.startLineNumber ? range.startColumn : 1;
+            const endColumn = lineNumber === range.endLineNumber ? range.endColumn : maxColumn;
+            if (endColumn <= startColumn) { continue; }
+            const left = measureStickyColumnOffset(rendered, startColumn);
+            const right = measureStickyColumnOffset(rendered, endColumn);
+            if (right <= left) { continue; }
+            const overlay = document.createElement('div');
+            overlay.className = STICKY_SELECTION_CLASS;
+            // 覆盖层不能插进 lineDomNode：Monaco 的 getColumnOfNodeOffset 靠 previousSibling 计数得出
+            // partIndex（见 viewLine.js:534），往行内插任何节点都会让列号错位，
+            // 进而破坏 Ctrl+悬停下划线等依赖它的功能。所以挂到行 DOM 的父层（.sticky-widget-lines），
+            // 用 top 对齐到该行，与行 DOM 同一坐标系（两者都以 lines 容器为定位父级）。
+            overlay.style.left = `${left}px`;
+            overlay.style.width = `${right - left}px`;
+            overlay.style.top = lineDomNode.style.top || '0px';
+            overlay.style.height = lineDomNode.style.height || `${rendered.height || 0}px`;
+            // z-index 必须跟随所属行：Monaco 给非末行设 z-index:1、末行设 0
+            //（见 stickyScrollWidget._updatePosition），且各行绝对定位、宽度为整条可滚动宽度、
+            // 彼此完全重叠。覆盖层若用固定层级，就会被上层行的不透明背景（background-color: inherit）
+            // 整块盖住——表现为只有末行的选中可见。
+            // 跟随行层级 + 插在该行之后：同层后插入者绘制在上，从而压过行背景；
+            // 又因为它是半透明色（selectionBackground 带 alpha）且 pointer-events: none，
+            // 文字仍可见、命中判定也不受影响。
+            overlay.style.zIndex = lineDomNode.style.zIndex || '0';
+            const linesContainer = lineDomNode.parentElement;
+            if (!linesContainer) { continue; }
+            linesContainer.insertBefore(overlay, lineDomNode.nextSibling);
+            stickySelectionOverlays.push(overlay);
+            // 记录与视觉一一对应的分段，供 Ctrl+C 取文本
+            stickySelectionSegments.push({ lineNumber, startColumn, endColumn });
+        }
+        stickySelectionKey = key;
+    };
+
+    // 在粘附行选中一段范围。
+    // 只画自己的覆盖层，【不动】editor 的 model 选区：粘附行在模型里不连续，
+    // 一旦 setSelection 就会把正文区里跨越的几十行整片选中（这正是之前的 bug）。
+    const selectStickyRange = (range) => {
+        paintStickySelection(range);
+        // 确保编辑器持有焦点：Ctrl+C 的 keydown 必须能进到 webview 才能被下面的监听拿到。
+        // 粘附行是 overlay widget，点它不一定会让编辑器聚焦（Monaco 只在命中正文/行号时才 focus）。
+        if (stickySelectionSegments.length && !editor.hasTextFocus()) {
+            editor.focus();
+            // 聚焦会让光标显形，而粘附区选中并没有移动光标，保持隐藏更贴合实际
+            hideCursor();
+        }
+    };
+
+    // 粘附区选中内容的文本：严格按画出来的分段取，所见即所拷
+    const getStickySelectionText = () => {
+        if (!stickySelectionSegments.length) { return ''; }
+        const model = editor.getModel();
+        if (!model) { return ''; }
+        const parts = [];
+        for (const seg of stickySelectionSegments) {
+            try {
+                parts.push(model.getValueInRange(new monaco.Range(
+                    seg.lineNumber, seg.startColumn, seg.lineNumber, seg.endColumn
+                )));
+            } catch (_) { /* 行已不存在（内容切换），忽略 */ }
+        }
+        return parts.join('\n');
+    };
+
+    // 粘附区自己的拷贝：因为不占用 model 选区，Monaco 的复制命令拿不到它，必须自己接管。
+    // 只有存在粘附区选中时才拦截，正文区的 Ctrl+C 仍交给 Monaco。
+    //
+    // 写剪贴板一律走扩展端的 vscode.env.clipboard：webview 里 navigator.clipboard 受焦点与权限
+    // 限制（document 常不是 focused，且无 clipboard-write 授权），经常静默失败或抛异常；
+    // 原生 copy 事件的 clipboardData 也只在浏览器真的发起复制时才有，而这里没有原生选区
+    //（插件全局设了 user-select: none），copy 事件根本不会被派发。
+    const handleStickyCopy = (ev) => {
+        const text = getStickySelectionText();
+        if (!text) { return false; }
+        // 若确实拿到了原生 copy 事件，顺手把数据塞进去（成本极低，且能覆盖系统菜单复制的场景）
+        if (ev && ev.clipboardData) {
+            try {
+                ev.clipboardData.setData('text/plain', text);
+                ev.preventDefault();
+            } catch (_) { /* 忽略，下面的扩展端通道兜底 */ }
+        }
+        vscode.postMessage({ type: 'copyToClipboard', text });
+        return true;
+    };
+
+    // 原生 copy 事件（如系统菜单触发的复制）
+    document.addEventListener('copy', (ev) => { handleStickyCopy(ev); }, true);
+
+    // Ctrl/Cmd + C：必须在捕获阶段抢在 Monaco 之前处理。
+    // 编辑器的 keybinding 服务挂在编辑器 DOM 上，冒泡阶段才响应；这里用 document 捕获 + 
+    // stopImmediatePropagation，避免 Monaco 用「空的 model 选区」执行复制、把剪贴板写成空串。
+    document.addEventListener('keydown', (ev) => {
+        if (!hasTriggerModifier(ev) || ev.shiftKey || ev.altKey) { return; }
+        if (ev.key !== 'c' && ev.key !== 'C') { return; }
+        if (!stickySelectionSegments.length) { return; }
+        if (handleStickyCopy(null)) {
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+        }
+    }, true);
+
+    // === 左键拖选状态 ===
+    // stickyDrag：mousedown 落在粘附行文本上时记录锚点；moved 表示真的拖动过（用于区分「单击」）。
+    // suppressNextStickyClick：拖选结束后要吃掉紧随的 click——Monaco 自带的粘附行 click 监听会
+    // _revealPosition() 并把选区重置成单点（setSelection(Range.fromPositions(position))），会毁掉刚拖出的选区。
+    let stickyDrag = null;
+    let suppressNextStickyClick = false;
+    // 拖选刚结束的标记：document 捕获阶段的 onStickyDragEnd 先跑，随后 Monaco 才派发 onMouseUp，
+    // 用它让 handleEditorMouseUp 认出「这次松手是拖选的收尾」，不要再当成单击处理。
+    let stickyDragJustFinished = false;
+
+    const stopStickyDrag = () => {
+        stickyDrag = null;
+        document.removeEventListener('mousemove', onStickyDragMove, true);
+        document.removeEventListener('mouseup', onStickyDragEnd, true);
+    };
+
+    // 拖选过程：把当前坐标换算成模型位置，与锚点组成选区。
+    // 位置换算不依赖「鼠标是否压在 token 上」，行尾空白、缩进留白、乃至拖到正文区都能连续选择。
+    function onStickyDragMove(ev) {
+        if (!stickyDrag) { return; }
+        if ((ev.buttons & 1) === 0) { // 左键已松开（可能在窗口外松的），收尾
+            onStickyDragEnd(ev);
+            return;
+        }
+        const current = resolveStickyDragPosition(ev.clientX, ev.clientY);
+        if (!current) { return; }
+        const anchor = stickyDrag.anchor;
+        if (current.lineNumber === anchor.lineNumber && current.column === anchor.column) {
+            // 回到锚点：清空粘附区选中，但仍算「拖过」，避免松手时被当成单击去滚动定位
+            if (stickyDrag.moved) { clearStickySelection(); }
+            return;
+        }
+        stickyDrag.moved = true;
+        const anchorFirst = anchor.lineNumber < current.lineNumber
+            || (anchor.lineNumber === current.lineNumber && anchor.column <= current.column);
+        const from = anchorFirst ? anchor : current;
+        const to = anchorFirst ? current : anchor;
+        selectStickyRange(new monaco.Range(from.lineNumber, from.column, to.lineNumber, to.column));
+    }
+
+    function onStickyDragEnd(ev) {
+        if (!stickyDrag) { return; }
+        const dragged = stickyDrag.moved;
+        stopStickyDrag();
+        if (!dragged) { return; }
+        stickyDragJustFinished = true;
+        // 拖选结束：吃掉紧随的那次 click，否则 Monaco 的粘附行 click 监听会 _revealPosition()
+        // 并把选区重置成单点，刚拖出的选区就没了。只有松手仍在粘附区内时 click 才会经过粘附节点。
+        const widget = getStickyWidget();
+        const root = widget && widget.getDomNode && widget.getDomNode();
+        if (root && ev && ev.target instanceof Node && root.contains(ev.target)) {
+            suppressNextStickyClick = true;
+        }
+    }
+
+    const installStickyClickSuppressor = () => {
+        const widget = getStickyWidget();
+        const root = widget && widget.getDomNode && widget.getDomNode();
+        if (!root || root.__cwStickyClickSuppressor) { return; }
+        root.__cwStickyClickSuppressor = true;
+        // 挂在 widget 根节点的捕获阶段：早于 Monaco 注册在同一节点上的冒泡 click 监听。
+        // 只吃「拖选刚结束」那一次，普通单击照常放行（保持 VSCode 的滚动定位行为）。
+        root.addEventListener('click', (ev) => {
+            if (suppressNextStickyClick) {
+                suppressNextStickyClick = false;
+                ev.stopImmediatePropagation();
+                ev.preventDefault();
+            }
+        }, true);
+    };
+    installStickyClickSuppressor();
+
+    editor.onMouseDown((e) => {
+        // 新一轮鼠标交互开始：清掉可能残留的 click 抑制标志，避免误吃正常单击
+        suppressNextStickyClick = false;
+        // 只有「无修饰键的左键」落在粘附行上才准备拖选：
+        // Ctrl/Cmd + 左键是跳定义，shift + 左键是 Monaco 的「定位到区块末行」，都不参与
+        if (!e.event.leftButton || hasTriggerModifier(e.event) || e.event.shiftKey || e.event.altKey) {
+            stopStickyDrag();
+            return;
+        }
+        const sticky = getStickyTargetFromEvent(e);
+        if (!sticky) {
+            stopStickyDrag();
+            return;
+        }
+        installStickyClickSuppressor(); // 兜底：widget 在 setup 时可能还没建好
+        stickyDrag = { anchor: sticky.position, moved: false };
+        // 拖选期间在 document 上跟踪鼠标：粘附行是 overlay widget，Monaco 的 onMouseMove 只在
+        // 命中它的子节点时才给出事件，鼠标一旦划到行间空隙/行尾空白/正文区就断流。
+        // 直接用原生 mousemove + 坐标换算，才能做到「像编辑器里一样按住不放随便拖」。
+        document.addEventListener('mousemove', onStickyDragMove, true);
+        document.addEventListener('mouseup', onStickyDragEnd, true);
+    });
 
     function handleEditorMouseMove(e) {
         // 默认使用默认光标
@@ -166,13 +544,14 @@ export function setupEditorMouseHandlers(ctx) {
 
         // Sticky Scroll（粘附行）：记录鼠标下的可跳转 token，并在按住 Ctrl/Cmd 时加下划线。
         // 与 VSCode 一致——粘附行上「Ctrl/Cmd + 悬停」才提示可点击（普通悬停只是行高亮 + 手型）。
-        // getStickyPositionFromEvent 已排除行号列/折叠图标/非叶子节点，取不到词时不提示。
+        // 拖选不在这里处理：它挂在 document 上（见 onStickyDragMove），否则鼠标划出 token 就断流。
         lastStickyHoverEl = null;
-        if (e.target.type === monaco.editor.MouseTargetType.OVERLAY_WIDGET && e.target.detail === STICKY_WIDGET_ID) {
-            const stickyPosition = getStickyPositionFromEvent(e);
-            const stickyWord = (model && stickyPosition) ? model.getWordAtPosition(stickyPosition) : null;
-            if (stickyWord) {
-                lastStickyHoverEl = e.target.element;
+        const stickyTarget = getStickyTargetFromEvent(e);
+        if (stickyTarget) {
+            const stickyWord = model ? model.getWordAtPosition(stickyTarget.position) : null;
+            // 下划线要精确落在 token 上，故仍要求命中的是叶子文本节点
+            if (stickyWord && stickyTarget.element && stickyTarget.element.children.length === 0) {
+                lastStickyHoverEl = stickyTarget.element;
             }
         }
         setStickyLink(hasTriggerModifier(e.event) ? lastStickyHoverEl : null);
@@ -180,6 +559,86 @@ export function setupEditorMouseHandlers(ctx) {
         // 根据鼠标位置更新光标样式
         forcePointerCursor(isOverText);
         return true;
+    }
+
+    // 右键取色流程（正文区与粘附行共用）。
+    // lookupPosition 必须是「单词首字符列」——见调用处注释；probeColor 是取色面板的初始色，
+    // 由调用方按各自可靠的方式探测（正文区从渲染 DOM 取，粘附行直接取粘附 span 的 computed color）。
+    async function runPickTokenStyle(model, lookupPosition, wordText, probeColor) {
+        // 优先用后端语义 token 识别（右键即可知道该标识符的语义类型，如 variable/function/class）；
+        // 该位置无语义 token（如关键字/操作符走基础层）时，回退到 Monaco 基础 tokenizer。
+        let tokenInfo = (semanticState && semanticState.data)
+            ? semanticTokenAtPosition(lookupPosition, semanticState)
+            : null;
+        if (!tokenInfo || !tokenInfo.token) {
+            // 方案 B：优先用真实 TextMate 语法取该位置的 scope（如 storage.type.struct.cpp），
+            // 与编辑器渲染同源；grammar 未就绪/未启用时回退到 Monaco 基础 tokenizer。
+            let tm = null;
+            if (window.ctxTextmate && window.ctxTextmate.enabled) {
+                const sc = getScopeAtPosition(model, lookupPosition);
+                if (sc && sc.picked) {
+                    tm = {
+                        token: sc.picked,
+                        startColumn: sc.startColumn,
+                        endColumn: sc.endColumn,
+                        text: sc.text,
+                        textmate: true // 标记：真实 TextMate scope，展示/写入用完整 scope，不做语言后缀裁剪
+                    };
+                }
+            }
+            tokenInfo = tm || tokenAtPosition(model, editor, lookupPosition);
+        }
+        if (!tokenInfo || !tokenInfo.token) { return; }
+        //console.log('[definition] pickColor action for token:', tokenInfo);
+        try {
+            // 语义 token 会带 modifiers 数组；Monarch 回退 token 不带
+            const isSemantic = Array.isArray(tokenInfo.modifiers);
+            let token, style;
+            if (isSemantic) {
+                // 与 Monaco 内部 getTokenStyleMetadata 一致：
+                // 把「类型 + 修饰符」拼成 "type.mod1.mod2"（如 parameter.declaration），
+                // 右键即可看到带修饰符的完整身份，并能针对它单独配色。
+                // requestTokenStyle 内部已按最长前缀匹配用户规则、并回退到前端默认语义规则
+                // （含 *.declaration 系列），故此处直接取其结果作初值，写回目标仍是完整名。
+                token = tokenInfo.modifiers.length
+                    ? [tokenInfo.token].concat(tokenInfo.modifiers).join('.')
+                    : tokenInfo.token;
+                // 语义 token：按 VSCode 选择器匹配（类型 + 修饰符子集）
+                style = await requestTokenStyle(token, true);
+            } else {
+                // 基础语法层 token：TextMate 前缀匹配。
+                style = await requestTokenStyle(tokenInfo.token, false);
+                token = tokenInfo.token;
+                // 方案 B 的真实 TextMate scope（如 storage.type.struct.cpp）已是可渲染的完整 scope，
+                // 保持完整展示/写入（对齐 VSCode）；仅对 Monarch 基础 token 在无规则时裁剪语言后缀。
+                if (!tokenInfo.textmate && (!style || !style.found)) {
+                    const lastDot = tokenInfo.token.lastIndexOf('.');
+                    token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
+                }
+            }
+            //console.log('[definition] token style:', style);
+            // 计算当前生效 token 的来源：自定义 > 语义/textmate > monaco，
+            // 供取色面板展示（monaco/语义/textmate/自定义）。
+            const source = getTokenStyleSource(token, isSemantic, !!tokenInfo.textmate);
+            const newStyle = await pickTokenStyle({
+                token,
+                foreground: style?.foreground,
+                fontStyle: style?.fontStyle,
+                description: style?.description,
+                source
+            }, probeColor || '#808080', wordText);
+            //console.log('[definition] picked new style:', newStyle);
+            if (newStyle) {
+                // 回传扩展端，后续用于更新规则
+                vscode.postMessage({
+                    type: 'tokenStyle.set',
+                    newStyle,
+                    token
+                });
+            }
+        } catch (err) {
+            console.error('[context-window] pickColor action failed:', err);
+        }
     }
 
     // 处理链接点击事件 - 在Monaco内部跳转
@@ -192,35 +651,77 @@ export function setupEditorMouseHandlers(ctx) {
         //const isLeftClick = (e.event.buttons & 1) === 1; // 左键
         //const isRightClick = (e.event.buttons & 2) === 2; // 右键
 
-        // === Sticky Scroll（粘附行）左键：与 VSCode 保持一致 ===
-        // 普通左键（含 shift / 双击）不拦截，交给 Monaco 自带的 CLICK 监听（滚动并定位到该行）；
-        // 这里只补 Ctrl/Cmd + 左键跳定义：Monaco 原生这条路径走 languageFeaturesService.definitionProvider，
-        // 而 webview 内没有注册 definition provider，其 ClickLinkGesture.onExecute 会静默返回，
-        // 所以需要我们自己把跳转请求发回扩展端（与正文区 CONTENT_TEXT 的 jumpDefinition 同一消息）。
-        if (e.event.leftButton && (e.event.ctrlKey || e.event.metaKey)) {
-            const stickyPosition = getStickyPositionFromEvent(e);
-            if (stickyPosition) {
-                // 已经点击跳转，下划线提示不再需要（内容更新后粘附行 DOM 也会重建）
-                lastStickyHoverEl = null;
-                clearStickyLink();
-                const stickyModel = editor.getModel();
-                const stickyWord = stickyModel && stickyModel.getWordAtPosition(stickyPosition);
-                if (stickyWord) {
-                    vscode.postMessage({
-                        type: 'jumpDefinition',
-                        uri: state.uri,
-                        token: stickyWord.word,
-                        position: {
-                            line: stickyPosition.lineNumber - 1,
-                            character: stickyPosition.column - 1
-                        }
-                    });
-                }
-                return true;
+        // === Sticky Scroll（粘附行）鼠标行为 ===
+        // 左键：普通单击（含 shift / 双击）不拦截，交给 Monaco 自带的 CLICK 监听（滚动并定位到该行）；
+        //       拖选结束（moved）时吃掉那次 click，避免 _revealPosition 把刚拖出的选区重置成单点。
+        // Ctrl/Cmd + 左键：跳定义。Monaco 原生这条路径走 languageFeaturesService.definitionProvider，
+        //       而 webview 内没有注册 definition provider，其 ClickLinkGesture.onExecute 会静默返回，
+        //       所以需要我们自己把跳转请求发回扩展端（与正文区 CONTENT_TEXT 的 jumpDefinition 同一消息）。
+        // 右键：选中单词 / 取色，与正文区一致（Monaco 原生的粘附行右键菜单已被插件统一屏蔽）。
+        const stickyTarget = getStickyTargetFromEvent(e);
+
+        // 拖选收尾在 document 的捕获阶段就做完了（onStickyDragEnd 先于 Monaco 的 mouseup 监听），
+        // 这里只需认出「这次 mouseup 属于刚结束的拖选」并直接结束，避免又去走单击/双击逻辑。
+        if (stickyDragJustFinished) {
+            stickyDragJustFinished = false;
+            return true;
+        }
+
+        // 粘附行上的普通左键单击：Monaco 会把选区重置成单点，我们画的选中反馈同步清掉
+        if (stickyTarget && e.event.leftButton && !hasTriggerModifier(e.event)) {
+            clearStickySelection();
+        }
+
+        if (stickyTarget && e.event.leftButton && (e.event.ctrlKey || e.event.metaKey)) {
+            // 已经点击跳转，下划线提示不再需要（内容更新后粘附行 DOM 也会重建）
+            lastStickyHoverEl = null;
+            clearStickyLink();
+            const stickyModel = editor.getModel();
+            const stickyWord = stickyModel && stickyModel.getWordAtPosition(stickyTarget.position);
+            if (stickyWord) {
+                vscode.postMessage({
+                    type: 'jumpDefinition',
+                    uri: state.uri,
+                    token: stickyWord.word,
+                    position: {
+                        line: stickyTarget.position.lineNumber - 1,
+                        character: stickyTarget.position.column - 1
+                    }
+                });
             }
+            return true;
+        }
+
+        if (stickyTarget && e.event.rightButton) {
+            const stickyModel = editor.getModel();
+            const stickyWord = stickyModel && stickyModel.getWordAtPosition(stickyTarget.position);
+            if (stickyWord) {
+                if (window.pickTokenStyle) {
+                    // 与正文区同理：按「单词首字符列」查 token，避免落在词尾边界命中相邻标点/空白 token。
+                    // 初始色不能用 getTokenColorFromDOM——它依赖 getScrolledVisiblePosition 在正文区探点，
+                    // 而粘附行对应的正文行往往已滚出视口，探到的会是别的元素；直接读粘附 span 的渲染色最准。
+                    await runPickTokenStyle(
+                        stickyModel,
+                        { lineNumber: stickyTarget.position.lineNumber, column: stickyWord.startColumn },
+                        stickyWord.word,
+                        window.getComputedStyle(stickyTarget.element).color
+                    );
+                } else {
+                    selectStickyRange(new monaco.Range(
+                        stickyTarget.position.lineNumber,
+                        stickyWord.startColumn,
+                        stickyTarget.position.lineNumber,
+                        stickyWord.endColumn
+                    ));
+                }
+            }
+            return true;
         }
 
         if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
+            // 正文区一旦有点击，选区就落到正文区了，粘附区上一次画的选中底色已过期，先清掉
+            clearStickySelection();
+
             // 获取当前单词
             let model = editor.getModel();
             if (!model) {
@@ -259,81 +760,12 @@ export function setupEditorMouseHandlers(ctx) {
                                 lineNumber: position.lineNumber,
                                 column: word.startColumn
                             };
-                            // 优先用后端语义 token 识别（右键即可知道该标识符的语义类型，如 variable/function/class）；
-                            // 该位置无语义 token（如关键字/操作符走基础层）时，回退到 Monaco 基础 tokenizer。
-                            let tokenInfo = (semanticState && semanticState.data)
-                                ? semanticTokenAtPosition(lookupPosition, semanticState)
-                                : null;
-                            if (!tokenInfo || !tokenInfo.token) {
-                                // 方案 B：优先用真实 TextMate 语法取该位置的 scope（如 storage.type.struct.cpp），
-                                // 与编辑器渲染同源；grammar 未就绪/未启用时回退到 Monaco 基础 tokenizer。
-                                let tm = null;
-                                if (window.ctxTextmate && window.ctxTextmate.enabled) {
-                                    const sc = getScopeAtPosition(model, lookupPosition);
-                                    if (sc && sc.picked) {
-                                        tm = {
-                                            token: sc.picked,
-                                            startColumn: sc.startColumn,
-                                            endColumn: sc.endColumn,
-                                            text: sc.text,
-                                            textmate: true // 标记：真实 TextMate scope，展示/写入用完整 scope，不做语言后缀裁剪
-                                        };
-                                    }
-                                }
-                                tokenInfo = tm || tokenAtPosition(model, editor, lookupPosition);
-                            }
-                            if (tokenInfo && tokenInfo.token) {
-                                //console.log('[definition] pickColor action for token:', tokenInfo);
-                                try {
-                                    // 语义 token 会带 modifiers 数组；Monarch 回退 token 不带
-                                    const isSemantic = Array.isArray(tokenInfo.modifiers);
-                                    let token, style;
-                                    if (isSemantic) {
-                                        // 与 Monaco 内部 getTokenStyleMetadata 一致：
-                                        // 把「类型 + 修饰符」拼成 "type.mod1.mod2"（如 parameter.declaration），
-                                        // 右键即可看到带修饰符的完整身份，并能针对它单独配色。
-                                        // requestTokenStyle 内部已按最长前缀匹配用户规则、并回退到前端默认语义规则
-                                        // （含 *.declaration 系列），故此处直接取其结果作初值，写回目标仍是完整名。
-                                        token = tokenInfo.modifiers.length
-                                            ? [tokenInfo.token].concat(tokenInfo.modifiers).join('.')
-                                            : tokenInfo.token;
-                                        // 语义 token：按 VSCode 选择器匹配（类型 + 修饰符子集）
-                                        style = await requestTokenStyle(token, true);
-                                    } else {
-                                        // 基础语法层 token：TextMate 前缀匹配。
-                                        style = await requestTokenStyle(tokenInfo.token, false);
-                                        token = tokenInfo.token;
-                                        // 方案 B 的真实 TextMate scope（如 storage.type.struct.cpp）已是可渲染的完整 scope，
-                                        // 保持完整展示/写入（对齐 VSCode）；仅对 Monarch 基础 token 在无规则时裁剪语言后缀。
-                                        if (!tokenInfo.textmate && (!style || !style.found)) {
-                                            const lastDot = tokenInfo.token.lastIndexOf('.');
-                                            token = lastDot > 0 ? tokenInfo.token.slice(0, lastDot) : tokenInfo.token;
-                                        }
-                                    }
-                                    //console.log('[definition] token style:', style);
-                                    // 计算当前生效 token 的来源：自定义 > 语义/textmate > monaco，
-                                    // 供取色面板展示（monaco/语义/textmate/自定义）。
-                                    const source = getTokenStyleSource(token, isSemantic, !!tokenInfo.textmate);
-                                    const newStyle = await pickTokenStyle({
-                                        token,
-                                        foreground: style?.foreground,
-                                        fontStyle: style?.fontStyle,
-                                        description: style?.description,
-                                        source
-                                    }, getTokenColorFromDOM(editor, lookupPosition) || '#808080', word.word);
-                                    //console.log('[definition] picked new style:', newStyle);
-                                    if (newStyle) {
-                                        // 回传扩展端，后续用于更新规则
-                                        vscode.postMessage({
-                                            type: 'tokenStyle.set',
-                                            newStyle,
-                                            token
-                                        });
-                                    }
-                                } catch (err) {
-                                    console.error('[context-window] pickColor action failed:', err);
-                                }
-                            }
+                            await runPickTokenStyle(
+                                model,
+                                lookupPosition,
+                                word.word,
+                                getTokenColorFromDOM(editor, lookupPosition)
+                            );
                         } else {
                             editor.setSelection({
                                 startLineNumber: position.lineNumber,
