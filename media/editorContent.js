@@ -75,7 +75,9 @@ export function createUpdateEditorContent(ctx) {
     // 单一文件、单一语言，因此可在每次内容更新时根据 languageId 动态切换全局 defaultModel，等价于「按语言选模型」：
     //   · TS/JS：其 outline 依赖内置 worker 的 documentSymbol，而 worker 在 webview 中长期 pending（与 hover 卡
     //     Loading 同源）；自定义同步 provider 的符号又不被 sticky 的 OutlineModel 采用 → outlineModel 对 TS/JS
-    //     始终空。故 TS/JS 改用 indentationModel（纯缩进，实测可稳定显示）。
+    //     始终空。故 TS/JS 用 foldingProviderModel，配合 braceFoldingProvider.js 注册的花括号折叠 provider
+    //     （纯缩进模型无法处理「{ 独占一行」：孤立的 '{' 会被当成标题行，且方法层级整体丢失）。
+    //     该 provider 解析不出区间时返回 null，Monaco 会自动继续回退到 indentationModel。
     //   · 其它语言（C/C++/C# 等有可用的同步 symbol provider）：用 outlineModel，粘附行显示函数/类名
     //     （indentationModel 对 C/C++ 的 Allman 风格会把孤立的 '{' 当标题，不可用）。
     //
@@ -86,7 +88,7 @@ export function createUpdateEditorContent(ctx) {
         if (!cur || !cur.enabled) { return; }
         const model = editor.getModel();
         const lang = model ? model.getLanguageId() : '';
-        const defaultModel = (lang === 'typescript' || lang === 'javascript') ? 'indentationModel' : 'outlineModel';
+        const defaultModel = (lang === 'typescript' || lang === 'javascript') ? 'foldingProviderModel' : 'outlineModel';
         editor.updateOptions({ stickyScroll: { enabled: false } });
         setTimeout(() => {
             editor.updateOptions({

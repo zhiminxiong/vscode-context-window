@@ -2,6 +2,7 @@
 
 // 导入语言配置与各功能模块
 import { createDocumentSymbolProvider } from './documentSymbolProvider.js';
+import { createBraceFoldingRangeProvider } from './braceFoldingProvider.js';
 import { resetPickColorPosition } from './tokenPicker.js';
 import { applyMonacoTheme, isLightTheme, installSemanticRenderMatch } from './editorTheme.js';
 import { injectEditorStyles } from './editorStyles.js';
@@ -287,7 +288,8 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     const currentStickyScroll = editor.getOption(monaco.editor.EditorOption.stickyScroll);
                     window.stickyScroll = currentStickyScroll?.enabled;
                     // sticky scroll 的 defaultModel 由 editorContent.js 的 refreshStickyScroll 按当前文件语言动态切换：
-                    // TS/JS 用 indentationModel（其 outline 在 webview 中不可用），其它语言用 outlineModel（显示函数名）。
+                    // TS/JS 用 foldingProviderModel（其 outline 在 webview 中不可用，缩进模型又处理不了「{ 独占一行」），
+                    // 其它语言用 outlineModel（显示函数名）。
 
                     // 让语义着色渲染按 VSCode 选择器匹配「类型+修饰符」组合规则（如 class.constructorOrDestructor），
                     // 而非 Monaco 默认的 TextMate 前缀匹配。须在语义 token 到达前安装。
@@ -530,12 +532,18 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                     // 为 C++, C, C# 注册 Document Symbol Provider（从 documentSymbolProvider.js 导入）
                     // 这些语言走 sticky scroll 的 outlineModel，依赖此同步 symbol provider 显示函数/类名。
-                    // （TS/JS 走 indentationModel，不需要 symbol provider，故不注册。）
                     if (contextEditorCfg.fixStickyScroll) {
                         monaco.languages.registerDocumentSymbolProvider('cpp', createDocumentSymbolProvider(monaco));
                         monaco.languages.registerDocumentSymbolProvider('c', createDocumentSymbolProvider(monaco));
                         monaco.languages.registerDocumentSymbolProvider('csharp', createDocumentSymbolProvider(monaco));
                     }
+
+                    // TS/JS 的 sticky scroll 走 foldingProviderModel（其 outlineModel 依赖永不 resolve 的
+                    // ts.worker，缩进模型又无法处理「{ 独占一行」）。这里注册基于花括号配对的
+                    // folding provider，把孤立 '{' 的块起始行上提到真正的声明行，粘附行才与 VSCode 一致。
+                    // 解析不出区间时 provider 返回 null，sticky 与折叠都会自动回退到缩进模型。
+                    monaco.languages.registerFoldingRangeProvider('typescript', createBraceFoldingRangeProvider(monaco));
+                    monaco.languages.registerFoldingRangeProvider('javascript', createBraceFoldingRangeProvider(monaco));
 
                     //editor.onDidScrollChange(forcePointerCursor);
                     //editor.onDidChangeConfiguration(forcePointerCursor);
