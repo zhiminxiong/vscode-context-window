@@ -482,6 +482,22 @@ export function setupEditorMouseHandlers(ctx) {
     };
     installStickyClickSuppressor();
 
+    // 粘附区一旦发生变化就取消选中，恢复成未选中状态。
+    // 覆盖层是我们自己挂的独立节点，Monaco 重绘粘附行时不会同步它：滚动会改各行的 top / z-index
+    // 甚至重建行节点，内容更新后行号还在但文本已换。与其想办法让覆盖层跟着变（要处理重放、
+    // 失效判定、与拖选竞争等一堆情况），不如直接清掉——选中本就是即时操作，变化后失效最符合直觉。
+    // 拖选进行中不清：那时位置由 onStickyDragMove 实时驱动，滚动是拖选的一部分。
+    const clearStickySelectionOnChange = () => {
+        if (stickyDrag) { return; }
+        if (!stickySelectionOverlays.length) { return; }
+        clearStickySelection();
+    };
+
+    editor.onDidScrollChange(clearStickySelectionOnChange);      // 滚动：粘附行集合与各行位置都会变
+    editor.onDidChangeModelContent(clearStickySelectionOnChange); // 内容更新（跳到别的定义）
+    editor.onDidChangeModel(clearStickySelectionOnChange);        // 切换 model
+    editor.onDidLayoutChange(clearStickySelectionOnChange);       // 布局/字体变化会改列像素偏移
+
     editor.onMouseDown((e) => {
         // 新一轮鼠标交互开始：清掉可能残留的 click 抑制标志，避免误吃正常单击
         suppressNextStickyClick = false;
