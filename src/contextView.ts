@@ -500,7 +500,20 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             
             const contentInfo = this._history[this._historyIndex];
             this.updateContent(contentInfo?.content, contentInfo.navigateLine);
+            // 历史导航后展示的已不是「主编辑区当前光标处」的上下文，缓存键必须失效，
+            // 否则再点主编辑区那个原 token 会被 update() 的同键判定挡掉（见 invalidateCacheKey 说明）
+            this.invalidateCacheKey();
         }
+    }
+
+    // 让 update() 的缓存键失效。
+    // _currentCacheKey 记录的是「webview 当前展示的内容对应主编辑区的哪个位置(uri+版本+词范围)」，
+    // update() 靠它跳过重复计算。但 webview 内部的跳转 / 定义列表选择 / 历史前进后退都会把展示内容
+    // 换成别处，而主编辑区光标并没有动 —— 此时缓存键仍是旧 token 的键，与实际展示内容已经不符。
+    // 用户再点主编辑区那个原 token（uri、文档版本、词范围都没变）就会命中同键判定被直接 return，
+    // 表现为「点了没反应」。所以凡是在插件内单方面改过展示内容，都要把键置空，让下一次 update 必定重算。
+    private invalidateCacheKey() {
+        this._currentCacheKey = cacheKeyNone;
     }
 
     public showFloatingWebview() {
@@ -589,6 +602,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         
         // 使用range的起始位置作为导航行号用于历史记录
         this.addToHistory(contentInfo, range.start.line);
+
+        // 同 handleJumpDefinition：命令式跳转同样只改了展示内容，主编辑区光标没动，缓存键需失效
+        this.invalidateCacheKey();
     }
 
     private async handleWebviewMessage(webview: vscode.Webview) {
@@ -981,6 +997,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     token: message.token
                 });
             }
+
+            // 插件内跳转后（无论跳成功还是显示 No symbol found），展示内容已与主编辑区光标位置脱钩，
+            // 缓存键必须失效，否则回到 VSCode 再点原来那个 token 会因同键判定而无响应
+            this.invalidateCacheKey();
         })();
 
         this.withProgress<void>(() => updatePromise);
@@ -1036,6 +1056,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 );
 
                 this.updateContent(contentInfo);
+
+                // 同 handleJumpDefinition：从多定义列表里选了另一条，展示内容已与主编辑区光标脱钩
+                this.invalidateCacheKey();
 
                 // 更新历史记录
                 if (this._history.length > this._historyIndex) {
