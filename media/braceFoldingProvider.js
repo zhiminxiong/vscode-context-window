@@ -124,21 +124,55 @@ function indentWidth(line, tabSize) {
     return width;
 }
 
-// 为「孤立 '{'」找到真正的声明行（返回 0 基行号；找不到返回 -1 表示不做上提）。
+// 统计一段（已掩码的）文本里「未配对的右括号数量」：')'/']' 记 +1，'('/'[' 记 -1。
+// 用于识别多行签名——例如 constructor 参数列表换行后，'{' 所在行前面只剩一个 ')'。
+function netClosers(str) {
+    let n = 0;
+    for (const ch of str) {
+        if (ch === ')' || ch === ']') { n++; }
+        else if (ch === '(' || ch === '[') { n--; }
+    }
+    return n;
+}
+
+// 前一行是否是「已结束的语句 / 另一个块」的边界，用于识别裸块（bare block）。
+function isBareBlockBoundary(trimmed) {
+    return trimmed.startsWith('}') || trimmed.endsWith(';') || trimmed.endsWith('}') || trimmed.endsWith('{');
+}
+
+// 为「块起始 '{'」找到真正的声明行（返回 0 基行号；找不到返回 -1 表示不做上提）。
+// braceCol 是 '{' 在该行中的列下标，用于处理换行签名（如 K&R 风格的 ') {'）。
 //
 // 规则：从 '{' 往上找第一个有内容的行（注释已被掩码成空白，天然跳过）；
-//   · 若它以 '}' 开头、或以 ';' '}' '{' 结尾，说明 '{' 前面是一条已结束的语句或另一个块，
-//     这个 '{' 是裸块（bare block），不属于任何声明 —— 不上提；
-//   · 若它的缩进比 '{' 更深，说明是多行签名的续行（如参数列表换行），继续往上找签名首行。
-function findDeclarationLine(masked, braceIndex, tabSize) {
+//   · 若正处在未闭合的 ()/[] 括号组内（多行签名的续行，如参数列表换行），
+//     继续上溯到开启该括号组的那一行（即 constructor(...) 的首行）；
+//   · 否则沿用原有规则：以 '}' 开头、或以 ';' '}' '{' 结尾 → 裸块，不上提；
+//     缩进更深 → 续行，继续往上。
+function findDeclarationLine(masked, braceIndex, braceCol, tabSize) {
     const braceIndent = indentWidth(masked[braceIndex], tabSize);
+    // '{' 左侧若残留未闭合的 ')'/']'（如 ') {'），先按其数量给 depth 播种。
+    let depth = netClosers(masked[braceIndex].slice(0, braceCol));
+
     for (let i = braceIndex - 1; i >= 0; i--) {
-        const text = masked[i].trim();
-        if (!text) { continue; }
-        if (text.startsWith('}') || text.endsWith(';') || text.endsWith('}') || text.endsWith('{')) {
-            return -1;
+        const text = masked[i];
+        const trimmed = text.trim();
+        if (!trimmed) { continue; }
+
+        if (depth > 0) {
+            // 仍在多行签名的括号组内：继续上溯，直到找到开括号所在行。
+            depth += netClosers(text);
+            if (depth <= 0) {
+                return isBareBlockBoundary(trimmed) ? -1 : i;
+            }
+            continue;
         }
-        if (indentWidth(masked[i], tabSize) > braceIndent) { continue; }
+
+        // 该行本身是「签名尾」（只有右括号，如独占一行的 ')'）：进入括号组继续上溯。
+        const nc = netClosers(text);
+        if (nc > 0) { depth = nc; continue; }
+
+        if (isBareBlockBoundary(trimmed)) { return -1; }
+        if (indentWidth(text, tabSize) > braceIndent) { continue; }
         return i;
     }
     return -1;
@@ -164,15 +198,22 @@ export function createBraceFoldingRangeProvider(monaco) {
 
             for (let i = 0; i < masked.length; i++) {
                 const text = masked[i];
-                const isLoneBrace = text.trim() === '{';
                 let isFirstBraceOnLine = true;
 
                 for (let j = 0; j < text.length; j++) {
                     const ch = text[j];
                     if (ch === '{') {
                         let startLine = i + 1;
-                        if (isFirstBraceOnLine && isLoneBrace) {
-                            const declIndex = findDeclarationLine(masked, i, tabSize);
+                        // 是否尝试把块起始行上提到真正的声明行，取决于 '{' 左侧内容（已掩码）：
+                        //   · netClosers > 0：左侧净剩右括号（如换行签名的 ') {'、'if (...\n) {'），
+                        //     说明签名在上面的行开启 —— 上提，回溯到签名首行（保证 sticky 完整、折叠与 VSCode 一致）。
+                        //   · netClosers == 0 且左侧全为空白：孤立 '{'（Allman/GNU 风格）—— 上提到声明行。
+                        //   · 其余（如 'foo() {' 本行自闭合、'=> {'、'= {' 行内起块）：保持本行，不上提。
+                        const head = text.slice(0, j);
+                        const nc = netClosers(head);
+                        const shouldLift = isFirstBraceOnLine && (nc > 0 || (nc === 0 && head.trim() === ''));
+                        if (shouldLift) {
+                            const declIndex = findDeclarationLine(masked, i, j, tabSize);
                             if (declIndex !== -1) { startLine = declIndex + 1; }
                         }
                         openStack.push(startLine);
