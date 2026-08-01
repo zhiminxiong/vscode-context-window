@@ -4,6 +4,13 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.6] 2026.08.01
+
+#### Changed
+
+- After jumping to a definition in Context window, clicking the original token in VSCode should be able to restore back to the definition.
+- Make sticky scroll consistent with VS Code, and enable selection via left and right mouse buttons.
+
 ## [1.0.5] 2026.07.29
 
 #### Changed
