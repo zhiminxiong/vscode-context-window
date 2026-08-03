@@ -26,7 +26,11 @@ interface FileCacheEntry {
     content: string;
     languageId: string;
     documentVersion: number;  // 添加：文档版本号
-    semantic?: SemanticPayload | null; // 与内容同版本缓存的语义 token
+    // 与内容同版本缓存的语义 token，三态语义（不要退化成只用 null）：
+    //   undefined = 从未索取过（命中缓存时按需补取并回填）
+    //   null      = 索取过且确认为空（不必重复请求语言服务器）
+    //   Payload   = 索取过且有数据
+    semantic?: SemanticPayload | null;
 }
 
 // loadContent 的返回结构：仅包含与 range 无关的内容与元数据
@@ -184,7 +188,12 @@ export class Renderer {
         const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
         const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || fallbackLanguageId || 'plaintext');
         const content = this.readFullFileContent(doc);
-        const semantic = needSemantic ? await this.getSemanticTokens(uri) : null;
+        // 语义 token 三态：
+        //   undefined —— 本次未向语言服务器索取（默认 tokenizer 模式 / 该语言关闭语义高亮），
+        //                后续若切到语义模式，命中缓存时可按需补取（见上方回填分支）；
+        //   null      —— 索取过但确认为空（未装语言扩展 / 不支持语义 token / 无 token），不必重取；
+        //   Payload   —— 索取到数据。
+        const semantic = needSemantic ? await this.getSemanticTokens(uri) : undefined;
 
         // 按内容字节大小判定是否为大文件（content 已无条件读取，零额外开销）
         if (content.length > this.largeFileSizeThreshold) {
