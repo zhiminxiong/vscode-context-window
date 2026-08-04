@@ -793,6 +793,7 @@ export function setupEditorMouseHandlers(ctx) {
                         }
                     } else if (e.event.leftButton) {
                         //console.log(`[definition] start to jump definition: ${word} with uri ${uri}`);
+                        hideCursor();
                         vscode.postMessage({
                             type: 'jumpDefinition',
                             uri: state.uri,
