@@ -975,11 +975,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
 
         const updatePromise = (async () => {
-            const definitions = await vscode.commands.executeCommand<vscode.Location[]>(
-                'vscode.executeDefinitionProvider',
-                vscode.Uri.parse(message.uri),
-                new vscode.Position(message.position.line, message.position.character)
-            );
+            const position = new vscode.Position(message.position.line, message.position.character);
+            const definitions = await this.getDefinitionsAt(vscode.Uri.parse(message.uri), position);
 
             if (definitions && definitions.length > 0) {
                 // 主动隐藏定义列表（在处理新的跳转前）
@@ -991,8 +988,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
                 // 如果有多个定义，传递给 Monaco Editor
                 if (definitions.length > 1) {
-                    const currentPosition = new vscode.Position(message.position.line, message.position.character);
-                    definition = await this.showDefinitionPicker(definitions, editor, currentPosition);
+                    definition = await this.showDefinitionPicker(definitions, editor, position);
                 }
 
                 const contentInfo = await this._renderer.renderDefinition(editor.document.languageId, definition);
@@ -1514,12 +1510,17 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         return await this._renderer.renderDefinition(editor.document.languageId, definition);
     }
 
-    private async getDefinitionAtCurrentPositionInEditor(editor: vscode.TextEditor) {
+    // 统一的定义解析入口：所有定义查询都收敛到这里
+    private async getDefinitionsAt(uri: vscode.Uri, position: vscode.Position) {
         return await vscode.commands.executeCommand<vscode.Location[]>(
-           'vscode.executeDefinitionProvider',
-           editor.document.uri,
-           editor.selection.active
+            'vscode.executeDefinitionProvider',
+            uri,
+            position
         );
+    }
+
+    private async getDefinitionAtCurrentPositionInEditor(editor: vscode.TextEditor) {
+        return await this.getDefinitionsAt(editor.document.uri, editor.selection.active);
     }
 
     private updateConfiguration() {
