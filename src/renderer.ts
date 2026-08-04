@@ -147,6 +147,22 @@ export class Renderer {
         return this.loadContent(uri);
     }
 
+    // 取文档对象：优先复用 VSCode 中已存在且未关闭的 TextDocument，只在确实没有时才 openTextDocument。
+    // 为什么不能无脑 openTextDocument：主线程 BoundModelReferenceCollection 对扩展打开的文档是
+    // 「每次调用 push 一条新引用 + 各自 3 分钟 TTL」，并在引用数达 60 时批量 dispose 最老的 10 条。
+    // 每 dispose 一条就会触发 onDidCloseTextDocument，而 TS 扩展的 closeResource 里
+    // `if (wasBufferOpen) this.requestAllDiagnostics()` 会让所有已打开文件重跑诊断。
+    // 于是「context 里跳几次→ 引用堆积 → 批量关闭 → 连环全量诊断」把单线程语言服务器占满，
+    // 而vscode.executeDefinitionProvider 内部硬编码 CancellationToken.None、无法取消也无法插队，
+    // 只能干等前面的活干完 —— 这正是"跳一圈回来再点原token 要 2.4s"的根因。
+    // 复用已有文档可避免同一文件反复累积引用，是减少这类风暴最直接的一招。
+    private async acquireDocument(uri: vscode.Uri): Promise<vscode.TextDocument> {
+        const key = uri.toString();
+        const existing = vscode.workspace.textDocuments.find(d => !d.isClosed && d.uri.toString() === key);
+        // console.log(`acquireDocument: ${key}, existing: ${existing}`);
+        return existing ?? await vscode.workspace.openTextDocument(uri);
+    }
+
     /**
      * 统一的内容加载逻辑：打开文档 → 查缓存 → 判定大文件 → 入缓存。
      * 是 getFileContents 与 getContentByUri 的公共底座，避免两处流程重复、行为漂移。
@@ -154,7 +170,7 @@ export class Renderer {
      */
     private async loadContent(uri: vscode.Uri, fallbackLanguageId?: string): Promise<LoadedContent> {
         const cacheKey = uri.toString();
-        const doc = await vscode.workspace.openTextDocument(uri);
+        const doc = await this.acquireDocument(uri);
         const currentVersion = doc.version;
         // 仅在非默认 tokenizer 模式（useDefaultTokenizer 关闭）下才向语言服务器索取语义 token：
         // 此时基础语法层由真实 TextMate 接管、语义层叠加其上。默认模式纯用 Monaco 内置 tokenizer，无需多一次较贵的语义请求。
