@@ -295,7 +295,7 @@ export class Renderer {
         uri: vscode.Uri,
         startLine: number,
         endLine: number
-    ): Promise<{ data: number[]; full: boolean; documentVersion: number; lineCount: number } | null> {
+    ): Promise<{ data: number[]; full: boolean; documentVersion: number } | null> {
         try {
             const doc = await this.acquireDocument(uri);
             if (!this.isSemanticRequestAllowed(doc)) {
@@ -315,7 +315,7 @@ export class Renderer {
             }
             if (seg && seg.data && seg.data.length) {
                 console.log(`getRangeSemanticTokens: ${uri.toString()}, ${s}-${e}, ${seg.data.length}`);
-                return { data: Array.from(seg.data), full: false, documentVersion: requestVersion, lineCount: maxLine };
+                return { data: Array.from(seg.data), full: false, documentVersion: requestVersion };
             }
 
             // range provider 没给数据：可能该语言只注册了整文档 provider，也可能该区间确实无 token。
@@ -326,8 +326,8 @@ export class Renderer {
                 return null;
             }
             return fullData
-                ? { data: fullData, full: true, documentVersion: requestVersion, lineCount: maxLine }
-                : { data: [], full: false, documentVersion: requestVersion, lineCount: maxLine };
+                ? { data: fullData, full: true, documentVersion: requestVersion }
+                : { data: [], full: false, documentVersion: requestVersion };
         } catch {
             return null;
         }

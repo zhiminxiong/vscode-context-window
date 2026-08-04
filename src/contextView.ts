@@ -875,8 +875,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private async handleRequestRangeSemantic(message: any) {
         const reqId = message?.reqId;
         const uri = message?.uri;
-        const post = (data: number[], full: boolean, documentVersion?: number, lineCount?: number) => this.postMessageToWebview({
-            type: 'rangeSemantic', reqId, uri, data, full, documentVersion, lineCount
+        const post = (data: number[], full: boolean, documentVersion?: number) => this.postMessageToWebview({
+            type: 'rangeSemantic', reqId, uri, data, full, documentVersion
         });
         if (typeof reqId !== 'number' || !uri || !message?.range) {
             post([], false);
@@ -888,7 +888,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 message.range.startLine,
                 message.range.endLine
             );
-            post(res ? res.data : [], !!(res && res.full), res ? res.documentVersion : undefined, res ? res.lineCount : undefined);
+            post(res ? res.data : [], !!(res && res.full), res ? res.documentVersion : undefined);
         } catch {
             post([], false);
         }
