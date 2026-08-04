@@ -1,11 +1,9 @@
 //@ts-check
 
 // 解析后端透传的语义 token，找出指定位置（Monaco 1-based pos）所在的语义 token。
-// data 为 LSP 标准 5 元组 delta 编码 [ΔLine, ΔStartChar, length, tokenTypeIdx, tokenModifiers]，
-// 坐标是整文档绝对坐标（首个 token 的 ΔLine 相对文档第 0 行）。
-// 语义 token 按视口按需拉取（见 semanticRangeClient.js），因此依次在两处查找：
-//   1) semanticState.data     —— 整文档兜底数据（该语言只有整文档 provider 时才有）
-//   2) semanticState.segments —— 视口稀疏缓存，每段各自是一份完整的绝对坐标 delta 序列
+// 语义 token 按视口按需拉取并合并进「绝对坐标 token 池」（见 semanticRangeClient.js），
+// 池内每项为 { line, char, len, type, mod }，按 (line, char) 升序，坐标为整文档 0-based 绝对坐标。
+// 取色直接在 semanticState.tokenPool 上查命中目标位置的 token。
 // 返回 { token: 语义类型名, modifiers: [...], startColumn, endColumn }，未命中返回 null。
 export function semanticTokenAtPosition(pos, semanticState) {
     if (!semanticState || !semanticState.legend) {
@@ -16,61 +14,28 @@ export function semanticTokenAtPosition(pos, semanticState) {
     const targetLine = pos.lineNumber - 1; // 转 0-based
     const targetChar = pos.column - 1;
 
-    if (semanticState.data && semanticState.data.length) {
-        const hit = findTokenInData(semanticState.data, types, mods, targetLine, targetChar);
-        if (hit) {
-            return hit;
-        }
+    const pool = semanticState.tokenPool;
+    if (!Array.isArray(pool) || !pool.length) {
+        return null;
     }
-    if (semanticState.segments) {
-        for (const seg of semanticState.segments.values()) {
-            if (!seg || !seg.data || !seg.data.length) {
-                continue;
-            }
-            const hit = findTokenInData(seg.data, types, mods, targetLine, targetChar);
-            if (hit) {
-                return hit;
-            }
+    for (const t of pool) {
+        // 池按 (line, char) 升序，越过目标行即可提前结束
+        if (t.line > targetLine) {
+            break;
         }
-    }
-    return null;
-}
-
-// 在一份 delta 编码的 token 序列里查找命中目标位置的 token
-function findTokenInData(data, types, mods, targetLine, targetChar) {
-    let line = 0;
-    let char = 0;
-    for (let i = 0; i + 4 < data.length; i += 5) {
-        const dLine = data[i];
-        const dStart = data[i + 1];
-        const len = data[i + 2];
-        const typeIdx = data[i + 3];
-        const modBits = data[i + 4];
-
-        if (dLine === 0) {
-            char += dStart;
-        } else {
-            line += dLine;
-            char = dStart;
-        }
-
-        if (line === targetLine && targetChar >= char && targetChar < char + len) {
+        if (t.line === targetLine && targetChar >= t.char && targetChar < t.char + t.len) {
             const modifiers = [];
             for (let b = 0; b < mods.length; b++) {
-                if (modBits & (1 << b)) {
+                if (t.mod & (1 << b)) {
                     modifiers.push(mods[b]);
                 }
             }
             return {
-                token: types[typeIdx] || '',
+                token: types[t.type] || '',
                 modifiers,
-                startColumn: char + 1,
-                endColumn: char + len + 1
+                startColumn: t.char + 1,
+                endColumn: t.char + t.len + 1
             };
-        }
-        // 语义 token 按 (line, char) 升序排列，越过目标行即可提前结束
-        if (line > targetLine) {
-            break;
         }
     }
     return null;

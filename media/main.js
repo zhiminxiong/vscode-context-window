@@ -483,11 +483,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // ========== 动态光标显示/隐藏功能结束 ==========
 
                     // 语义着色会话状态：
-                    //   legend   —— 后端随内容下发的 tokenTypes / tokenModifiers 索引表
-                    //   data     —— 整文档 token，仅在「该语言只有整文档 provider」的兜底场景被填满
-                    //   segments —— 按视口拉取的稀疏缓存（由 semanticRangeClient 维护）
+                    //   legend    —— 后端随内容下发的 tokenTypes / tokenModifiers 索引表
+                    //   data      —— 整文档 token 兜底位（当前走tokenPool 统一供给，保留字段兼容）
+                    //   tokenPool —— 绝对坐标 token 池，按视口覆盖拼接累积（由 semanticRangeClient 维护，供取色查表）
                     // 前端不再用手写Monarch 去"猜"标识符语义，改由VSCode 语言服务器的语义 token 驱动着色。
-                    const semanticState = { legend: null, data: null, segments: null, version: undefined };
+                    const semanticState = { legend: null, data: null, tokenPool: null, version: undefined };
                     // 语义 token 变更通知：内容相同但语义数据更新（如缓存命中/live 重取）时，
                     // 主动触发 Monaco 重新向 provider 索取语义 token 并重着色。
                     const semanticTokensEmitter = new monaco.Emitter();
@@ -531,7 +531,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             semanticState,
                             getUri: () => editorState.uri,
                             onDidChange: semanticTokensEmitter.event,
-                            // 节流回源完成后促使 Monaco 重新索取，从而命中 segments 缓存拿到刚到的 token
+                            // 节流回源完成后促使 Monaco 重新索取，从而命中 tokenPool 覆盖区间拿到刚到的 token
                             fireDidChange: () => { try { semanticTokensEmitter.fire(); } catch (_) {} }
                         });
 
