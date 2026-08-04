@@ -647,6 +647,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 case 'requestHover':
                     this.handleRequestHover(message);
                     break;
+                case 'requestRangeSemantic':
+                    this.handleRequestRangeSemantic(message);
+                    break;
                 case 'setEnableHover':
                     await this.handleSetEnableHover(message);
                     break;
@@ -864,6 +867,31 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 });
             }
         })();
+    }
+
+    // 视口语义着色的回源：webview 里 Monaco 的 DocumentRangeSemanticTokensProvider 只对可见区域
+    // 索取token，前端把行区间发到这里，由 Renderer 只针对该区间问语言服务器（对齐 VSCode 行为）。
+    // 用 reqId 配对避免滚动过程中的乱序串扰；异常/无数据统一回空，该段回退到 TextMate 着色。
+    private async handleRequestRangeSemantic(message: any) {
+        const reqId = message?.reqId;
+        const uri = message?.uri;
+        const post = (data: number[], full: boolean, documentVersion?: number) => this.postMessageToWebview({
+            type: 'rangeSemantic', reqId, uri, data, full, documentVersion
+        });
+        if (typeof reqId !== 'number' || !uri || !message?.range) {
+            post([], false);
+            return;
+        }
+        try {
+            const res = await this._renderer.getRangeSemanticTokens(
+                vscode.Uri.parse(uri),
+                message.range.startLine,
+                message.range.endLine
+            );
+            post(res ? res.data : [], !!(res && res.full), res ? res.documentVersion : undefined);
+        } catch {
+            post([], false);
+        }
     }
 
     // Webview hover：转发到主编辑区已就绪的 LSP（vscode.executeHoverProvider），

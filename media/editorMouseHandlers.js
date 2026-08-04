@@ -582,8 +582,9 @@ export function setupEditorMouseHandlers(ctx) {
     // 由调用方按各自可靠的方式探测（正文区从渲染 DOM 取，粘附行直接取粘附 span 的 computed color）。
     async function runPickTokenStyle(model, lookupPosition, wordText, probeColor) {
         // 优先用后端语义 token 识别（右键即可知道该标识符的语义类型，如 variable/function/class）；
+        // token 按视口拉取，semanticTokenAtPosition 会同时查整文档兜底数据与视口稀疏缓存。
         // 该位置无语义 token（如关键字/操作符走基础层）时，回退到 Monaco 基础 tokenizer。
-        let tokenInfo = (semanticState && semanticState.data)
+        let tokenInfo = semanticState
             ? semanticTokenAtPosition(lookupPosition, semanticState)
             : null;
         if (!tokenInfo || !tokenInfo.token) {
