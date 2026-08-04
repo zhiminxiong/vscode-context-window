@@ -189,7 +189,7 @@ export class Renderer {
             // 缓存项可能在"默认模式"时写入而未带语义 token，按需补取并回填
             let semantic = cached.semantic;
             if (needSemantic && semantic === undefined) {
-                semantic = await this.getSemanticTokens(uri);
+                semantic = await this.getSemanticTokens(doc);
                 cached.semantic = semantic;
             }
             return {
@@ -209,7 +209,7 @@ export class Renderer {
         //                后续若切到语义模式，命中缓存时可按需补取（见上方回填分支）；
         //   null      —— 索取过但确认为空（未装语言扩展 / 不支持语义 token / 无 token），不必重取；
         //   Payload   —— 索取到数据。
-        const semantic = needSemantic ? await this.getSemanticTokens(uri) : undefined;
+        const semantic = needSemantic ? await this.getSemanticTokens(doc) : undefined;
 
         // 按内容字节大小判定是否为大文件（content 已无条件读取，零额外开销）
         if (content.length > this.largeFileSizeThreshold) {
@@ -236,7 +236,8 @@ export class Renderer {
      * 与编辑器显示的是整文档坐标，前端 Monaco 显示也是整文档，坐标天然一一对应。
      * 任意失败（未装语言扩展 / 不支持语义 token / 文档未纳入分析）均返回 null，前端回退到基础着色。
      */
-    private async getSemanticTokens(uri: vscode.Uri): Promise<SemanticPayload | null> {
+    private async getSemanticTokens(doc: vscode.TextDocument): Promise<SemanticPayload | null> {
+        const uri = doc.uri;
         try {
             const legend = await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
                 'vscode.provideDocumentSemanticTokensLegend', uri);
@@ -251,7 +252,7 @@ export class Renderer {
 
             // 2) 整文档为空（大文件被 TS 的 100000 字符上限拒绝）→ 按行分段用 range provider 拼接
             if (!data) {
-                data = await this.collectRangeTokensByChunks(uri);
+                data = await this.collectRangeTokensByChunks(doc);
             }
             if (!data || data.length === 0) {
                 return null;
@@ -275,9 +276,11 @@ export class Renderer {
      * 故按行边界切成多段（每段 < 上限）逐段取 range 语义 token，解码为文档绝对坐标后合并，
      * 再重新编码为一份完整的、从文档 (0,0) 起的 delta 序列。前端解码逻辑无需改动。
      */
-    private async collectRangeTokensByChunks(uri: vscode.Uri): Promise<number[] | null> {
+    private async collectRangeTokensByChunks(doc: vscode.TextDocument): Promise<number[] | null> {
         const LIMIT = 90000; // 留余量，低于 TS 硬编码的 100000
-        const doc = await vscode.workspace.openTextDocument(uri);
+        // 文档由上层（loadContent → acquireDocument）传入复用，此处不再 openTextDocument，
+        // 避免同一文件在一次渲染里被重复 push 到主线程的 model 引用集合。
+        const uri = doc.uri;
 
         // 按行切分（token 不跨行，行边界切不截断、段间不重叠）
         const ranges: vscode.Range[] = [];
