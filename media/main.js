@@ -12,7 +12,6 @@ import { createMessageHandlers } from './messageHandlers.js';
 import { setupEditorMouseHandlers } from './editorMouseHandlers.js';
 import { setupTextmate, ensureGrammar as tmEnsureGrammar, updateThemeScopes as tmUpdateThemeScopes, setOnGrammarRegistered as tmSetOnGrammarRegistered } from './textmateClient.js';
 import { setupHoverProvider, ensureHoverProvider, handleHoverResult, disableMonacoBuiltinTsJsProviders, disposeHoverProvider } from './hoverProvider.js';
-import { createRangeSemanticClient } from './semanticRangeClient.js';
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
@@ -482,61 +481,52 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     hideCursor();
                     // ========== 动态光标显示/隐藏功能结束 ==========
 
-                    // 语义着色会话状态：
-                    //   legend   —— 后端随内容下发的 tokenTypes / tokenModifiers 索引表
-                    //   data     —— 整文档 token，仅在「该语言只有整文档 provider」的兜底场景被填满
-                    //   segments —— 按视口拉取的稀疏缓存（由 semanticRangeClient 维护）
-                    // 前端不再用手写Monarch 去"猜"标识符语义，改由VSCode 语言服务器的语义 token 驱动着色。
-                    const semanticState = { legend: null, data: null, segments: null, version: undefined };
+                    // 语义着色会话状态：后端透传的整文档语义 token（legend + data）。
+                    // 前端不再用手写 Monarch 去"猜"标识符语义，改由 VSCode 语言服务器的语义 token 驱动着色。
+                    const semanticState = { legend: null, data: null };
                     // 语义 token 变更通知：内容相同但语义数据更新（如缓存命中/live 重取）时，
                     // 主动触发 Monaco 重新向 provider 索取语义 token 并重着色。
                     const semanticTokensEmitter = new monaco.Emitter();
-                    // 视口按需拉取客户端（仅在语义模式下创建）
-                    let rangeSemanticClient = null;
 
-                    // 写入后端发来的语义 legend 并通知 Monaco 刷新（在 setValue 前调用，保证 provide 时已就绪）
-                    // documentVersion：本次内容对应的文档版本号，写入 semanticState.version 供视口回包的版本快照校验，
-                    // 避免滚动中文档恰好被编辑时把旧 token 画到新内容上。
-                    function applySemanticTokens(semantic, documentVersion) {
-                        if (semantic && semantic.legend && Array.isArray(semantic.legend.tokenTypes)) {
+                    // 写入后端发来的语义 token 并通知 Monaco 刷新（在 setValue 前调用，保证 provide 时数据已就绪）
+                    function applySemanticTokens(semantic) {
+                        if (semantic && Array.isArray(semantic.data) && semantic.legend && Array.isArray(semantic.legend.tokenTypes)) {
                             semanticState.legend = semantic.legend;
+                            semanticState.data = semantic.data;
                         } else {
                             // 无语义 token（未装语言扩展 / 不支持 / 文档未纳入分析）：清空，回退到基础着色
                             semanticState.legend = null;
-                        }
-                        // token 恒按视口回源，换文件/换版本时必须丢弃上一份数据与在途请求
-                        semanticState.data = null;
-                        semanticState.version = (typeof documentVersion === 'number') ? documentVersion : undefined;
-                        if (rangeSemanticClient) {
-                            rangeSemanticClient.reset();
+                            semanticState.data = null;
                         }
                         try { semanticTokensEmitter.fire(); } catch (_) {}
                     }
 
                     if (!contextEditorCfg.useDefaultTokenizer) {
                         // 非默认 tokenizer 模式：基础语法层由真实 TextMate 语法（见 textmateClient）接管，
-                        // 语义叠加层（variable/parameter/property/type/class/function/method/namespace…）由后端语义 token 提供。
-                        // 默认模式（useDefaultTokenizer=true）纯用 Monaco 内置 Monarch，不注册语义。
+                        // 语义叠加层（variable/parameter/property/type/class/function/method/namespace…）由后端语义 token 提供，
+                        // 故注册"查表型"语义 token provider。默认模式（useDefaultTokenizer=true）纯用 Monaco 内置 Monarch，不注册语义。
                         const semanticLanguages = [
                             'python', 'java', 'rust', 'php', 'ruby', 'swift', 'kotlin', 'perl', 'lua', 'vb', 'vbnet', 'cobol', 'fortran', 'pascal', 'delphi', 'ada',
                             'erlang',
                             'javascript', 'typescript', 'cpp', 'c', 'csharp', 'go'
                         ];
 
-                        // 注册 range（视口）语义 provider：Monaco 只对可见区域索取 token，缺失时向后端按行区间回源。
-                        // 与 VSCode 的 viewport 语义着色同构——不再一次性索取整文档 token，
-                        // 避免大文件把单线程语言服务器压满（详见 semanticRangeClient.js 与后端 getRangeSemanticTokens）。
-                        rangeSemanticClient = createRangeSemanticClient({
-                            vscode,
-                            semanticState,
-                            getUri: () => editorState.uri,
+                        const semanticProvider = {
                             onDidChange: semanticTokensEmitter.event,
-                            // 节流回源完成后促使 Monaco 重新索取，从而命中 segments 缓存拿到刚到的 token
-                            fireDidChange: () => { try { semanticTokensEmitter.fire(); } catch (_) {} }
-                        });
+                            getLegend() {
+                                return semanticState.legend || { tokenTypes: [], tokenModifiers: [] };
+                            },
+                            provideDocumentSemanticTokens() {
+                                if (!semanticState.data || !semanticState.legend) {
+                                    return null;
+                                }
+                                return { data: new Uint32Array(semanticState.data), resultId: undefined };
+                            },
+                            releaseDocumentSemanticTokens() {}
+                        };
 
                         semanticLanguages.forEach(lang => {
-                            monaco.languages.registerDocumentRangeSemanticTokensProvider(lang, rangeSemanticClient.provider);
+                            monaco.languages.registerDocumentSemanticTokensProvider(lang, semanticProvider);
                         });
                     }
 
@@ -968,12 +958,6 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     break;
                                 case 'hoverResult':
                                     handleHoverResult(message);
-                                    break;
-                                case 'rangeSemantic':
-                                    // 视口语义 token 回包：兑现 range provider 的在途请求
-                                    if (rangeSemanticClient) {
-                                        rangeSemanticClient.handleRangeSemantic(message);
-                                    }
                                     break;
                                 //default:
                                     //console.log('[definition] Unknown message type:', message.type);

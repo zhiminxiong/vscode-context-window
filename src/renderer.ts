@@ -2,10 +2,11 @@ import * as vscode from 'vscode';
 
 // 后端透传给前端的语义 token 负载。
 // legend：tokenTypes / tokenModifiers 索引表（由语言服务器提供，按语言而定）。
-// token 本身不再随内容一次性下发，而是由前端 Monaco 的 DocumentRangeSemanticTokensProvider
-// 只对可见视口向后端回源（见 getRangeSemanticTokens），与 VSCode 自身的 viewport 语义着色一致。
+// data：LSP 标准 5 元组 delta 编码 [ΔLine, ΔStartChar, length, tokenTypeIdx, tokenModifiers]，
+//       Uint32Array 转成 number[] 以便跨 webview 序列化。
 export interface SemanticPayload {
     legend: { tokenTypes: string[]; tokenModifiers: string[] };
+    data: number[];
 }
 
 export interface FileContentInfo {
@@ -58,11 +59,6 @@ export class Renderer {
     // 大文件 size 阈值（字节，可配）：文件内容超过该大小视为大文件，需要后端缓存
     private largeFileSizeThreshold = 100 * 1024;
 
-    // 整文档 token 兜底缓存：少数语言只注册了整文档 semantic provider（range 请求恒返回空），
-    // 这类文件退回取一次整文档 token，并按 uri+version 缓存，避免每次滚动都重复请求语言服务器。
-    private readonly _fullTokenFallback = new Map<string, { version: number; data: number[] }>();
-    private static readonly FULL_FALLBACK_CAPACITY = 8;
-
     constructor() {
         // 使用自己的事件发射器
         this.needsRender = this._onNeedsRender.event;
@@ -99,7 +95,6 @@ export class Renderer {
         this._onNeedsRender.dispose();
 
         this._fileCache.clear();
-        this._fullTokenFallback.clear();
     }
 
     // 判断某文档对应语言是否启用了语义高亮（对齐 VSCode：读取 editor.semanticHighlighting.enabled，
@@ -110,15 +105,6 @@ export class Renderer {
             .getConfiguration('editor', doc)
             .get<boolean | string>('semanticHighlighting.enabled');
         return val !== false;
-    }
-
-    // 是否允许向语言服务器索取语义 token：非默认 tokenizer 模式 + 该语言未关闭语义高亮。
-    // loadContent（取 legend）与 getRangeSemanticTokens（按视口取 token）共用同一判定，避免两处漂移。
-    private isSemanticRequestAllowed(doc: vscode.TextDocument): boolean {
-        return !vscode.workspace
-            .getConfiguration('contextView.contextWindow')
-            .get<boolean>('useDefaultTokenizer', true)
-            && this.isSemanticHighlightingEnabled(doc);
     }
 
     public async renderDefinition(languageId: string, def: vscode.Location | vscode.LocationLink): Promise<FileContentInfo> {
@@ -190,7 +176,10 @@ export class Renderer {
         // 此时基础语法层由真实 TextMate 接管、语义层叠加其上。默认模式纯用 Monaco 内置 tokenizer，无需多一次较贵的语义请求。
         // 同时尊重 VSCode 的 editor.semanticHighlighting.enabled（含按语言覆盖，如 "[csharp]": {...}）：
         // 某语言显式关闭语义高亮时，与主编辑器一致——完全不取、不下发语义 token，纯靠 TextMate 着色。
-        const needSemantic = this.isSemanticRequestAllowed(doc);
+        const needSemantic = !vscode.workspace
+            .getConfiguration('contextView.contextWindow')
+            .get<boolean>('useDefaultTokenizer', true)
+            && this.isSemanticHighlightingEnabled(doc);
 
         // 命中后端大文件缓存且版本一致：直接返回，并把条目移到末尾（O(1) LRU）
         const cached = this._fileCache.get(cacheKey);
@@ -200,7 +189,7 @@ export class Renderer {
             // 缓存项可能在"默认模式"时写入而未带语义 token，按需补取并回填
             let semantic = cached.semantic;
             if (needSemantic && semantic === undefined) {
-                semantic = await this.getSemanticPayload(doc);
+                semantic = await this.getSemanticTokens(doc);
                 cached.semantic = semantic;
             }
             return {
@@ -220,7 +209,7 @@ export class Renderer {
         //                后续若切到语义模式，命中缓存时可按需补取（见上方回填分支）；
         //   null      —— 索取过但确认为空（未装语言扩展 / 不支持语义 token / 无 token），不必重取；
         //   Payload   —— 索取到数据。
-        const semantic = needSemantic ? await this.getSemanticPayload(doc) : undefined;
+        const semantic = needSemantic ? await this.getSemanticTokens(doc) : undefined;
 
         // 按内容字节大小判定是否为大文件（content 已无条件读取，零额外开销）
         if (content.length > this.largeFileSizeThreshold) {
@@ -242,129 +231,43 @@ export class Renderer {
     }
 
     /**
-     * 取语义着色所需的 legend（tokenTypes / tokenModifiers 索引表），不含 token 本身。
-     *
-     * 对齐 VSCode 的 viewport 语义着色：token 不再随内容一次性下发，而是由前端 Monaco 的
-     * DocumentRangeSemanticTokensProvider 只对可见视口向后端回源（见 getRangeSemanticTokens），
-     * 滚动时增量补齐。这样任意时刻只让语言服务器分析一屏，不会因为大文件而瞬时压上覆盖全文的
-     * 语义分析请求（TS 对 > 100000 字符的文档直接跳过整文档语义 token，正是出于同样的成本考虑）。
-     *
-     * 整文档 legend 命令取不到时（某些语言只注册了 range provider），退回 range legend 命令。
+     * 取整文档的 VSCode 语义 token：调用与编辑器同源的内置命令，
+     * 拿到的就是当前语言服务器（cpptools/gopls/TS 等）产出的语义分类。
+     * 与编辑器显示的是整文档坐标，前端 Monaco 显示也是整文档，坐标天然一一对应。
      * 任意失败（未装语言扩展 / 不支持语义 token / 文档未纳入分析）均返回 null，前端回退到基础着色。
      */
-    private async getSemanticPayload(doc: vscode.TextDocument): Promise<SemanticPayload | null> {
+    private async getSemanticTokens(doc: vscode.TextDocument): Promise<SemanticPayload | null> {
         const uri = doc.uri;
-        const exec = async (cmd: string): Promise<vscode.SemanticTokensLegend | undefined> => {
-            try {
-                return await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(cmd, uri);
-            } catch {
-                return undefined;
-            }
-        };
-        let legend = await exec('vscode.provideDocumentSemanticTokensLegend');
-        if (!legend || !legend.tokenTypes) {
-            legend = await exec('vscode.provideDocumentRangeSemanticTokensLegend');
-        }
-        if (!legend || !legend.tokenTypes) {
-            return null;
-        }
-        return {
-            legend: {
-                tokenTypes: Array.from(legend.tokenTypes),
-                tokenModifiers: Array.from(legend.tokenModifiers || [])
-            }
-        };
-    }
-
-    /**
-     * 视口回源：只对前端上报的可见行区间 [startLine, endLine) 取语义 token。
-     * 前端 Monaco 的 range provider 会带上「可见区 + 上下各一屏」，滚动时增量再问，
-     * 因此单次请求的范围恒为一屏量级，天然低于 TS 的 100000 字符上限，无需分段绕行。
-     *
-     * 坐标约定：VSCode 的 provideDocumentRangeSemanticTokens 与 Monaco 的
-     * DocumentRangeSemanticTokensProvider 都使用「整文档绝对坐标的 delta 编码」
-     * （首个 token 的 ΔLine 相对文档第 0 行），两边语义一致，故原样透传、不做任何重编码。
-     *
-     * full=true 表示返回的是整文档兜底数据（该语言只注册了整文档 provider），
-     * 前端收到后会存为全量 data，后续视口直接本地供给、不再回源。
-     *
-     * documentVersion：本次结果所对应的文档版本（发命令前快照）。若取token 期间文档被编辑
-     * （version 变化），则本次结果已过期，返回 null 让前端丢弃——对齐 VSCode 的 getVersionId 校验。
-     */
-    public async getRangeSemanticTokens(
-        uri: vscode.Uri,
-        startLine: number,
-        endLine: number
-    ): Promise<{ data: number[]; full: boolean; documentVersion: number } | null> {
         try {
-            const doc = await this.acquireDocument(uri);
-            if (!this.isSemanticRequestAllowed(doc)) {
+            const legend = await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
+                'vscode.provideDocumentSemanticTokensLegend', uri);
+            if (!legend || !legend.tokenTypes) {
                 return null;
             }
-            // 发命令前快照版本，回来后比对：期间被编辑则本次结果过期，丢弃（对齐 VSCode getVersionId 校验）
-            const requestVersion = doc.version;
-            // 夹取到合法行区间（前端上报的视口可能因内容版本差异越界）
-            const maxLine = doc.lineCount;
-            const s = Math.max(0, Math.min(startLine | 0, maxLine));
-            const e = Math.max(s, Math.min(endLine | 0, maxLine));
-            const seg = await vscode.commands.executeCommand<vscode.SemanticTokens>(
-                'vscode.provideDocumentRangeSemanticTokens', uri, new vscode.Range(s, 0, e, 0));
-            // 期间文档被编辑：结果对不上新内容，丢弃
-            if (doc.version !== requestVersion) {
-                return null;
+            // 1) 先试整文档（< 10 万字符的文件 TS 等语言服务直接给）
+            const full = await vscode.commands.executeCommand<vscode.SemanticTokens>(
+                'vscode.provideDocumentSemanticTokens', uri);
+            let data: number[] | null =
+                (full && full.data && full.data.length) ? Array.from(full.data) : null;
+
+            // 2) 整文档为空（大文件被 TS 的 100000 字符上限拒绝）→ 按行分段用 range provider 拼接
+            if (!data) {
+                data = await this.collectRangeTokensByChunks(doc);
             }
-            if (seg && seg.data && seg.data.length) {
-                console.log(`getRangeSemanticTokens: ${uri.toString()}, ${s}-${e}, ${seg.data.length}`);
-                return { data: Array.from(seg.data), full: false, documentVersion: requestVersion };
+            if (!data || data.length === 0) {
+                return null;
             }
 
-            // range provider 没给数据：可能该语言只注册了整文档 provider，也可能该区间确实无 token。
-            // 退回取一次整文档（结果按 uri+version 缓存，空结果也缓存，故最多一次真实请求）。
-            const fullData = await this.getFullTokensCached(doc);
-            // 整文档兜底期间文档被编辑：同样丢弃
-            if (doc.version !== requestVersion) {
-                return null;
-            }
-            return fullData
-                ? { data: fullData, full: true, documentVersion: requestVersion }
-                : { data: [], full: false, documentVersion: requestVersion };
+            return {
+                legend: {
+                    tokenTypes: Array.from(legend.tokenTypes),
+                    tokenModifiers: Array.from(legend.tokenModifiers || [])
+                },
+                data
+            };
         } catch {
             return null;
         }
-    }
-
-    // 整文档 token 兜底缓存（按 uri+version）：空结果同样缓存，避免反复向语言服务器索取注定为空的数据。
-    // 缓存 key 只用 uri，但存储项带 version：命中时校验version，文档一旦被修改（version 变化）即视为失效，
-    // 删除旧项并按新版本重新取、重新缓存。
-    private async getFullTokensCached(doc: vscode.TextDocument): Promise<number[] | null> {
-        const key = doc.uri.toString();
-        const hit = this._fullTokenFallback.get(key);
-        if (hit && hit.version === doc.version) {
-            return hit.data.length ? hit.data : null;
-        }
-        // 版本不一致（文档被修改）或从未缓存：先删旧项，避免旧版本数据被误用。
-        this._fullTokenFallback.delete(key);
-
-        const full = await vscode.commands.executeCommand<vscode.SemanticTokens>(
-            'vscode.provideDocumentSemanticTokens', doc.uri);
-        let data = (full && full.data && full.data.length) ? Array.from(full.data) : [];
-
-        // 整文档命令返回空，且文档确实很大：极可能是 VSCode 内置 TS扩展对 > 100000 字符的文档
-        // 直接跳过整文档语义 token。此时改走分段 range 兜底，逐段取 range token 拼出全文。
-        if (data.length === 0 && doc.getText().length > 90000) {
-            const chunked = await this.collectRangeTokensByChunks(doc);
-            if (chunked && chunked.length) {
-                data = chunked;
-            }
-        }
-
-        this._fullTokenFallback.set(key, { version: doc.version, data });
-        while (this._fullTokenFallback.size > Renderer.FULL_FALLBACK_CAPACITY) {
-            const oldest = this._fullTokenFallback.keys().next().value;
-            if (oldest === undefined) { break; }
-            this._fullTokenFallback.delete(oldest);
-        }
-        return data.length ? data : null;
     }
 
     /**
