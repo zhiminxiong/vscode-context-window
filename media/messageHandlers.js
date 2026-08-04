@@ -29,6 +29,7 @@ export function createMessageHandlers(ctx) {
         // 保存本次跳转的定位信息，供回源（updateContent）复用
         state.range = message.range;
         state.curLine = message.curLine;
+        state.curColumn = message.curColumn;
         const requestVersion = message.documentVersion;
 
         // 检查前端缓存
@@ -45,7 +46,8 @@ export function createMessageHandlers(ctx) {
                 languageId: message.languageId,
                 range: message.range,
                 scrollToLine: message.scrollToLine,
-                curLine: message.curLine
+                curLine: message.curLine,
+                curColumn: message.curColumn
             });
         } else {
             // 缓存未命中或版本不匹配，请求完整内容
@@ -118,13 +120,14 @@ export function createMessageHandlers(ctx) {
         // 渲染前先写入本次语义 token（setValue 触发重新着色时 provider 已能拿到数据）
         setSemantic(message.semantic);
 
-        // 单槽命中(if 分支)时后端会回传 range/curLine；
-        // 按 uri 现取(else 分支)时不回传，回退到 metadata 阶段保存的定位信息。
+        // 单槽命中(if 分支)时后端会回传 range；curLine/curColumn 两条分支都不回传，
+        // 一律回退到 metadata 阶段保存的定位信息。
         updateEditorContent(message.body, {
             newUri: message.uri,
             languageId: message.languageId,
             range: message.range != null ? message.range : state.range,
-            curLine: message.curLine != null ? message.curLine : state.curLine
+            curLine: message.curLine != null ? message.curLine : state.curLine,
+            curColumn: message.curColumn != null ? message.curColumn : state.curColumn
         });
     }
 

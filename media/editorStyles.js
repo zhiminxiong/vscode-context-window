@@ -30,6 +30,16 @@ export const editorStyles = `
                 font-weight: bold!important;
                 text-shadow: 0 0 1px rgba(0, 0, 0, 0.5);
             }
+            /* 返回（back/forward）时落点 token 的高亮：标出「当初就是从这里点出去的」。
+               沿用 selectionHighlight 的配色变量，视觉与 Monaco 原来的同词高亮一致，
+               区别是位置由我们精确控制，不会跑到旁边的无关标识符上。 */
+            .cw-return-token {
+                background-color: var(--vscode-editor-selectionHighlightBackground, #5bdb0771);
+                border: 1px solid var(--vscode-editor-selectionHighlightBorder, #5bdb0791);
+                box-sizing: border-box;
+                border-radius: 2px;
+            }
+
             /* 为sticky scroll区域特别添加样式支持 */
             .monaco-editor .editor-sticky-scroll .highlighted-symbol-inline,
             .monaco-editor .sticky-line-content .highlighted-symbol-inline {

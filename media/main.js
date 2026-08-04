@@ -236,6 +236,13 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             tokenColorCustomizations,
                             // 其他有效选项
                             ...otherOptions,
+                            // 「光标处同词高亮」默认关（contextView.contextWindow.occurrencesHighlight）：
+                            // 本面板的光标是程序设置的（跳转/返回定位），而它画的框（无 provider 时走文本回退，
+                            // 用的是 selectionHighlight 配色）只认「光标所在的词」，光标差一列框就跑到旁边的
+                            // 无关标识符上（如 this）。返回落点的 token 由 updateEditorContent 用
+                            // cw-return-token 显式高亮，不受本开关影响。
+                            // 注意：selectionHighlight 不动——它由真实选区驱动（右键选词），是要保留的行为。
+                            occurrencesHighlight: contextEditorCfg.occurrencesHighlight ? 'singleFile' : 'off',
                             // 同步 VSCode 的括号对着色开关（覆盖 Monaco 默认的 enabled:true）。
                             bracketPairColorization: {
                                 ...(bracketPairColorization || {}),
@@ -300,12 +307,15 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         uri: '',
                         content: '',
                         language: '',
-                        // 定位信息（range/curLine）归前端管：在 updateMetadata 阶段保存，
+                        // 定位信息（range/curLine/curColumn）归前端管：在 updateMetadata 阶段保存，
                         // 回源拿到内容（updateContent）时复用，避免后端现取时丢失光标定位。
                         range: null,
                         curLine: -1,
+                        curColumn: -1,
                         activeLineDecorations: [],
                         symboleDecorations: [],
+                        // 返回落点 token 的高亮装饰 id（当初点出去的那个词，如 HasInput）
+                        returnTokenDecorations: [],
                         // #include/#pragma/#region/#endregion 等指令高亮的装饰 id
                         directiveDecorations: []
                     };
@@ -339,6 +349,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         links: false,  // 禁用所有链接功能
                         quickSuggestions: false,  // 禁用快速建议
                         keyboardHandler: null,       // 禁用键盘处理
+                        // 同 createEditorOptions：createEditorOptions 里的值可能被 VSCode 配置里的
+                        // editor.occurrencesHighlight 经 ...otherOptions 覆盖，这里按本插件的开关兜底一次
+                        occurrencesHighlight: contextEditorCfg.occurrencesHighlight ? 'singleFile' : 'off',
                         // 与 createEditorOptions 保持一致：自定义 hover 走扩展端 LSP，启用浮窗
                         hover: { enabled: true, delay: 300, sticky: true },
                         find: {                     // 禁用查找功能
@@ -872,7 +885,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                                 {
                                                     minimap: { enabled: message.contextEditorCfg.minimap },
                                                     fontSize: message.contextEditorCfg.fontSize,
-                                                    fontFamily: message.contextEditorCfg.fontFamily
+                                                    fontFamily: message.contextEditorCfg.fontFamily,
+                                                    // 同词高亮开关：关闭时 Monaco 会顺带清掉已画出的高亮装饰
+                                                    occurrencesHighlight: message.contextEditorCfg.occurrencesHighlight ? 'singleFile' : 'off'
                                                 }
                                             );
                                             // VSCode 括号对着色开关变化时，即时同步到当前模型（applyIndentationForModel 内含该逻辑）。

@@ -227,6 +227,11 @@
           "type": "boolean",
           "default": false,
           "description": "Show hover tooltips (parameter signatures, JSDoc, etc.) in the Context Window. Hover requests are forwarded to the active language servers of the main editor."
+        },
+        "contextView.contextWindow.occurrencesHighlight": {
+          "type": "boolean",
+          "default": false,
+          "description": "Highlight every occurrence of the word under the cursor, like editor.occurrencesHighlight in the main editor. Off by default: the cursor in the Context Window is placed programmatically when jumping or navigating back, so this highlight easily lands on a neighbouring identifier instead of the token you clicked. The token you jumped out from is always highlighted on its own, regardless of this setting."
         }
       }
     }

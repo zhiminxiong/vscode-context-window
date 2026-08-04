@@ -30,6 +30,21 @@ export function createUpdateEditorContent(ctx) {
         styleEl.textContent = `.cw-directive-token { color: ${color} !important; font-weight: ${fontWeight}; font-style: ${fontStyle}; }`;
     }
 
+    // 返回落点 token 高亮的配色：与扩展端下发的 selectionHighlight 配色保持一致
+    // （editorTheme.js 用同样两个配置项写 Monaco 主题），这样看上去仍是熟悉的同词高亮外观。
+    function refreshReturnTokenStyle() {
+        const cfg = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
+        const bg = cfg.selectionHighlightBackground || '#5bdb0771';
+        const border = cfg.selectionHighlightBorder || '#5bdb0791';
+        let styleEl = document.getElementById('cw-return-token-style');
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = 'cw-return-token-style';
+            document.head.appendChild(styleEl);
+        }
+        styleEl.textContent = `.cw-return-token { background-color: ${bg}; border: 1px solid ${border}; }`;
+    }
+
     // 逐行匹配行首（允许前导空白）的 # 指令，返回从 '#' 到关键字结束的范围
     function computeDirectiveRanges(model) {
         const ranges = [];
@@ -127,6 +142,8 @@ export function createUpdateEditorContent(ctx) {
                 .map(id => old.getDecorationRange(id)).filter(Boolean);
             const symbolRanges = (state.symboleDecorations || [])
                 .map(id => old.getDecorationRange(id)).filter(Boolean);
+            const returnTokenRanges = (state.returnTokenDecorations || [])
+                .map(id => old.getDecorationRange(id)).filter(Boolean);
 
             const fresh = monaco.editor.createModel(value, lang);
             applyIndentationForModel(fresh);
@@ -143,6 +160,12 @@ export function createUpdateEditorContent(ctx) {
                 ? editor.deltaDecorations([], symbolRanges.map(r => ({
                     range: r,
                     options: { className: 'highlighted-symbol-range', inlineClassName: 'highlighted-symbol-inline', zIndex: 100 }
+                })))
+                : [];
+            state.returnTokenDecorations = returnTokenRanges.length
+                ? editor.deltaDecorations([], returnTokenRanges.map(r => ({
+                    range: r,
+                    options: { className: 'cw-return-token', zIndex: 90 }
                 })))
                 : [];
 
@@ -166,7 +189,8 @@ export function createUpdateEditorContent(ctx) {
             newUri,
             languageId,
             range,
-            curLine
+            curLine,
+            curColumn
         } = options || {};
 
         // 显示编辑器，隐藏原始内容区域
@@ -204,6 +228,9 @@ export function createUpdateEditorContent(ctx) {
             }
             if (state.activeLineDecorations.length > 0) {
                 state.activeLineDecorations = editor.deltaDecorations(state.activeLineDecorations, []);
+            }
+            if (state.returnTokenDecorations && state.returnTokenDecorations.length > 0) {
+                state.returnTokenDecorations = editor.deltaDecorations(state.returnTokenDecorations, []);
             }
 
             if (!model) {
@@ -323,11 +350,32 @@ export function createUpdateEditorContent(ctx) {
                 }
 
                 if (curLine && curLine > 0) {
-                    const lineMaxColumn = editor.getModel().getLineMaxColumn(curLine);
+                    // 优先用精确列，把光标放回当初点出去的那个 token（如 HasInput）；没有列才退回行尾。
+                    const lineMaxColumn = model.getLineMaxColumn(curLine);
+                    const targetColumn = (typeof curColumn === 'number' && curColumn >= 0)
+                        ? Math.min(curColumn, lineMaxColumn)
+                        : lineMaxColumn;
                     editor.setPosition(new monaco.Position(
                         curLine,
-                        lineMaxColumn
+                        targetColumn
                     ));
+                    // 显式高亮落点 token。不能指望 Monaco 的同词高亮来表达「选中」：
+                    // 它只认光标所在的词，光标差一列就框到旁边的标识符上（这正是返回后框跑到 this 的原因），
+                    // 所以 occurrencesHighlight 已在 main.js 里关掉，这里由我们按词范围精确画。
+                    const returnWord = model.getWordAtPosition({
+                        lineNumber: curLine,
+                        column: targetColumn
+                    });
+                    if (returnWord) {
+                        refreshReturnTokenStyle();
+                        state.returnTokenDecorations = editor.deltaDecorations(state.returnTokenDecorations || [], [{
+                            range: new monaco.Range(
+                                curLine, returnWord.startColumn,
+                                curLine, returnWord.endColumn
+                            ),
+                            options: { className: 'cw-return-token', zIndex: 90 }
+                        }]);
+                    }
                 } else {
                     // editor.setSelection({
                     //     startLineNumber: range.end.line + 1,
@@ -336,8 +384,8 @@ export function createUpdateEditorContent(ctx) {
                     //     endColumn: range.end.character + 1
                     // });
                     editor.setPosition(new monaco.Position(
-                        hlEndLine,
-                        hlEndCol
+                        hlStartLine,
+                        hlStartCol
                     ));
                 }
 

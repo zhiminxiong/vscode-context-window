@@ -13,7 +13,11 @@ const INITIAL_UPDATE_DELAY = 2000; // 初始化后保底更新延时（ms）
 
 interface HistoryInfo {
     content: FileContentInfo | undefined;
+    // 「返回该条时光标应落回的位置」，均为 0-based，-1 表示未知。
+    // navigateLine 由来源侧写入（离开该段时点击的行）；navigateColumn 是同一次点击的列，
+    // 有了列才能精确回到当初点出去的那个 token，否则前端只能退回行尾。
     navigateLine: number;
+    navigateColumn: number;
 }
 
 export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode.WebviewPanelSerializer {
@@ -34,6 +38,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     private currentUri: vscode.Uri | undefined = undefined;
     private currentLine: number = 0; // 添加行号存储
+    private currentColumn: number = 0; // 与 currentLine 配对的列号（0-based）
     public static readonly viewType = 'contextView.context';
 
     private static readonly pinnedContext = 'contextView.contextWindow.isPinned';
@@ -248,17 +253,21 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     private getCurrentContent() : HistoryInfo {
-        return (this._history && this._history.length > this._historyIndex) ? this._history[this._historyIndex] : { content: undefined, navigateLine: -1 };
+        return (this._history && this._history.length > this._historyIndex) ? this._history[this._historyIndex] : { content: undefined, navigateLine: -1, navigateColumn: -1 };
     }
 
-    private addToHistory(contentInfo: FileContentInfo, fromLine: number =-1) {
-        //console.log('[definition] add history from line', fromLine);
+    // fromLine / fromColumn：离开「当前这一条」时用户点击的位置（0-based），写回旧的当前条，
+    // 返回时据此把光标精确放回当初点出去的那个 token 上。只有行没有列时前端只能退到行尾，
+    // 光标会落在无关标识符上（Monaco 的同词高亮跟着跑偏）。
+    private addToHistory(contentInfo: FileContentInfo, fromLine: number =-1, fromColumn: number =-1) {
+        //console.log('[definition] add history from line', fromLine, 'column', fromColumn);
         // 清除_historyIndex后的内容
         this._history = this._history.slice(0, this._historyIndex + 1);
-        this._history.push({ content: contentInfo, navigateLine: -1 });
+        this._history.push({ content: contentInfo, navigateLine: -1, navigateColumn: -1 });
         this._historyIndex++;
 
         this._history[this._historyIndex-1].navigateLine = fromLine;
+        this._history[this._historyIndex-1].navigateColumn = fromColumn;
 
         // this._history.forEach(element => {
         //     console.log('[definition] history element', element);
@@ -411,6 +420,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 directiveColor: this._readDirectiveColor(),
                 // 「双击选中整对括号/引号（含定界符）」开关：下发给 webview，用于底部导航栏 {si} 指示器的开/关显示。
                 doubleClickSelectsBracketPair: contextWindowConfig.get('doubleClickSelectsBracketPair', false),
+                // Monaco 内置「光标处同词高亮」开关，默认关。本面板的光标是程序设置的（跳转/返回定位），
+                // 而该高亮只认光标所在的词，差一列就框到旁边的无关标识符上。
+                occurrencesHighlight: contextWindowConfig.get('occurrencesHighlight', false),
             }
         };
 
@@ -499,7 +511,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 });
             
             const contentInfo = this._history[this._historyIndex];
-            this.updateContent(contentInfo?.content, contentInfo.navigateLine);
+            this.updateContent(contentInfo?.content, contentInfo.navigateLine, contentInfo.navigateColumn);
             // 历史导航后展示的已不是「主编辑区当前光标处」的上下文，缓存键必须失效，
             // 否则再点主编辑区那个原 token 会被 update() 的同键判定挡掉（见 invalidateCacheKey 说明）
             this.invalidateCacheKey();
@@ -600,8 +612,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const contentInfo = await this._renderer.renderDefinition(languageId, definition);
         this.updateContent(contentInfo);
         
-        // 使用range的起始位置作为导航行号用于历史记录
-        this.addToHistory(contentInfo, range.start.line);
+        // 使用range的起始位置作为导航坐标用于历史记录（入参 range 是 1-based，历史里统一存 0-based）
+        this.addToHistory(contentInfo, range.start.line - 1, range.start.character - 1);
 
         // 同 handleJumpDefinition：命令式跳转同样只改了展示内容，主编辑区光标没动，缓存键需失效
         this.invalidateCacheKey();
@@ -682,8 +694,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
      * @param curLine      1-based 当前行（-1 表示无）
      * @param includeRange 是否附带 range（updateContent 场景需要）
      * @param target       指定目标 webview；不传则广播到 view + panel
+     * @param curColumn    1-based 当前列（-1 表示无，前端退回行尾）
      */
-    private postMetadata(content: FileContentInfo, curLine: number, includeRange: boolean, target?: vscode.Webview) {
+    private postMetadata(content: FileContentInfo, curLine: number, includeRange: boolean, target?: vscode.Webview, curColumn: number = -1) {
         const uri = content.jmpUri.toString();
         const currentVersion = content.documentVersion;
         const msg: any = {
@@ -693,6 +706,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             languageId: content.languageId,
             updateMode: this._updateMode,
             curLine,
+            curColumn,
             documentVersion: currentVersion
         };
         if (includeRange) {
@@ -798,7 +812,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const curContext = this.getCurrentContent();
         if (curContext?.content) {
             // 恢复时携带 range，确保面板重新就绪后能滚动并高亮到定义行
-            this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._currentPanel.webview);
+            this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._currentPanel.webview, curContext.navigateColumn + 1);
         }
         this.postMessageToWebview({
             type: 'pinState',
@@ -993,7 +1007,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
                 const contentInfo = await this._renderer.renderDefinition(editor.document.languageId, definition);
                 this.updateContent(contentInfo);
-                this.addToHistory(contentInfo, message.position.line);
+                // message.position 是「离开当前段时点击的行/列」，行列一起记，返回时才能落回该 token
+                this.addToHistory(contentInfo, message.position.line, message.position.character);
             } else {
                 this.postMessageToWebview({
                     type: 'noSymbolFound',
@@ -1158,7 +1173,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 // 有缓存内容时立即恢复；没有则保持 Monaco "Ready for content." 状态，不主动查找定义
                 if (curContext?.content) {
                     // 恢复时携带 range，确保视图重新可见后能滚动并高亮到定义行
-                    this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._view.webview);
+                    this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._view.webview, curContext.navigateColumn + 1);
                 }
             }
         });
@@ -1174,7 +1189,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         // 初始加载时如果有缓存内容就直接使用；否则保持 "Ready for content." 状态
         if (curContext?.content) {
             // 携带 range，确保初次加载缓存内容后能滚动并高亮到定义行
-            this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._view.webview);
+            this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._view.webview, curContext.navigateColumn + 1);
         }
 
         this._view.webview.postMessage({
@@ -1358,14 +1373,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         </html>`;
     }
 
-    private async updateContent(contentInfo?: FileContentInfo, curLine: number =-1) {
+    private async updateContent(contentInfo?: FileContentInfo, curLine: number =-1, curColumn: number =-1) {
         if (contentInfo && contentInfo.content.length && contentInfo.jmpUri) {
             // 只缓存最近一次的内容（供前端请求使用）
             this._lastContentHash = `${contentInfo.jmpUri.toString()}:${contentInfo.documentVersion}`;
             this._lastContent = contentInfo;
 
             // 先发送元数据（不包含 body），body 由前端按需 requestContent 拉取
-            this.postMetadata(contentInfo, (curLine !== -1) ? curLine + 1 : -1, true);
+            // 历史里是 0-based，消息里统一转成 Monaco 的 1-based
+            this.postMetadata(contentInfo, (curLine !== -1) ? curLine + 1 : -1, true, undefined, (curColumn >= 0) ? curColumn + 1 : -1);
 
             if (this._currentPanel) {
                 let filePath;
@@ -1463,13 +1479,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             if (contentInfo.jmpUri) {
                 this.currentUri = vscode.Uri.parse(contentInfo.jmpUri);
                 this.currentLine = contentInfo.range.start.line;
+                this.currentColumn = contentInfo.range.start.character;
             }
             
             if (this._updateMode === UpdateMode.Live || contentInfo.jmpUri) {
                 this._currentCacheKey = newCacheKey;
                 
                 this._history = [];
-                this._history.push({ content: contentInfo, navigateLine: this.currentLine });
+                // 这一条没有「点击离开」的历史，落点就用定义名自身的起始位置
+                this._history.push({ content: contentInfo, navigateLine: this.currentLine, navigateColumn: this.currentColumn });
                 this._historyIndex = 0;
 
                 this.updateContent(contentInfo);
