@@ -384,8 +384,8 @@ export function createUpdateEditorContent(ctx) {
                     //     endColumn: range.end.character + 1
                     // });
                     editor.setPosition(new monaco.Position(
-                        hlStartLine,
-                        hlStartCol
+                        0,
+                        0
                     ));
                 }
 
