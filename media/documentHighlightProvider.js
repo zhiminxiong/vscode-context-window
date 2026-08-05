@@ -9,8 +9,8 @@
 // 本 provider 的 score 高于内置文本兜底，会被 WordHighlighter 优先采用：
 //   - 光标落在注释 / 字符串内 → 返回空数组 []（有效的「无高亮」结果，
 //     且能阻止回退到文本兜底），对齐 VSCode 主编辑器；
-//   - 其余位置 → 用 findMatches 做同词匹配。匹配是否「全词」跟随查找框(find widget)的
-//     「Match Whole Word (Alt+W)」开关：开=全词匹配，关=子串匹配。
+//   - 其余位置 → 用 findMatches 做同词匹配，恒定「全词 + 区分大小写」，与 VSCode 原生
+//     文本兜底 provider（TextualDocumentHighlightProvider）完全一致，不读查找框开关。
 
 import { tokenAtPosition } from './tokenize.js';
 import { getScopeAtPosition, isTextmateEnabled } from './textmateClient.js';
@@ -50,18 +50,9 @@ function isCommentOrString(model, editor, position) {
     return false;
 }
 
-// 读取查找框(find widget)的「Match Whole Word」开关状态。默认 true（与 VSCode 原生
-// occurrencesHighlight 兜底一致：全词匹配）。读不到 find controller 时同样回退到 true。
-function isWholeWordEnabled(editor) {
-    try {
-        const finder = editor.getContribution && editor.getContribution('editor.contrib.findController');
-        const state = finder && finder.getState && finder.getState();
-        if (state && typeof state.wholeWord === 'boolean') {
-            return state.wholeWord;
-        }
-    } catch (_) { /* 忽略，回退默认 */ }
-    return true;
-}
+// VSCode 原生文本兜底 provider 使用的固定单词分隔符常量（来自 monaco-editor 的
+// TextualDocumentHighlightProvider）。占据 findMatches 第 5 个参数 =恒定「全词匹配」。
+const USUAL_WORD_SEPARATORS = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/?';
 
 export function registerCommentAwareHighlight(monaco, editor) {
     if (registered) {
@@ -82,20 +73,15 @@ export function registerCommentAwareHighlight(monaco, editor) {
                 return [];
             }
 
-            // 匹配当前词的所有出现处。是否「全词」跟随查找框的 Match Whole Word 开关：
-            //   开 → 传 wordSeparators，findMatches 只匹配完整单词（VSCode 原生行为）；
-            //   关 → 传 null，退化为子串匹配。
-            const wholeWord = isWholeWordEnabled(editor);
-            const wordSeparators = wholeWord
-                ? ((model.getOptions && model.getOptions().wordSeparators) || null)
-                : null;
+            // 匹配当前词的所有出现处。恒定「全词 + 区分大小写」，与 VSCode 原生
+            // TextualDocumentHighlightProvider 一致，不读查找框的 Match Whole Word 开关。
             const matches = model.findMatches(
                 word.word,
-                true,   // searchScope=整个模型
-                false,  // isRegex
-                true,   // matchCase（区分大小写，与 VSCode 原生一致）
-                wordSeparators,
-                false   // captureMatches
+                true,                // searchScope=整个模型
+                false,                  // isRegex
+                true,                   // matchCase（区分大小写）
+                USUAL_WORD_SEPARATORS,  // wordSeparators=恒定全词匹配
+                false                   // captureMatches
             );
             return matches.map((m) => ({ range: m.range }));
         }
