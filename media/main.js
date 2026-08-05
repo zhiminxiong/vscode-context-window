@@ -446,13 +446,34 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         }
                     }
 
+                    // 只有「能移动光标」的按键才显示光标：方向键、Home/End、PageUp/PageDown。
+                    // Ctrl/Alt/Shift 等修饰键、以及普通字符键（本编辑器只读，不产生输入）一律不触发，
+                    // 避免按 Ctrl+F / Alt+W 等快捷键时光标无谓地闪现。
+                    const CURSOR_MOVE_KEYCODES = new Set([
+                        monaco.KeyCode.LeftArrow,
+                        monaco.KeyCode.RightArrow,
+                        monaco.KeyCode.UpArrow,
+                        monaco.KeyCode.DownArrow,
+                        monaco.KeyCode.Home,
+                        monaco.KeyCode.End,
+                        monaco.KeyCode.PageUp,
+                        monaco.KeyCode.PageDown
+                    ]);
+                    const isCursorMoveKey = (e) =>
+                        e && CURSOR_MOVE_KEYCODES.has(e.keyCode) &&
+                        !e.ctrlKey && !e.altKey && !e.metaKey;
+
                     // 监听键盘输入事件
                     editor.onKeyDown((e) => {
-                        showCursor();
+                        if (isCursorMoveKey(e)) {
+                            showCursor();
+                        }
                     });
 
                     editor.onKeyUp((e) => {
-                        showCursor();
+                        if (isCursorMoveKey(e)) {
+                            showCursor();
+                        }
                     });
 
                     // 监听鼠标点击事件
