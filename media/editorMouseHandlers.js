@@ -789,6 +789,11 @@ export function setupEditorMouseHandlers(ctx) {
                                 endLineNumber: position.lineNumber,
                                 endColumn: word.endColumn
                             });
+                            // 右键选词后让编辑器获得键盘焦点，否则 Ctrl+F / Alt+W 等
+                            // 快捷键收不到（此前必须再左键点一下才生效）。focus() 只影响
+                            // 键盘焦点，不影响光标视觉可见性——后者由 hideCursor() 的
+                            // cursor-active class 控制，故光标仍保持隐藏。
+                            editor.focus();
                             hideCursor();
                         }
                     } else if (e.event.leftButton) {
