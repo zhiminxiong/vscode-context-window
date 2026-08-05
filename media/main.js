@@ -2,6 +2,7 @@
 
 // 导入语言配置与各功能模块
 import { createDocumentSymbolProvider } from './documentSymbolProvider.js';
+import { registerCommentAwareHighlight } from './documentHighlightProvider.js';
 import { createBraceFoldingRangeProvider } from './braceFoldingProvider.js';
 import { resetPickColorPosition } from './tokenPicker.js';
 import { applyMonacoTheme, isLightTheme, installSemanticRenderMatch } from './editorTheme.js';
@@ -542,6 +543,12 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             monaco.languages.registerDocumentSemanticTokensProvider(lang, semanticProvider);
                         });
                     }
+
+                    // 注册注释/字符串感知的同词高亮 provider（occurrencesHighlight）。
+                    // 缺省无 provider 时 Monaco 退化为不区分注释的文本兜底，导致注释里的词也被高亮；
+                    // 本 provider score 更高会被优先采用，在注释/字符串里返回空、其余位置全词匹配，
+                    // 与 VSCode 主编辑器行为对齐。内部有一次性护栏，重复调用不会叠加。
+                    registerCommentAwareHighlight(monaco, editor);
 
                     // 为 C++, C, C# 注册 Document Symbol Provider（从 documentSymbolProvider.js 导入）
                     // 这些语言走 sticky scroll 的 outlineModel，依赖此同步 symbol provider 显示函数/类名。

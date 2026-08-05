@@ -276,7 +276,12 @@ export function getScopeAtPosition(model, position) {
     const toks = target.tokens;
     for (let i = 0; i < toks.length; i++) {
         const t = toks[i];
-        if (col0 >= t.startIndex && col0 < t.endIndex) {
+        // 命中判断：普通 token 用左闭右开 [start, end)；但最后一个 token 用闭区间 [start, end]，
+        // 因为光标停在行尾（col0 == 该行长度 == 最后 token 的 endIndex）在直觉上仍属于该 token
+        // （如行尾注释）。否则行尾差一列命中不到，getScopeAtPosition 会误返回 null。
+        const isLast = (i === toks.length - 1);
+        const inRange = col0 >= t.startIndex && (isLast ? col0 <= t.endIndex : col0 < t.endIndex);
+        if (inRange) {
             return {
                 scopes: t.scopes.slice(),
                 picked: pickScope(t.scopes),
