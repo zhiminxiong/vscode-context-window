@@ -357,7 +357,7 @@ export function createUpdateEditorContent(ctx) {
                         : lineMaxColumn;
                     editor.setPosition(new monaco.Position(
                         curLine,
-                        targetColumn
+                        lineMaxColumn
                     ));
                     // 显式高亮落点 token。不能指望 Monaco 的同词高亮来表达「选中」：
                     // 它只认光标所在的词，光标差一列就框到旁边的标识符上（这正是返回后框跑到 this 的原因），
@@ -384,8 +384,8 @@ export function createUpdateEditorContent(ctx) {
                     //     endColumn: range.end.character + 1
                     // });
                     editor.setPosition(new monaco.Position(
-                        0,
-                        0
+                        0, // hlStartLine,
+                        0 //hlStartCol
                     ));
                 }
 
