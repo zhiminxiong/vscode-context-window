@@ -4,8 +4,13 @@ import * as vscode from 'vscode';
 // legend：tokenTypes / tokenModifiers 索引表（由语言服务器提供，按语言而定）。
 // data：LSP 标准 5 元组 delta 编码 [ΔLine, ΔStartChar, length, tokenTypeIdx, tokenModifiers]，
 //       Uint32Array 转成 number[] 以便跨 webview 序列化。
+export interface SemanticLegend {
+    tokenTypes: string[];
+    tokenModifiers: string[];
+}
+
 export interface SemanticPayload {
-    legend: { tokenTypes: string[]; tokenModifiers: string[] };
+    legend: SemanticLegend;
     data: number[];
 }
 
@@ -20,6 +25,9 @@ export interface FileContentInfo {
     documentVersion: number;
     lineCount: number;
     semantic?: SemanticPayload | null; // VSCode 语义 token（按需，可能为空）
+    // 对齐 VSCode：legend 与 data 解耦。legend 快、随内容一起下发，供前端首帧建 styling；
+    // data慢、异步补取。此字段为「仅 legend」，即使 data 尚未取到也可先行下发。
+    legend?: SemanticLegend | null;
 }
 
 interface FileCacheEntry {
@@ -31,6 +39,9 @@ interface FileCacheEntry {
     //   null      = 索取过且确认为空（不必重复请求语言服务器）
     //   Payload   = 索取过且有数据
     semantic?: SemanticPayload | null;
+    // 仅 legend 的缓存（比 data 便宜很多、稳定）：命中时可直接随内容下发，避免每次重取。
+    //   undefined = 未取过；null = 取过为空；SemanticLegend = 取到
+    legend?: SemanticLegend | null;
 }
 
 // loadContent 的返回结构：仅包含与 range 无关的内容与元数据
@@ -40,6 +51,7 @@ interface LoadedContent {
     documentVersion: number;
     lineCount: number;
     semantic?: SemanticPayload | null;
+    legend?: SemanticLegend | null;
 }
 
 export class Renderer {
@@ -133,7 +145,8 @@ export class Renderer {
             languageId: loaded.languageId,
             documentVersion: loaded.documentVersion,
             lineCount: loaded.lineCount,
-            semantic: loaded.semantic
+            semantic: loaded.semantic,
+            legend: loaded.legend
         };
     }
 
@@ -186,18 +199,21 @@ export class Renderer {
         if (cached && cached.documentVersion === currentVersion) {
             this._fileCache.delete(cacheKey);
             this._fileCache.set(cacheKey, cached);
-            // 缓存项可能在"默认模式"时写入而未带语义 token，按需补取并回填
-            let semantic = cached.semantic;
-            if (needSemantic && semantic === undefined) {
-                semantic = await this.getSemanticTokens(doc);
-                cached.semantic = semantic;
+            // 对齐 VSCode：内容加载阶段不阻塞取整篇 data，只取（或复用）legend 随内容下发；
+            // data 交由上层 scheduleSemanticUpdate 异步补取，避免拖慢首屏内容返回。
+            let legend = cached.legend;
+            if (needSemantic && legend === undefined) {
+                legend = await this.getLegendTokens(doc);
+                cached.legend = legend;
             }
             return {
                 content: cached.content,
                 languageId: cached.languageId,
                 documentVersion: currentVersion,
                 lineCount: doc.lineCount,
-                semantic: needSemantic ? semantic : null
+                // 已缓存到的 data 直接带出（命中即用）；未取过则为 undefined，交由上层异步补取
+                semantic: needSemantic ? cached.semantic : null,
+                legend: needSemantic ? (legend ?? null) : null
             };
         }
 
@@ -205,11 +221,14 @@ export class Renderer {
         const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || fallbackLanguageId || 'plaintext');
         const content = this.readFullFileContent(doc);
         // 语义 token 三态：
-        //   undefined —— 本次未向语言服务器索取（默认 tokenizer 模式 / 该语言关闭语义高亮），
-        //                后续若切到语义模式，命中缓存时可按需补取（见上方回填分支）；
+        //   undefined —— 本次未向语言服务器索取整篇 data（内容优先返回，data 交上层异步补取；
+        //                默认 tokenizer 模式 / 该语言关闭语义高亮时也是 undefined）；
         //   null      —— 索取过但确认为空（未装语言扩展 / 不支持语义 token / 无 token），不必重取；
         //   Payload   —— 索取到数据。
-        const semantic = needSemantic ? await this.getSemanticTokens(doc) : undefined;
+        // 对齐 VSCode：这里不再 `await getSemanticTokens`（整篇 data 慢），让内容立即返回、TextMate 先着色；
+        // 只取「legend」（快）随内容下发，供前端首帧建 styling；data 由上层 fetchSemanticForUri 异步补取。
+        const semantic = undefined;
+        const legend = needSemantic ? await this.getLegendTokens(doc) : undefined;
 
         // 按内容字节大小判定是否为大文件（content 已无条件读取，零额外开销）
         if (content.length > this.largeFileSizeThreshold) {
@@ -217,7 +236,8 @@ export class Renderer {
                 content,
                 languageId: finalLanguageId,
                 documentVersion: currentVersion,
-                semantic
+                semantic,
+                legend
             });
         }
 
@@ -226,8 +246,76 @@ export class Renderer {
             languageId: finalLanguageId,
             documentVersion: currentVersion,
             lineCount: doc.lineCount,
-            semantic
+            semantic,
+            legend: legend ?? null
         };
+    }
+
+    /**
+     * 轻量获取「仅 legend」（tokenTypes / tokenModifiers 索引表），不取整篇 data。
+     * 对齐 VSCode 架构：provider 注册时 legend 即已知、data 才异步流入。
+     * legend 只由 `provideDocumentSemanticTokensLegend` 得到，成本远低于取整篇 data（不跑整篇语义分析），
+     * 因此可在「内容下发阶段」随内容一起下发，使前端首帧就用完整 legend 建 styling。
+     * 未装语言扩展 / 不支持语义 token →返回 null，前端保持 TextMate 着色。
+     */
+    private async getLegendTokens(doc: vscode.TextDocument): Promise<SemanticLegend | null> {
+        try {
+            const legend = await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
+                'vscode.provideDocumentSemanticTokensLegend', doc.uri);
+            if (!legend || !legend.tokenTypes || legend.tokenTypes.length === 0) {
+                return null;
+            }
+            return {
+                tokenTypes: Array.from(legend.tokenTypes),
+                tokenModifiers: Array.from(legend.tokenModifiers || [])
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * 供上层异步补取整篇语义 token（对齐 VSCode ModelSemanticColoring：内容先渲染、data 稍后覆盖）。
+     * 内部做 needSemantic 判定与缓存回填；返回 null 表示无需/无semantic（前端保持 TextMate 着色）。
+     * 注意：不阻塞内容加载，由 contextView 在内容下发后带 debounce 调用。
+     */
+    public async fetchSemanticForUri(uri: vscode.Uri): Promise<SemanticPayload | null> {
+        const doc = await this.acquireDocument(uri);
+        const needSemantic = !vscode.workspace
+            .getConfiguration('contextView.contextWindow')
+            .get<boolean>('useDefaultTokenizer', true)
+            && this.isSemanticHighlightingEnabled(doc);
+        if (!needSemantic) {
+            return null;
+        }
+
+        const cacheKey = uri.toString();
+        const cached = this._fileCache.get(cacheKey);
+        // 缓存里已取过整篇 data（含 null）且版本一致：直接用，避免重复请求语言服务器
+        if (cached && cached.documentVersion === doc.version && cached.semantic !== undefined) {
+            return cached.semantic;
+        }
+
+        const semantic = await this.getSemanticTokens(doc);
+        // 回填缓存。注意必须重新 get：上面的 await 期间事件循环可能已改动缓存
+        //（其他跳转 addToCache 新增此条目、LRU 淘汰旧条目、或新版本覆盖），
+        // 前面的 cached 是await 之前的快照，可能已失效/为undefined，不能直接复用。
+        // 仅当该 key 当前确实在缓存中且版本仍一致时才回填，避免写进孤儿对象或污染新版本。
+        const latest = this._fileCache.get(cacheKey);
+        if (latest && latest.documentVersion === doc.version) {
+            latest.semantic = semantic;
+            // data 里也带着权威legend，一并回填，之后命中直接复用
+            if (semantic && semantic.legend) {
+                latest.legend = semantic.legend;
+            }
+        }
+        return semantic;
+    }
+
+    /** 供上层做版本校验：拿当前文档版本（对齐 VSCode getVersionId 的过期丢弃） */
+    public async getDocumentVersion(uri: vscode.Uri): Promise<number> {
+        const doc = await this.acquireDocument(uri);
+        return doc.version;
     }
 
     /**
@@ -239,9 +327,8 @@ export class Renderer {
     private async getSemanticTokens(doc: vscode.TextDocument): Promise<SemanticPayload | null> {
         const uri = doc.uri;
         try {
-            const legend = await vscode.commands.executeCommand<vscode.SemanticTokensLegend>(
-                'vscode.provideDocumentSemanticTokensLegend', uri);
-            if (!legend || !legend.tokenTypes) {
+            const legend = await this.getLegendTokens(doc);
+            if (!legend) {
                 return null;
             }
             // 1) 先试整文档（< 10 万字符的文件 TS 等语言服务直接给）
@@ -259,10 +346,7 @@ export class Renderer {
             }
 
             return {
-                legend: {
-                    tokenTypes: Array.from(legend.tokenTypes),
-                    tokenModifiers: Array.from(legend.tokenModifiers || [])
-                },
+                legend,
                 data
             };
         } catch {

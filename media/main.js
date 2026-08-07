@@ -313,6 +313,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         range: null,
                         curLine: -1,
                         curColumn: -1,
+                        // 当前渲染内容的文档版本：内容到达(updateContent/命中缓存)时记录，
+                        // 供异步后到的 updateSemantic 做过期校验（-1 表示尚未记录，不校验版本）。
+                        contentVersion: -1,
                         activeLineDecorations: [],
                         symboleDecorations: [],
                         // 返回落点 token 的高亮装饰 id（当初点出去的那个词，如 HasInput）
@@ -519,18 +522,37 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // 语义着色会话状态：后端透传的整文档语义 token（legend + data）。
                     // 前端不再用手写 Monarch 去"猜"标识符语义，改由 VSCode 语言服务器的语义 token 驱动着色。
                     const semanticState = { legend: null, data: null };
-                    // 语义 token 变更通知：内容相同但语义数据更新（如缓存命中/live 重取）时，
-                    // 主动触发 Monaco 重新向 provider 索取语义 token 并重着色。
+                    // 语义 token 变更通知：data 异步到达后触发 Monaco 重新向 provider 索取 data 并重着色。
                     const semanticTokensEmitter = new monaco.Emitter();
 
-                    // 写入后端发来的语义 token 并通知 Monaco 刷新（在 setValue 前调用，保证 provide 时数据已就绪）
+                    // 对齐 VSCode 架构：Monaco 的 SemanticTokensProviderStyling 以 provider 对象为 key
+                    // 缓存一次 getLegend() 的结果，之后永不重取 legend；onDidChange.fire() 只让它重取 data。
+                    // 因此关键在于——首帧建 styling 时 getLegend() 必须已返回「完整 legend」。
+                    //我们照VSCode 做法把 legend 与 data 解耦：后端在「内容下发阶段」随内容带上 legend
+                    //（provideDocumentSemanticTokensLegend 很快），前端在setValue 前先写入 semanticState.legend，
+                    // 使首帧 getStyling 就用完整 legend 建映射；data 慢、异步后到时仅需 fire() 让 Monaco
+                    // 用「已正确的 styling」重取 data → 上色。不再需要空legend→有内容时重注册 provider 的手段。
+
+                    // 内容阶段：随内容一起下发的 legend 先行写入（此时 data 尚未到达，置空）。
+                    // 必须在 setValue 之前调用，保证 Monaco 首帧建 styling 时 getLegend() 已是完整 legend。
+                    function setSemanticLegend(legend) {
+                        if (legend && Array.isArray(legend.tokenTypes) && legend.tokenTypes.length) {
+                            semanticState.legend = legend;
+                        } else {
+                            semanticState.legend = null;
+                        }
+                        // 新内容渲染前清空上一份 data，避免旧 data 串到新内容
+                        semanticState.data = null;
+                    }
+
+                    // data 异步到达：写入 data（并以其权威 legend 为准）后通知 Monaco 重取。
+                    // legend 已在内容阶段就位、styling 正确，故这里只需 fire。
                     function applySemanticTokens(semantic) {
                         if (semantic && Array.isArray(semantic.data) && semantic.legend && Array.isArray(semantic.legend.tokenTypes)) {
                             semanticState.legend = semantic.legend;
                             semanticState.data = semantic.data;
                         } else {
-                            // 无语义 token（未装语言扩展 / 不支持 / 文档未纳入分析）：清空，回退到基础着色
-                            semanticState.legend = null;
+                            // 无语义 data（未装语言扩展 / 不支持 / 文档未纳入分析）：清空 data，回退到基础着色
                             semanticState.data = null;
                         }
                         try { semanticTokensEmitter.fire(); } catch (_) {}
@@ -823,14 +845,15 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                     // 消息处理逻辑已抽离到 messageHandlers.js（工厂持有 editor / editorState /
                     // 前端缓存 / vscode 通信 及内容更新、定义列表清理等回调）
-                    const { handleUpdateMetadata, handleUpdateContent, handleNoContent } = createMessageHandlers({
+                    const { handleUpdateMetadata, handleUpdateContent, handleNoContent, handleUpdateSemantic } = createMessageHandlers({
                         editor,
                         state: editorState,
                         fileContentCache,
                         vscode,
                         updateEditorContent,
                         clearDefinitionList,
-                        applySemanticTokens
+                        applySemanticTokens,
+                        setSemanticLegend
                     });
 
                     window.addEventListener('blur', () => {
@@ -995,6 +1018,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     break;
                                 case 'updateContent':
                                     handleUpdateContent(message);
+                                    break;
+                                case 'updateSemantic':
+                                    handleUpdateSemantic(message);
                                     break;
                                 case 'noContent':
                                     handleNoContent(message);

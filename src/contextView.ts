@@ -66,6 +66,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     private _progressDepth = 0;  // 进度条嵌套计数：归零才隐藏，避免并发更新时进度条错配
 
+    // —— 对齐 VSCode ModelSemanticColoring 的 semantic 异步补取（内容先出、data 后覆盖）——
+    // 内容下发后不阻塞，延迟(debounce)向语言服务器取整篇 semantic data，取到再单独postMessage 下发。
+    private _semanticTimer: NodeJS.Timeout | null = null;
+    private _semanticCts?: vscode.CancellationTokenSource;
+    // 自适应 debounce：对齐 VSCode 的 min 300 / max 2000 + SlidingWindowAverage(6)。
+    private _semanticDelays: number[] = [];
+    private static readonly SEMANTIC_MIN_DELAY = 300;
+    private static readonly SEMANTIC_MAX_DELAY = 2000;
+
     constructor(
         private readonly _extensionUri: vscode.Uri,
     ) {
@@ -467,6 +476,17 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this._loading = undefined;
         }
 
+        // 清理 semantic 异步补取的定时器与进行中的请求，避免 dispose 后回调到已释放对象
+        if (this._semanticTimer) {
+            clearTimeout(this._semanticTimer);
+            this._semanticTimer = null;
+        }
+        if (this._semanticCts) {
+            try { this._semanticCts.cancel(); } catch (_) { /* noop */ }
+            try { this._semanticCts.dispose(); } catch (_) { /* noop */ }
+            this._semanticCts = undefined;
+        }
+
         // 确保关闭定义选择面板
         if (this._currentPanel) {
             this._currentPanel.dispose();
@@ -649,6 +669,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'requestContent':
                     this.handleRequestContent(message);
+                    break;
+                case 'requestSemantic':
+                    // 前端命中缓存直接渲染（不走 requestContent）但尚无 data时，主动来要一次。
+                    this.handleRequestSemantic(message);
                     break;
                 case 'requestGrammar':
                     this.handleRequestGrammar(message);
@@ -835,6 +859,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     // WebView 请求完整内容（优先命中最近一次的单槽缓存，未命中则按 uri 现取）
     private handleRequestContent(message: any) {
         if (message.contentHash && message.contentHash === this._lastContentHash && this._lastContent) {
+            const hitUri = vscode.Uri.parse(this._lastContent.jmpUri.toString());
+            const hitVersion = this._lastContent.documentVersion;
             this.postMessageToWebview({
                 type: 'updateContent',
                 contentHash: this._lastContentHash,
@@ -843,10 +869,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 languageId: this._lastContent.languageId,
                 updateMode: this._updateMode,
                 range: this._lastContent.range,
-                documentVersion: this._lastContent.documentVersion,
+                documentVersion: hitVersion,
                 lineCount: this._lastContent.lineCount,
-                semantic: this._lastContent.semantic ?? null
+                // 对齐 VSCode：内容阶段带 legend（快、供首帧建 styling），不带 data（TextMate 先着色）
+                semantic: null,
+                legend: this._lastContent.legend ?? null
             });
+            // 内容已下发，异步补 semantic data（带 debounce + 版本校验），取到后单独覆盖
+            this.scheduleSemanticUpdate(hitUri, hitVersion);
             return;
         }
 
@@ -866,9 +896,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     updateMode: this._updateMode,
                     documentVersion: info.documentVersion,
                     lineCount: info.lineCount,
-                    semantic: info.semantic ?? null
+                    // 对齐 VSCode：内容阶段带 legend（快、供首帧建 styling），不带 data（TextMate 先着色）
+                    semantic: null,
+                    legend: info.legend ?? null
                     // 不回传 range/curLine：前端用 updateMetadata 阶段保存的定位信息
                 });
+                // 内容已下发，异步补 semantic data（带 debounce + 版本校验），取到后单独覆盖
+                this.scheduleSemanticUpdate(reqUri, info.documentVersion);
             } catch (e) {
                 this.postMessageToWebview({
                     type: 'contentError',
@@ -878,6 +912,84 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 });
             }
         })();
+    }
+
+    // 前端命中缓存直接渲染时（不经 requestContent），若本地无 data 则发此消息补取。
+    // 复用 scheduleSemanticUpdate 的 debounce + 版本校验，取到后以 updateSemantic 单独下发。
+    private handleRequestSemantic(message: any) {
+        if (!message?.uri) {
+            return;
+        }
+        try {
+            const reqUri = vscode.Uri.parse(message.uri);
+            const version = typeof message.documentVersion === 'number' ? message.documentVersion : 0;
+            this.scheduleSemanticUpdate(reqUri, version);
+        } catch {
+            // uri 解析失败：静默忽略，前端保持 TextMate 着色
+        }
+    }
+
+    // 自适应 debounce 延迟：对齐 VSCode的 min/max + 最近 N 次耗时滑动平均。
+    private currentSemanticDelay(): number {
+        if (this._semanticDelays.length === 0) {
+            return ContextWindowProvider.SEMANTIC_MIN_DELAY;
+        }
+        const avg = this._semanticDelays.reduce((a, b) => a + b, 0) / this._semanticDelays.length;
+        return Math.max(
+            ContextWindowProvider.SEMANTIC_MIN_DELAY,
+            Math.min(ContextWindowProvider.SEMANTIC_MAX_DELAY, avg)
+        );
+    }
+
+    /**
+     * 对齐 VSCode ModelSemanticColoring：内容渲染后，延迟(debounce)异步取整篇 semantic data 再单独下发。
+     * - 每次调用取消上一轮定时器与请求（RunOnceScheduler 语义），避免快速跳转时请求堆积；
+     * - 带 documentVersion 版本校验，等待期间文档若已变/切走则丢弃结果（对齐 getVersionId 过期丢弃）；
+     * - 记录请求耗时更新滑动平均，驱动自适应 debounce。
+     */
+    private scheduleSemanticUpdate(uri: vscode.Uri, documentVersion: number) {
+        // 取消上一轮（定时器 + 进行中的请求）
+        if (this._semanticTimer) {
+            clearTimeout(this._semanticTimer);
+            this._semanticTimer = null;
+        }
+        this._semanticCts?.cancel();
+
+        const delay = this.currentSemanticDelay();
+        this._semanticTimer = setTimeout(async () => {
+            this._semanticTimer = null;
+            const cts = new vscode.CancellationTokenSource();
+            this._semanticCts = cts;
+            const start = Date.now();
+            try {
+                const semantic = await this._renderer.fetchSemanticForUri(uri);
+
+                // 更新滑动平均（保留最近 6 次，与 VSCode SlidingWindowAverage(6) 一致）
+                const elapsed = Date.now() - start;
+                this._semanticDelays.push(elapsed);
+                if (this._semanticDelays.length > 6) {
+                    this._semanticDelays.shift();
+                }
+
+                if (cts.token.isCancellationRequested) {
+                    return;
+                }
+                // 版本校验：等待期间文档可能被编辑或已切换到别的文件
+                const nowVersion = await this._renderer.getDocumentVersion(uri);
+                if (nowVersion !== documentVersion) {
+                    return;
+                }
+
+                this.postMessageToWebview({
+                    type: 'updateSemantic',
+                    uri: uri.toString(),
+                    documentVersion,
+                    semantic: semantic ?? null
+                });
+            } catch {
+                // 静默：取不到 semantic 时前端保持 TextMate 着色
+            }
+        }, delay);
     }
 
     // Webview hover：转发到主编辑区已就绪的 LSP（vscode.executeHoverProvider），
