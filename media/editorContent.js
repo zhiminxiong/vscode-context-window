@@ -279,7 +279,7 @@ export function createUpdateEditorContent(ctx) {
                 if (curLine && curLine > 0) {
                     targetLine = curLine;
                 }
-                editor.revealLineInCenter(targetLine);
+                editor.revealLineInCenter(targetLine, monaco.editor.ScrollType.Immediate);
 
                 // 添加行高亮装饰，只高亮开始行
                 state.activeLineDecorations = editor.deltaDecorations(state.activeLineDecorations, [{
