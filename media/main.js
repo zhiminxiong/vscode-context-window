@@ -294,7 +294,15 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     });
 
                     const currentStickyScroll = editor.getOption(monaco.editor.EditorOption.stickyScroll);
-                    window.stickyScroll = currentStickyScroll?.enabled;
+                    // Sticky Scroll 启用状态以后端下发的「有效值」为准（contextEditorCfg.stickyScroll）：
+                    // 插件自身配置未设置时该值 = 主编辑器 editor.stickyScroll.enabled（跟随 VSCode），
+                    // 显式设置后= 插件自身值（右键菜单切换会写入并覆盖）。据此显式设置 Monaco，
+                    // 避免仅依赖 editorOptions 透传导致的「右键取消只是临时、重启又回到 VSCode 全局值」。
+                    {
+                        const cfgSticky = contextEditorCfg.stickyScroll;
+                        window.stickyScroll = (typeof cfgSticky === 'boolean') ? cfgSticky : !!currentStickyScroll?.enabled;
+                        editor.updateOptions({ stickyScroll: { enabled: window.stickyScroll } });
+                    }
                     // sticky scroll 的 defaultModel 由 editorContent.js 的 refreshStickyScroll 按当前文件语言动态切换：
                     // TS/JS 用 foldingProviderModel（其 outline 在 webview 中不可用，缩进模型又处理不了「{ 独占一行」），
                     // 其它语言用 outlineModel（显示函数名）。
@@ -875,6 +883,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     editor.updateOptions({
                                         stickyScroll: { enabled: window.stickyScroll }
                                     });
+                                    // 持久化到插件自身配置（覆盖「跟随 VSCode」的默认行为）：
+                                    // 否则右键取消只是运行时临时生效，重启后又回到 VSCode 全局 sticky scroll 值。
+                                    vscode.postMessage({ type: 'setStickyScroll', value: window.stickyScroll });
                                     break;
                                 case 'PickTokenStyle':
                                     window.pickTokenStyle = !window.pickTokenStyle;
@@ -914,6 +925,18 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                                 ensureHoverProvider();
                                             } else {
                                                 disposeHoverProvider();
+                                            }
+                                        }
+
+                                        // Sticky Scroll 开关同步：设置 UI 改了 contextView.contextWindow.stickyScroll、
+                                        // 多窗口同步、或（未显式设置时）主编辑器 editor.stickyScroll.enabled 变化，
+                                        // 后端都会把最新「有效值」放进 contextEditorCfg.stickyScroll 回推。这里据此更新 Monaco
+                                        // 与 window.stickyScroll（驱动右键菜单勾选）。
+                                        if (typeof message.contextEditorCfg.stickyScroll === 'boolean'
+                                            && window.stickyScroll !== message.contextEditorCfg.stickyScroll) {
+                                            window.stickyScroll = message.contextEditorCfg.stickyScroll;
+                                            if (editor) {
+                                                editor.updateOptions({ stickyScroll: { enabled: window.stickyScroll } });
                                             }
                                         }
 

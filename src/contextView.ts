@@ -101,7 +101,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 // 使 webview 内的对应样式与 VSCode 保持一致。
                 if (e.affectsConfiguration('editor.tokenColorCustomizations') ||
                     e.affectsConfiguration('editor.fontWeight') ||
-                    e.affectsConfiguration('editor.bracketPairColorization.enabled')) {
+                    e.affectsConfiguration('editor.bracketPairColorization.enabled') ||
+                    // 主编辑器 sticky scroll 开关变化时，若本插件未显式设置（跟随模式），
+                    // 需回推最新有效值刷新 webview 的粘附行显示。
+                    e.affectsConfiguration('editor.stickyScroll.enabled')) {
                     this.postMessageToWebview({
                         type: 'updateContextEditorCfg',
                         contextEditorCfg: updatedConfig.contextEditorCfg,
@@ -369,6 +372,34 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             .get<boolean>('useDefaultTokenizer', true);
     }
 
+    // 解析 Sticky Scroll 的有效开关值（三态 → 布尔）。
+    //插件自身配置 contextView.contextWindow.stickyScroll：
+    //   · 未设置（null / undefined）→ 跟随主编辑器 editor.stickyScroll.enabled（保持与VSCode 同步）；
+    //   · 显式 true/false → 以插件设置为准（右键菜单切换会写入此项，从而覆盖 VSCode 全局值）。
+    private _resolveStickyScrollEnabled(
+        contextWindowConfig: vscode.WorkspaceConfiguration,
+        editorConfig: vscode.WorkspaceConfiguration
+    ): boolean {
+        const own = contextWindowConfig.get<boolean | null>('stickyScroll', null);
+        if (typeof own === 'boolean') {
+            return own;
+        }
+        // 未设置：跟随主编辑器全局开关（VSCode 默认 true）。
+        return editorConfig.get<boolean>('stickyScroll.enabled', true);
+    }
+
+    // 持久化 Sticky Scroll 开关：右键菜单切换时由webview 发来，写入插件自身配置（覆盖跟随 VSCode 的默认行为）。
+    // 写入后 onDidChangeConfiguration 回调会通过 updateContextEditorCfg 把最新有效值广播回 webview。
+    private async handleSetStickyScroll(message: any) {
+        try {
+            const value = !!message?.value;
+            const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+            await cfg.update('stickyScroll', value, true);
+        } catch (err) {
+            console.error('[context-window] setStickyScroll failed:', err);
+        }
+    }
+
     // 从 editor.tokenColorCustomizations 读取 #include 等预处理指令的前景色。
     // 与扩展端 VSCode 装饰（registerDirectiveDecorations）取色保持一致，使 webview Monaco 高亮同源。
     private _readDirectiveColor(): string {
@@ -432,6 +463,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 // Monaco 内置「光标处同词高亮」开关，默认关。本面板的光标是程序设置的（跳转/返回定位），
                 // 而该高亮只认光标所在的词，差一列就框到旁边的无关标识符上。
                 occurrencesHighlight: contextWindowConfig.get('occurrencesHighlight', false),
+                // Sticky Scroll（顶部粘附的函数/类标题行）是否显示的「有效值」。
+                // 本插件配置 contextView.contextWindow.stickyScroll 为三态：
+                //   · null（默认，未设置）→ 跟随主编辑器 editor.stickyScroll.enabled；
+                //   · true/false → 以插件自身设置为准（右键菜单切换即写入此项，从而覆盖 VSCode 全局值）。
+                // 后端在此把三态解析成一个明确的布尔值下发，前端启动/运行期据此设置 Monaco 的 stickyScroll.enabled。
+                stickyScroll: this._resolveStickyScrollEnabled(contextWindowConfig, editorConfig),
             }
         };
 
@@ -685,6 +722,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'setEnableHover':
                     await this.handleSetEnableHover(message);
+                    break;
+                case 'setStickyScroll':
+                    await this.handleSetStickyScroll(message);
                     break;
                 case 'toggleSelectBracketPair':
                     // 底部导航栏 {si} 指示器点击：切换「双击选中整对括号/引号」开关。
