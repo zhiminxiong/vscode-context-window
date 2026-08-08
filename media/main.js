@@ -1,9 +1,9 @@
 //@ts-check
 
 // 导入语言配置与各功能模块
-import { createDocumentSymbolProvider } from './documentSymbolProvider.js';
 import { registerCommentAwareHighlight } from './documentHighlightProvider.js';
 import { createBraceFoldingRangeProvider } from './braceFoldingProvider.js';
+import { BRACE_LANGS } from './braceLangs.js';
 import { resetPickColorPosition } from './tokenPicker.js';
 import { applyMonacoTheme, isLightTheme, installSemanticRenderMatch } from './editorTheme.js';
 import { injectEditorStyles } from './editorStyles.js';
@@ -601,20 +601,14 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // 与 VSCode 主编辑器行为对齐。内部有一次性护栏，重复调用不会叠加。
                     registerCommentAwareHighlight(monaco, editor);
 
-                    // 为 C++, C, C# 注册 Document Symbol Provider（从 documentSymbolProvider.js 导入）
-                    // 这些语言走 sticky scroll 的 outlineModel，依赖此同步 symbol provider 显示函数/类名。
-                    if (contextEditorCfg.fixStickyScroll) {
-                        monaco.languages.registerDocumentSymbolProvider('cpp', createDocumentSymbolProvider(monaco));
-                        monaco.languages.registerDocumentSymbolProvider('c', createDocumentSymbolProvider(monaco));
-                        monaco.languages.registerDocumentSymbolProvider('csharp', createDocumentSymbolProvider(monaco));
-                    }
-
-                    // TS/JS 的 sticky scroll 走 foldingProviderModel（其 outlineModel 依赖永不 resolve 的
-                    // ts.worker，缩进模型又无法处理「{ 独占一行」）。这里注册基于花括号配对的
-                    // folding provider，把孤立 '{' 的块起始行上提到真正的声明行，粘附行才与 VSCode 一致。
-                    // 解析不出区间时 provider 返回 null，sticky 与折叠都会自动回退到缩进模型。
-                    monaco.languages.registerFoldingRangeProvider('typescript', createBraceFoldingRangeProvider(monaco));
-                    monaco.languages.registerFoldingRangeProvider('javascript', createBraceFoldingRangeProvider(monaco));
+                    // 所有基于花括号的语言（BRACE_LANGS）统一用 braceFoldingProvider 驱动
+                    // sticky scroll（foldingProviderModel）。花括号配对 + 声明行上提是语言无关的，
+                    // 能统一处理 Allman/K&R/多行签名；且对每对 { } 都出区间，因此 if/for/while/
+                    // switch/try 等控制流块也会进 sticky。解析不出区间时 provider 返回 null，
+                    // sticky 与折叠都会自动回退到缩进模型。
+                    BRACE_LANGS.forEach(lang => {
+                        monaco.languages.registerFoldingRangeProvider(lang, createBraceFoldingRangeProvider(monaco));
+                    });
 
                     //editor.onDidScrollChange(forcePointerCursor);
                     //editor.onDidChangeConfiguration(forcePointerCursor);

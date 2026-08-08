@@ -5,6 +5,8 @@
 // 以工厂函数形式创建，通过 ctx 共享 editor 引用、可变会话状态（state）与若干回调。
 // monaco / document 直接使用全局对象（与其它模块一致）。
 
+import { BRACE_LANGS } from './braceLangs.js';
+
 export function createUpdateEditorContent(ctx) {
     const { editor, state, applyIndentationForModel, updateFilenameDisplay, hideCursor, ensureGrammar } = ctx;
 
@@ -88,13 +90,12 @@ export function createUpdateEditorContent(ctx) {
     //
     // 关键背景：stickyScroll.defaultModel 是【全局】编辑器选项，无法按语言分别设置；但本面板每次只显示
     // 单一文件、单一语言，因此可在每次内容更新时根据 languageId 动态切换全局 defaultModel，等价于「按语言选模型」：
-    //   · TS/JS：其 outline 依赖内置 worker 的 documentSymbol，而 worker 在 webview 中长期 pending（与 hover 卡
-    //     Loading 同源）；自定义同步 provider 的符号又不被 sticky 的 OutlineModel 采用 → outlineModel 对 TS/JS
-    //     始终空。故 TS/JS 用 foldingProviderModel，配合 braceFoldingProvider.js 注册的花括号折叠 provider
-    //     （纯缩进模型无法处理「{ 独占一行」：孤立的 '{' 会被当成标题行，且方法层级整体丢失）。
+    //   · 花括号系语言（BRACE_LANGS：TS/JS/C/C++/C#/Java/Go/Rust/PHP/Swift/Kotlin）：统一用
+    //     foldingProviderModel，配合 braceFoldingProvider.js 注册的花括号折叠 provider。花括号配对 +
+    //     声明行上提是语言无关的，能统一处理 Allman/K&R/多行签名（纯缩进模型无法处理「{ 独占一行」：
+    //     孤立的 '{' 会被当成标题行，且方法层级整体丢失）；且对每对 { } 都出区间，控制流块也会进sticky。
     //     该 provider 解析不出区间时返回 null，Monaco 会自动继续回退到 indentationModel。
-    //   · 其它语言（C/C++/C# 等有可用的同步 symbol provider）：用 outlineModel，粘附行显示函数/类名
-    //     （indentationModel 对 C/C++ 的 Allman 风格会把孤立的 '{' 当标题，不可用）。
+    //   · 其它语言：用 outlineModel（纯缩进/end型语言在 webview 中多为空 → 自动回退缩进）。
     //
     // 注意：不能同步「disable→enable」——同一帧内两次 updateOptions 会被 Monaco 选项 diff 合并、视为无变化、
     // 刷新无效。必须跨一个渲染帧再 enable，让控制器真正重建并重新取数。
@@ -103,7 +104,7 @@ export function createUpdateEditorContent(ctx) {
         if (!cur || !cur.enabled) { return; }
         const model = editor.getModel();
         const lang = model ? model.getLanguageId() : '';
-        const defaultModel = (lang === 'typescript' || lang === 'javascript') ? 'foldingProviderModel' : 'outlineModel';
+        const defaultModel = BRACE_LANGS.includes(lang) ? 'foldingProviderModel' : 'outlineModel';
         editor.updateOptions({ stickyScroll: { enabled: false } });
         setTimeout(() => {
             editor.updateOptions({
