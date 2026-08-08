@@ -237,6 +237,12 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             tokenColorCustomizations,
                             // 其他有效选项
                             ...otherOptions,
+                            // 禁用 Monaco 0.56.0 新增的 doubleClickSelectsBlock（默认 true）：
+                            // 它让「左键双击紧邻括号/引号」时选中括号内部内容，属于 0.56 引入的新行为。
+                            // 本插件的括号/引号选择走自有的右键双击逻辑（doubleClickSelectsBracketPair），
+                            // 关掉它可让左键双击退回传统「选词」，与升级前版本行为保持一致，也不与右键手势冲突。
+                            // 放在 ...otherOptions 之后，避免被 VSCode 用户配置里的同名项覆盖（与下方 occurrencesHighlight 兜底同思路）。
+                            doubleClickSelectsBlock: false,
                             // 「光标处同词高亮」默认关（contextView.contextWindow.occurrencesHighlight）：
                             // 本面板的光标是程序设置的（跳转/返回定位），而它画的框（无 provider 时走文本回退，
                             // 用的是 selectionHighlight 配色）只认「光标所在的词」，光标差一列框就跑到旁边的
@@ -361,6 +367,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         links: false,  // 禁用所有链接功能
                         quickSuggestions: false,  // 禁用快速建议
                         keyboardHandler: null,       // 禁用键盘处理
+                        // 关闭 Monaco 0.56.0 的 doubleClickSelectsBlock（默认 true）：与 createEditorOptions 处一致，
+                        // 让左键双击退回传统选词、保持与升级前行为一致，此处再兜底一次防被覆盖。
+                        doubleClickSelectsBlock: false,
                         // 同 createEditorOptions：createEditorOptions 里的值可能被 VSCode 配置里的
                         // editor.occurrencesHighlight 经 ...otherOptions 覆盖，这里按本插件的开关兜底一次
                         occurrencesHighlight: contextEditorCfg.occurrencesHighlight ? 'singleFile' : 'off',
