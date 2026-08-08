@@ -4,7 +4,7 @@
 		"moduleResolution": "node",
 		"esModuleInterop": true,
 		"target": "es2019",
-		"lib": ["ES2019"],
+		"lib": ["ES2019", "DOM"],
 		"outDir": "out",
 		"sourceMap": true,
 		"strict": true,
