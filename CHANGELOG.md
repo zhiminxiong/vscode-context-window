@@ -4,6 +4,26 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.7] 2026.08.08
+
+#### Added
+
+- Added a `stickyScroll` configuration option to control the sticky scroll behavior of the Context window.
+- Apply custom highlight to the token after jumping back from a definition.
+
+#### Changed
+
+- Switched semantic token parsing to asynchronous mode for better responsiveness.
+- Optimized cursor display: show the cursor on keyboard input and hide it otherwise, with more accurate cursor and line positioning.
+- Improved performance and stability of definition navigation and document parsing.
+
+#### Fixed
+
+- Immediately reveal the target line in the center after navigation (#11).
+- Fixed focus not being set correctly on right-click.
+- Fixed whole-word matching in find.
+- Fixed occurrence highlighting inside comments.
+
 ## [1.0.6] 2026.08.01
 
 #### Changed
