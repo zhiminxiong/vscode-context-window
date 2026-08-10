@@ -10,11 +10,27 @@
 //      使 Monaco 首帧就用完整 legend 建 styling；此刻 data 尚未到达，暂按 TextMate 着色。
 //   2) data 后到（updateSemantic）：做过期校验后写入 data并 fire，Monaco 用已正确的 styling 上色。
 
+/**
+ * 前端文件内容缓存条目（uri -> entry），供命中即秒开。
+ * @typedef {Object} CacheEntry
+ * @property {number} version         文档版本号（documentVersion）
+ * @property {string} content         文件正文
+ * @property {number} [lines]         行数
+ * @property {number} [size]          内容大小（字符数，近似字节），用于淘汰评分
+ * @property {number} [timestamp]     入缓存/最近命中时间戳，用于 LRU 淘汰
+ * @property {{ legend: any, data: (number[]|null) } | null} [semantic]  语义 token（内容阶段可能仅 legend、data 后到）
+ * @property {any} [legend]           语义 legend（首帧建 styling 用）
+ * @property {number} [contentVersion] 当前渲染版本（供异步 updateSemantic 做过期校验）
+ * @property {{ languageId: string }} [metadata]  元数据
+ */
+
 export function createMessageHandlers(ctx) {
+    /** @type {import('monaco-editor').editor.IStandaloneCodeEditor} */
+    const editor = ctx.editor;
+    /** @type {Map<string, CacheEntry>} */
+    const fileContentCache = ctx.fileContentCache;
     const {
-        editor,
         state,
-        fileContentCache,
         vscode,
         updateEditorContent,
         clearDefinitionList,

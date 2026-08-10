@@ -354,6 +354,7 @@ export function applyMonacoTheme(vsCodeEditorConfiguration, contextEditorCfg, li
 // 保证「弹窗显示 === 编辑器渲染」。
 // 注意：依赖 standalone 内部成员（editor._standaloneThemeService / theme.getTokenStyleMetadata /
 // theme.tokenTheme._match），升级 monaco-editor 版本后需重新验证。
+/** @param {import('monaco-editor').editor.IStandaloneCodeEditor} editor */
 export function installSemanticRenderMatch(editor) {
     try {
         const svc = editor && editor._standaloneThemeService;

@@ -11,9 +11,13 @@
 //   5) 每个 token 取其 scope 栈中「当前主题能着色（命中主题规则前缀）的最深 scope」交给 Monaco，
 //      Monaco 主题 trie 据此着色——与 VSCode 的基础语法层高度一致。语义层（标识符精确分类）继续叠加在其上。
 
+/** @type {import('vscode-textmate').Registry | null} */
 let _registry = null;
+/** @type {import('vscode-textmate').StateStack | null} */
 let _INITIAL = null;
+/** @type {import('vscode-textmate').parseRawGrammar | null} */
 let _parseRawGrammar = null;
+/** @type {typeof import('monaco-editor') | null} */
 let _monaco = null;
 let _vscode = null;
 let _enabled = false;

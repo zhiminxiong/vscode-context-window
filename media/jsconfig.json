@@ -1,0 +1,15 @@
+{
+  // 为 media/ 下的 webview 脚本单独提供 JS 语言服务上下文。
+  // 目的仅是「智能感知 + 转到定义」，不做类型检查（checkJs: false），避免引入报错噪音。
+  "compilerOptions": {
+    "module": "esnext",
+    "target": "es2020",
+    "moduleResolution": "bundler",
+    "checkJs": false,
+    "allowJs": true,
+    "lib": ["es2020", "dom"],
+    "baseUrl": "."
+  },
+  "include": ["**/*.js", "monaco.d.ts"],
+  "exclude": ["textmate.bundle.js"]
+}

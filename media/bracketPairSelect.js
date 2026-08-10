@@ -97,7 +97,7 @@ function selectCharRange(editor, line, startChar, endChar) {
 
 /**
  * 尝试在 position 处「紧挨括号/引号」时选中整对（含定界符）。命中并完成选中返回 true，否则 false（调用方回退默认行为）。
- * @param {any} editor  Monaco editor 实例
+ * @param {import('monaco-editor').editor.IStandaloneCodeEditor} editor  Monaco editor 实例
  * @param {{lineNumber:number, column:number}} position  点击位置（Monaco 1 基）
  */
 export async function trySelectBracketPairAt(editor, position) {

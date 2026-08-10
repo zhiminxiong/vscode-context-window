@@ -1703,9 +1703,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         try {
             const definitionListData = definitions.map((definition, index) => {
                 try {
-                    let def = definition;
-                    let uri = (def instanceof vscode.Location) ? def.uri : def.targetUri;
-                    let range = (def instanceof vscode.Location) ? def.range : (def.targetSelectionRange ?? def.targetRange);
+                    const def = definition;
+                    const uri = (def instanceof vscode.Location) ? def.uri : def.targetUri;
+                    const range = (def instanceof vscode.Location) ? def.range : (def.targetSelectionRange ?? def.targetRange);
             
                     // 使用全路径
                     const displayPath = uri.fsPath;

@@ -23,8 +23,9 @@ const STICKY_CONTROLLER_ID = 'store.contrib.stickyScrollController';
 const STICKY_WIDGET_ID = 'editor.contrib.stickyScrollWidget';
 
 export function setupEditorMouseHandlers(ctx) {
+    /** @type {import('monaco-editor').editor.IStandaloneCodeEditor} */
+    const editor = ctx.editor;
     const {
-        editor,
         state,
         light,
         vscode,

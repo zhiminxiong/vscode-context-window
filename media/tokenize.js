@@ -53,6 +53,11 @@ export function semanticTokenAtPosition(pos, semanticState) {
 
 // 获取指定位置所在的 token（携带跨行上下文重新分词，保证状态正确）
 
+/**
+ * @param {import('monaco-editor').editor.ITextModel} model
+ * @param {import('monaco-editor').editor.IStandaloneCodeEditor} editor
+ * @param {import('monaco-editor').Position} pos
+ */
 export function tokenAtPosition(model, editor, pos) {
     const lang = model.getLanguageId();
     // 必须从文档第 1 行开始分词，与渲染（Monaco 从文档顶部逐行维护分词状态）保持一致的上下文。

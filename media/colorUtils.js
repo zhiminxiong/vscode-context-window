@@ -58,6 +58,10 @@ export function getCssVars(names) {
     return result;
 }
 
+/**
+ * @param {import('monaco-editor').editor.IStandaloneCodeEditor} editor
+ * @param {import('monaco-editor').Position} position
+ */
 export function getTokenColorFromDOM(editor, position) {
     // 只负责从 DOM 获取渲染颜色，返回 hex 字符串或 null
     try {

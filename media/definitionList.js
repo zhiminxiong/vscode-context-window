@@ -3,6 +3,7 @@
 // 定义列表面板 UI：文件名显示、悬浮预览、列表渲染、键盘导航等。
 // 以工厂函数形式创建，内部持有 editor 引用与各自的私有状态。
 
+/** @param {import('monaco-editor').editor.IStandaloneCodeEditor} editor */
 export function createDefinitionList(editor) {
     const vscode = window.vscode;
 

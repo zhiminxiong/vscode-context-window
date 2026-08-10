@@ -54,6 +54,10 @@ function isCommentOrString(model, editor, position) {
 // TextualDocumentHighlightProvider）。占据 findMatches 第 5 个参数 =恒定「全词匹配」。
 const USUAL_WORD_SEPARATORS = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/?';
 
+/**
+ * @param {typeof import('monaco-editor')} monaco
+ * @param {import('monaco-editor').editor.IStandaloneCodeEditor} editor
+ */
 export function registerCommentAwareHighlight(monaco, editor) {
     if (registered) {
         return;

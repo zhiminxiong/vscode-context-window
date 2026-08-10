@@ -8,7 +8,9 @@
 import { BRACE_LANGS } from './braceLangs.js';
 
 export function createUpdateEditorContent(ctx) {
-    const { editor, state, applyIndentationForModel, updateFilenameDisplay, hideCursor, ensureGrammar } = ctx;
+    /** @type {import('monaco-editor').editor.IStandaloneCodeEditor} */
+    const editor = ctx.editor;
+    const { state, applyIndentationForModel, updateFilenameDisplay, hideCursor, ensureGrammar } = ctx;
 
     // ===== #include / #pragma / #region / #endregion 等预处理指令高亮 =====
     // 与扩展端 VSCode 编辑器的装饰（extension.ts: registerDirectiveDecorations）同源：
