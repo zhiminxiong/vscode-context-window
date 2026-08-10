@@ -282,7 +282,24 @@ export function createUpdateEditorContent(ctx) {
                 if (curLine && curLine > 0) {
                     targetLine = curLine;
                 }
-                editor.revealLineInCenter(targetLine, monaco.editor.ScrollType.Immediate);
+                // 原来（只垂直居中，横向不动）：
+                // editor.revealLineInCenter(targetLine, monaco.editor.ScrollType.Immediate);
+
+                // 改为：每次强制垂直居中 + 水平尽量回到最左，必要时才右移保证可见
+                const revealStartLine = (curLine && curLine > 0) ? curLine : range.start.line + 1;
+                const revealRange = new monaco.Range(
+                    revealStartLine,
+                    range.start.character + 1,   // 起始列 → 横向可见的关键
+                    range.end.line + 1,
+                    range.end.character + 1
+                );
+                // 1) 水平强制回到最左（scrollLeft = 0），保证默认"从左开始"
+                editor.setScrollLeft(0, monaco.editor.ScrollType.Immediate);
+                // 2) 垂直强制居中；水平仅当目标在最左状态下看不见时才右移保证可见
+                editor.revealRangeInCenter(
+                    revealRange,
+                    monaco.editor.ScrollType.Immediate
+                );
 
                 // 添加行高亮装饰，只高亮开始行
                 state.activeLineDecorations = editor.deltaDecorations(state.activeLineDecorations, [{
