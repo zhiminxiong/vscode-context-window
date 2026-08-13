@@ -4,6 +4,23 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.8] 2026.08.13
+
+#### Added
+
+- Recognize JavaScript definitions.
+
+#### Changed
+
+- Upgrade Monaco Editor to 0.56.0.
+- Disable `doubleClickSelectsBlock` so double-click selection stays consistent with previous versions.
+- Remove the document symbol provider from sticky scroll.
+- In light theme, use a brighter border for the custom highlight on the token you jumped back to (background color unchanged).
+
+#### Fixed
+
+- A definition placed too far to the right could be clipped; prefer aligning the definition to the left so it stays visible.
+
 ## [1.0.7] 2026.08.08
 
 #### Added
