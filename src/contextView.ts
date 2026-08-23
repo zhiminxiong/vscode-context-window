@@ -18,6 +18,8 @@ interface HistoryInfo {
     // 有了列才能精确回到当初点出去的那个 token，否则前端只能退回行尾。
     navigateLine: number;
     navigateColumn: number;
+    // 这一跳落到的符号名，供顶栏跳转链（foo → bar → baz）显示。
+    symbolName: string;
 }
 
 export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode.WebviewPanelSerializer {
@@ -265,17 +267,21 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     private getCurrentContent() : HistoryInfo {
-        return (this._history && this._history.length > this._historyIndex) ? this._history[this._historyIndex] : { content: undefined, navigateLine: -1, navigateColumn: -1 };
+        return (this._history && this._history.length > this._historyIndex)
+            ? this._history[this._historyIndex]
+            : { content: undefined, navigateLine: -1, navigateColumn: -1, symbolName: '' };
     }
 
     // fromLine / fromColumn：离开「当前这一条」时用户点击的位置（0-based），写回旧的当前条，
     // 返回时据此把光标精确放回当初点出去的那个 token 上。只有行没有列时前端只能退到行尾，
     // 光标会落在无关标识符上（Monaco 的同词高亮跟着跑偏）。
-    private addToHistory(contentInfo: FileContentInfo, fromLine: number =-1, fromColumn: number =-1) {
+    // symbolName：落到的符号名；缺省则从定义 range 截标识符。
+    private addToHistory(contentInfo: FileContentInfo, fromLine: number =-1, fromColumn: number =-1, symbolName?: string) {
         //console.log('[definition] add history from line', fromLine, 'column', fromColumn);
         // 清除_historyIndex后的内容
         this._history = this._history.slice(0, this._historyIndex + 1);
-        this._history.push({ content: contentInfo, navigateLine: -1, navigateColumn: -1 });
+        const name = (symbolName && symbolName.trim()) || nameFromContent(contentInfo);
+        this._history.push({ content: contentInfo, navigateLine: -1, navigateColumn: -1, symbolName: name });
         this._historyIndex++;
 
         this._history[this._historyIndex-1].navigateLine = fromLine;
@@ -388,6 +394,18 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         return editorConfig.get<boolean>('stickyScroll.enabled', true);
     }
 
+    // 持久化跳转链顶栏开关：右键菜单切换时由 webview 发来，写入用户全局配置。
+    // 写入后 onDidChangeConfiguration 会通过 updateContextEditorCfg 把最新值广播回 webview。
+    private async handleSetJumpTrail(message: any) {
+        try {
+            const value = !!message?.value;
+            const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+            await cfg.update('jumpTrail', value, true);
+        } catch (err) {
+            console.error('[context-window] setJumpTrail failed:', err);
+        }
+    }
+
     // 持久化 Sticky Scroll 开关：右键菜单切换时由webview 发来，写入插件自身配置（覆盖跟随 VSCode 的默认行为）。
     // 写入后 onDidChangeConfiguration 回调会通过 updateContextEditorCfg 把最新有效值广播回 webview。
     private async handleSetStickyScroll(message: any) {
@@ -469,6 +487,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 //   · true/false → 以插件自身设置为准（右键菜单切换即写入此项，从而覆盖 VSCode 全局值）。
                 // 后端在此把三态解析成一个明确的布尔值下发，前端启动/运行期据此设置 Monaco 的 stickyScroll.enabled。
                 stickyScroll: this._resolveStickyScrollEnabled(contextWindowConfig, editorConfig),
+                // 跳转链顶栏（定义 hop 面包屑）：右键可关，默认开。
+                jumpTrail: contextWindowConfig.get('jumpTrail', true),
             }
         };
 
@@ -562,17 +582,44 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this._historyIndex++;
         }
         if (lastIdx !== this._historyIndex) {
-            // 主动隐藏定义列表
-            this.postMessageToWebview({
-                    type: 'clearDefinitionList'
-                });
-            
-            const contentInfo = this._history[this._historyIndex];
-            this.updateContent(contentInfo?.content, contentInfo.navigateLine, contentInfo.navigateColumn);
-            // 历史导航后展示的已不是「主编辑区当前光标处」的上下文，缓存键必须失效，
-            // 否则再点主编辑区那个原 token 会被 update() 的同键判定挡掉（见 invalidateCacheKey 说明）
-            this.invalidateCacheKey();
+            this.revealHistoryEntry();
         }
+    }
+
+    // 跳转链随机访问：点中间某一截，等价于前进/后退落到该条。
+    private navigateTo(index: number) {
+        if (index < 0 || index >= this._history.length || index === this._historyIndex) {
+            return;
+        }
+        this._historyIndex = index;
+        this.revealHistoryEntry();
+    }
+
+    private revealHistoryEntry() {
+        this.postMessageToWebview({
+                type: 'clearDefinitionList'
+            });
+
+        const contentInfo = this._history[this._historyIndex];
+        // 面包屑/前进后退都按「这一跳的定义」定位：垂直居中、水平靠左。
+        // 不传 navigateLine——那是离开时点出去的位置，拿来 reveal 会落到无关行且容易贴顶。
+        this.updateContent(contentInfo?.content);
+        // 历史导航后展示的已不是「主编辑区当前光标处」的上下文，缓存键必须失效，
+        // 否则再点主编辑区那个原 token 会被 update() 的同键判定挡掉（见 invalidateCacheKey 说明）
+        this.invalidateCacheKey();
+    }
+
+    // 把当前跳转链推给前端。只有多于 1 条时顶栏才显示。
+    private postHistory() {
+        this.postMessageToWebview({
+            type: 'updateHistory',
+            index: this._historyIndex,
+            items: this._history.map(h => ({
+                name: h.symbolName || nameFromContent(h.content),
+                file: basenameFromUri(h.content?.jmpUri),
+                uri: h.content?.jmpUri || ''
+            }))
+        });
     }
 
     // 让 update() 的缓存键失效。
@@ -667,10 +714,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         );
 
         const contentInfo = await this._renderer.renderDefinition(languageId, definition);
+        // 先入历史再刷新内容，这样 updateContent 下发的跳转链已含本条。
+        this.addToHistory(contentInfo, range.start.line - 1, range.start.character - 1, token);
         this.updateContent(contentInfo);
-        
-        // 使用range的起始位置作为导航坐标用于历史记录（入参 range 是 1-based，历史里统一存 0-based）
-        this.addToHistory(contentInfo, range.start.line - 1, range.start.character - 1);
 
         // 同 handleJumpDefinition：命令式跳转同样只改了展示内容，主编辑区光标没动，缓存键需失效
         this.invalidateCacheKey();
@@ -702,7 +748,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     await this.handleRevealInFileExplorer(message);
                     break;
                 case 'navigate':
-                    this.navigate(message.direction);
+                    if (typeof message.index === 'number') {
+                        this.navigateTo(message.index);
+                    } else {
+                        this.navigate(message.direction);
+                    }
                     break;
                 case 'requestContent':
                     this.handleRequestContent(message);
@@ -725,6 +775,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'setStickyScroll':
                     await this.handleSetStickyScroll(message);
+                    break;
+                case 'setJumpTrail':
+                    await this.handleSetJumpTrail(message);
                     break;
                 case 'toggleSelectBracketPair':
                     // 底部导航栏 {si} 指示器点击：切换「双击选中整对括号/引号」开关。
@@ -882,6 +935,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             type: 'pinState',
             pinned: this._pinned
         });
+        this.postHistory();
     }
 
     private async handleRevealInFileExplorer(message: any) {
@@ -1158,9 +1212,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 }
 
                 const contentInfo = await this._renderer.renderDefinition(editor.document.languageId, definition);
+                // message.position 是「离开当前段时点击的行/列」，行列一起记，返回时才能落回该 token。
+                // message.token 是用户点的词，即这一跳的目的地名字。
+                this.addToHistory(contentInfo, message.position.line, message.position.character, message.token);
                 this.updateContent(contentInfo);
-                // message.position 是「离开当前段时点击的行/列」，行列一起记，返回时才能落回该 token
-                this.addToHistory(contentInfo, message.position.line, message.position.character);
             } else {
                 this.postMessageToWebview({
                     type: 'noSymbolFound',
@@ -1226,15 +1281,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     selected.definition
                 );
 
+                // 先改当前槽再 updateContent，跳转链名字与展示内容一致。
+                if (this._history.length > this._historyIndex) {
+                    this._history[this._historyIndex].content = contentInfo;
+                    this._history[this._historyIndex].symbolName = nameFromContent(contentInfo);
+                }
+
                 this.updateContent(contentInfo);
 
                 // 同 handleJumpDefinition：从多定义列表里选了另一条，展示内容已与主编辑区光标脱钩
                 this.invalidateCacheKey();
-
-                // 更新历史记录
-                if (this._history.length > this._historyIndex) {
-                    this._history[this._historyIndex].content = contentInfo;
-                }
             } catch (error) {
                 this.postMessageToWebview({
                     type: 'showContentError',
@@ -1327,6 +1383,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     // 恢复时携带 range，确保视图重新可见后能滚动并高亮到定义行
                     this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._view.webview, curContext.navigateColumn + 1);
                 }
+                this.postHistory();
             }
         });
 
@@ -1348,6 +1405,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             type: 'pinState',
             pinned: this._pinned
         });
+        this.postHistory();
     }
 
     public pin() {
@@ -1448,6 +1506,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             <article id="main"></article>
             
             <!-- 主容器：左侧列表 + 右侧Monaco编辑器 -->
+            <div id="jump-trail" class="jump-trail" hidden></div>
             <div id="main-container">
                 <!-- 左侧定义列表 -->
                 <div id="definition-list">
@@ -1545,12 +1604,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 const filename = filePath.split('/').pop()?.split('\\').pop();
                 this._currentPanel.title = filename ?? "Context Window";
             }
+            this.postHistory();
         } else {
             this.postMessageToWebview({
                 type: 'noContent',
                 body: '&nbsp;&nbsp;No symbol found.',
                 updateMode: this._updateMode,
             });
+            this.postHistory();
         }
     }
 
@@ -1639,7 +1700,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 
                 this._history = [];
                 // 这一条没有「点击离开」的历史，落点就用定义名自身的起始位置
-                this._history.push({ content: contentInfo, navigateLine: this.currentLine, navigateColumn: this.currentColumn });
+                this._history.push({
+                    content: contentInfo,
+                    navigateLine: this.currentLine,
+                    navigateColumn: this.currentColumn,
+                    symbolName: nameFromContent(contentInfo)
+                });
                 this._historyIndex = 0;
 
                 this.updateContent(contentInfo);
@@ -1794,6 +1860,46 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return definitions[0]; // 出错时返回第一个定义
         }
     }
+}
+
+function basenameFromUri(uri?: string): string {
+    if (!uri) {
+        return '';
+    }
+    let path = uri;
+    try {
+        path = decodeURIComponent(uri);
+    } catch {
+        path = uri;
+    }
+    return path.split('/').pop()?.split('\\').pop() || '';
+}
+
+// 从定义 range 截出标识符，供跳转链显示。range 通常是 targetSelectionRange（名字本身）。
+function nameFromContent(info: FileContentInfo | undefined): string {
+    if (!info || !info.content) {
+        return '';
+    }
+    const lines = info.content.split(/\r?\n/);
+    const sl = info.range?.start?.line ?? 0;
+    const sc = info.range?.start?.character ?? 0;
+    const el = info.range?.end?.line ?? sl;
+    const ec = info.range?.end?.character ?? sc;
+    if (sl < 0 || sl >= lines.length) {
+        return '';
+    }
+    let raw = sl === el
+        ? lines[sl].slice(sc, ec)
+        : lines[sl].slice(sc);
+    raw = raw.trim();
+    if (!raw) {
+        const rest = lines[sl].slice(sc);
+        const m = rest.match(/[A-Za-z_]\w*/);
+        raw = m ? m[0] : '';
+    }
+    const cut = raw.search(/[<(]/);
+    const short = cut > 0 ? raw.slice(0, cut) : (raw.split(/\s+/)[0] || raw);
+    return short.length > 40 ? short.slice(0, 40) + '…' : short;
 }
 
 // 统一的空内容工厂，替代多处重复的空 FileContentInfo 字面量

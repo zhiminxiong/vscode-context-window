@@ -118,7 +118,28 @@ export function createUpdateEditorContent(ctx) {
                 }
             });
             editor.layout();
+            // layout / 重建 sticky 可能把滚动打回顶部，按当前定位再居中一次。
+            revealCurrent();
         }, 0);
+    }
+
+    // 垂直居中 + 水平尽量靠左（与首次跳转同一策略）。
+    // 面包屑/历史跳转后，以及 sticky 重建后，都走这里，避免目标行贴在视口顶。
+    function revealCurrent() {
+        const range = state.range;
+        if (!editor || !range || !range.start) {
+            return;
+        }
+        const curLine = state.curLine;
+        const revealStartLine = (curLine && curLine > 0) ? curLine : range.start.line + 1;
+        const revealRange = new monaco.Range(
+            revealStartLine,
+            range.start.character + 1,
+            range.end.line + 1,
+            range.end.character + 1
+        );
+        editor.setScrollLeft(0, monaco.editor.ScrollType.Immediate);
+        editor.revealRangeInCenter(revealRange, monaco.editor.ScrollType.Immediate);
     }
 
     // 强制当前 model 用「已注册的 TextMate provider」重新分词。
@@ -425,5 +446,6 @@ export function createUpdateEditorContent(ctx) {
     updateEditorContent.forceRetokenize = forceRetokenize;
     // 暴露指令高亮重算入口，供 main.js 在 fixToken 开关 / 配色变更（updateContextEditorCfg）后即时刷新
     updateEditorContent.applyDirectiveDecorations = applyDirectiveDecorations;
+    updateEditorContent.revealCurrent = revealCurrent;
     return updateEditorContent;
 }

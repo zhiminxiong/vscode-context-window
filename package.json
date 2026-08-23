@@ -233,6 +233,11 @@
           "default": false,
           "description": "Highlight every occurrence of the word under the cursor, like editor.occurrencesHighlight in the main editor. Off by default: the cursor in the Context Window is placed programmatically when jumping or navigating back, so this highlight easily lands on a neighbouring identifier instead of the token you clicked. The token you jumped out from is always highlighted on its own, regardless of this setting."
         },
+        "contextView.contextWindow.jumpTrail": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the jump trail (definition hop breadcrumbs) at the top of the Context Window. On by default. Can be toggled from the right-click menu."
+        },
         "contextView.contextWindow.stickyScroll": {
           "type": [
             "boolean",

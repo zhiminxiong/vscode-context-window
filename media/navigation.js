@@ -194,6 +194,11 @@
             },
             { type: 'separator' }, // 分割条
             {
+                label: 'Jump Trail',
+                checked: window.jumpTrailEnabled,
+                action: () => window.postMessage({ type: 'JumpTrail' })
+            },
+            {
                 label: 'Sticky Scroll',
                 checked: window.stickyScroll,
                 action: () => window.postMessage({ type: 'StickyScroll' })
