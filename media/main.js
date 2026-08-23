@@ -724,9 +724,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                 return;
                             }
                             const t = e.target;
-                            // 底部状态栏保留自身的自定义右键菜单，放行让 navigation.js 处理
+                            // 底栏和跳转链顶栏有自己的自定义右键菜单，放行。
                             if (t && typeof t.closest === 'function' &&
-                                (t.closest('.nav-bar') || t.closest('.double-click-area'))) {
+                                (t.closest('.nav-bar') || t.closest('.double-click-area') || t.closest('#jump-trail'))) {
                                 return;
                             }
                             // 其它区域：统一禁用浏览器原生右键菜单

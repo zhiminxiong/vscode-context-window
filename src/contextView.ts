@@ -627,11 +627,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         this.postMessageToWebview({
             type: 'updateHistory',
             index: this._historyIndex,
-            items: this._history.map(h => ({
-                name: h.symbolName || nameFromContent(h.content),
-                file: basenameFromUri(h.content?.jmpUri),
-                uri: h.content?.jmpUri || ''
-            }))
+            items: this._history.map(h => {
+                const startLine = h.content?.range?.start?.line;
+                return {
+                    name: h.symbolName || nameFromContent(h.content),
+                    file: basenameFromUri(h.content?.jmpUri),
+                    uri: h.content?.jmpUri || '',
+                    // 定义落点，1-based，供拷贝调用链给 AI。
+                    line: (typeof startLine === 'number' && startLine >= 0) ? startLine + 1 : 0
+                };
+            })
         });
     }
 
@@ -818,6 +823,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     // 受焦点/权限限制经常静默失败，因此统一交给扩展端用 VSCode 官方 API 写入。
                     if (typeof message.text === 'string' && message.text.length > 0) {
                         await vscode.env.clipboard.writeText(message.text);
+                        if (typeof message.notify === 'string' && message.notify) {
+                            vscode.window.setStatusBarMessage(message.notify, 2000);
+                        }
                     }
                     break;
             }

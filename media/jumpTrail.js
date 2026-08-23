@@ -20,6 +20,7 @@ export function createJumpTrail(ctx) {
     function host() {
         let el = document.getElementById('jump-trail');
         if (el) {
+            bindTrailMenu(el);
             return el;
         }
         el = document.createElement('div');
@@ -27,7 +28,97 @@ export function createJumpTrail(ctx) {
         el.className = 'jump-trail';
         el.hidden = true;
         document.body.insertBefore(el, document.body.firstChild);
+        bindTrailMenu(el);
         return el;
+    }
+
+    function hopLine(item) {
+        return (item && typeof item.line === 'number' && item.line > 0) ? item.line : 0;
+    }
+
+    function formatCallChain() {
+        if (!lastState || !lastState.items.length) {
+            return '';
+        }
+        const items = lastState.items;
+        const current = Math.max(0, Math.min(lastState.index, items.length - 1));
+        const lines = items.map((item, i) => {
+            const line = hopLine(item);
+            const file = item.file || '';
+            let loc = '';
+            if (file && line) {
+                loc = ` — ${file}:${line}`;
+            } else if (file) {
+                loc = ` — ${file}`;
+            } else if (line) {
+                loc = `:${line}`;
+            }
+            const mark = i === current ? '  ← current' : '';
+            return `${i + 1}. ${item.name || '?'}${loc}${mark}`;
+        });
+        return `Call chain below:\n${lines.join('\n')}`;
+    }
+
+    function copyCallChain() {
+        const text = formatCallChain();
+        if (!text || !window.vscode) {
+            return;
+        }
+        window.vscode.postMessage({ type: 'copyToClipboard', text, notify: 'Call chain copied' });
+    }
+
+    function showTrailMenu(e) {
+        hideDropdown();
+        const old = document.getElementById('custom-context-menu');
+        if (old) {
+            old.remove();
+        }
+        const menu = document.createElement('div');
+        menu.id = 'custom-context-menu';
+        menu.className = 'custom-context-menu';
+        menu.style.visibility = 'hidden';
+        menu.addEventListener('mousedown', ev => ev.stopPropagation());
+        const item = document.createElement('div');
+        item.className = 'custom-context-menu-item';
+        item.textContent = 'Copy Call Chain';
+        item.onclick = () => {
+            copyCallChain();
+            menu.remove();
+        };
+        menu.appendChild(item);
+        document.body.appendChild(menu);
+        const rect = menu.getBoundingClientRect();
+        const padding = 4;
+        let left = e.clientX;
+        let top = e.clientY;
+        if (left + rect.width > window.innerWidth - padding) {
+            left = window.innerWidth - rect.width - padding;
+        }
+        if (top + rect.height > window.innerHeight - padding) {
+            top = window.innerHeight - rect.height - padding;
+        }
+        menu.style.left = Math.max(padding, left) + 'px';
+        menu.style.top = Math.max(padding, top) + 'px';
+        menu.style.visibility = 'visible';
+        document.addEventListener('mousedown', function onDocClick() {
+            menu.remove();
+            document.removeEventListener('mousedown', onDocClick);
+        });
+    }
+
+    function bindTrailMenu(el) {
+        if (el.dataset.trailMenuBound === '1') {
+            return;
+        }
+        el.dataset.trailMenuBound = '1';
+        el.addEventListener('contextmenu', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!lastState || lastState.items.length < 2) {
+                return;
+            }
+            showTrailMenu(e);
+        });
     }
 
     function hideDropdown() {
