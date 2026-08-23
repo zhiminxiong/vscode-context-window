@@ -133,6 +133,19 @@ body.has-jump-trail #container {
 }
 
 /* 性能优化：用 class 切换编辑器光标样式，替代 onMouseMove 中遍历所有 DOM 子节点逐个写 inline style */
+/* 用户点击行行尾 git 摘要：隔一段距离、浅灰斜体，不抢代码颜色。 */
+.monaco-editor .cw-line-blame {
+    margin-left: 6ch;
+    color: var(--vscode-editorCodeLens-foreground, rgba(153, 153, 153, 0.72));
+    opacity: 0.72;
+    font-family: var(--vscode-editor-font-family, Consolas, monospace);
+    font-style: normal;
+    font-weight: normal;
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+}
+
 .cw-cursor-pointer, .cw-cursor-pointer * { cursor: pointer !important; }
 .cw-cursor-default, .cw-cursor-default * { cursor: default !important; }
 

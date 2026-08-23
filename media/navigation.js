@@ -199,6 +199,11 @@
                 action: () => window.postMessage({ type: 'JumpTrail' })
             },
             {
+                label: 'Git Line Blame',
+                checked: window.lineBlameEnabled,
+                action: () => window.postMessage({ type: 'LineBlame' })
+            },
+            {
                 label: 'Sticky Scroll',
                 checked: window.stickyScroll,
                 action: () => window.postMessage({ type: 'StickyScroll' })

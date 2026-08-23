@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { Renderer, FileContentInfo } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent } from './grammarRegistry';
+import { blameLineSummary } from './lineBlame';
 
 enum UpdateMode {
     Live = 'live',
@@ -396,6 +397,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     // 持久化跳转链顶栏开关：右键菜单切换时由 webview 发来，写入用户全局配置。
     // 写入后 onDidChangeConfiguration 会通过 updateContextEditorCfg 把最新值广播回 webview。
+    private async handleSetLineBlame(message: any) {
+        try {
+            const value = !!message?.value;
+            const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+            await cfg.update('lineBlame', value, true);
+        } catch (err) {
+            console.error('[context-window] setLineBlame failed:', err);
+        }
+    }
+
     private async handleSetJumpTrail(message: any) {
         try {
             const value = !!message?.value;
@@ -489,6 +500,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 stickyScroll: this._resolveStickyScrollEnabled(contextWindowConfig, editorConfig),
                 // 跳转链顶栏（定义 hop 面包屑）：右键可关，默认开。
                 jumpTrail: contextWindowConfig.get('jumpTrail', true),
+                // 用户点击某行后，在该行行尾显示 git 摘要。跳转定位不显示。
+                lineBlame: contextWindowConfig.get('lineBlame', true),
             }
         };
 
@@ -770,6 +783,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 case 'requestHover':
                     this.handleRequestHover(message);
                     break;
+                case 'requestLineBlame':
+                    await this.handleRequestLineBlame(message);
+                    break;
                 case 'setEnableHover':
                     await this.handleSetEnableHover(message);
                     break;
@@ -778,6 +794,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'setJumpTrail':
                     await this.handleSetJumpTrail(message);
+                    break;
+                case 'setLineBlame':
+                    await this.handleSetLineBlame(message);
                     break;
                 case 'toggleSelectBracketPair':
                     // 底部导航栏 {si} 指示器点击：切换「双击选中整对括号/引号」开关。
@@ -1084,6 +1103,24 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 // 静默：取不到 semantic 时前端保持 TextMate 着色
             }
         }, delay);
+    }
+
+    // 用户点击的那一行的 git blame 摘要。查不到就回空，前端清掉装饰。
+    private async handleRequestLineBlame(message: any) {
+        const reqId = message?.reqId;
+        const uri = String(message?.uri ?? '');
+        const line = message?.line | 0;
+        const empty = () => this.postMessageToWebview({ type: 'lineBlameResult', reqId, uri, line, text: '' });
+        if (typeof reqId !== 'number' || !uri || line < 1) {
+            empty();
+            return;
+        }
+        try {
+            const text = await blameLineSummary(uri, line);
+            this.postMessageToWebview({ type: 'lineBlameResult', reqId, uri, line, text: text || '' });
+        } catch {
+            empty();
+        }
     }
 
     // Webview hover：转发到主编辑区已就绪的 LSP（vscode.executeHoverProvider），

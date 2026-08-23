@@ -14,6 +14,7 @@ import { setupEditorMouseHandlers } from './editorMouseHandlers.js';
 import { setupTextmate, ensureGrammar as tmEnsureGrammar, updateThemeScopes as tmUpdateThemeScopes, setOnGrammarRegistered as tmSetOnGrammarRegistered } from './textmateClient.js';
 import { setupHoverProvider, ensureHoverProvider, handleHoverResult, disableMonacoBuiltinTsJsProviders, disposeHoverProvider } from './hoverProvider.js';
 import { createJumpTrail } from './jumpTrail.js';
+import { createLineBlame } from './lineBlame.js';
 
 const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
@@ -33,6 +34,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
         const cfg0 = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
         window.enableHover = (cfg0 && typeof cfg0.enableHover === 'boolean') ? cfg0.enableHover : false;
         window.jumpTrailEnabled = (cfg0 && typeof cfg0.jumpTrail === 'boolean') ? cfg0.jumpTrail : true;
+        window.lineBlameEnabled = (cfg0 && typeof cfg0.lineBlame === 'boolean') ? cfg0.lineBlame : true;
     }
 
     // 统一调试日志开关：默认关闭，排查问题时置为 true 即可恢复所有调试输出，
@@ -856,6 +858,13 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         ensureGrammar: tmEnsureGrammar
                     });
 
+                    const lineBlame = createLineBlame({
+                        editor,
+                        state: editorState,
+                        vscode,
+                        enabled: window.lineBlameEnabled
+                    });
+
                     const jumpTrail = createJumpTrail({
                         editor,
                         enabled: window.jumpTrailEnabled,
@@ -896,6 +905,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     window.jumpTrailEnabled = !window.jumpTrailEnabled;
                                     jumpTrail.setEnabled(window.jumpTrailEnabled);
                                     vscode.postMessage({ type: 'setJumpTrail', value: window.jumpTrailEnabled });
+                                    break;
+                                case 'LineBlame':
+                                    window.lineBlameEnabled = !window.lineBlameEnabled;
+                                    lineBlame.setEnabled(window.lineBlameEnabled);
+                                    vscode.postMessage({ type: 'setLineBlame', value: window.lineBlameEnabled });
                                     break;
                                 case 'StickyScroll':
                                     window.stickyScroll = !window.stickyScroll;
@@ -964,6 +978,12 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                             && window.jumpTrailEnabled !== message.contextEditorCfg.jumpTrail) {
                                             window.jumpTrailEnabled = message.contextEditorCfg.jumpTrail;
                                             jumpTrail.setEnabled(window.jumpTrailEnabled);
+                                        }
+
+                                        if (typeof message.contextEditorCfg.lineBlame === 'boolean'
+                                            && window.lineBlameEnabled !== message.contextEditorCfg.lineBlame) {
+                                            window.lineBlameEnabled = message.contextEditorCfg.lineBlame;
+                                            lineBlame.setEnabled(window.lineBlameEnabled);
                                         }
 
                                         // 「双击选中整对括号/引号」开关同步：无论来自快捷键、编辑器右键菜单、设置 UI 还是本栏 {si} 点击，
@@ -1063,19 +1083,25 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     document.querySelector('.progress-container').style.display = 'none';
                                     break;
                                 case 'updateMetadata':
+                                    lineBlame.clear();
                                     handleUpdateMetadata(message);
                                     break;
                                 case 'updateContent':
+                                    lineBlame.clear();
                                     handleUpdateContent(message);
                                     break;
                                 case 'updateSemantic':
                                     handleUpdateSemantic(message);
                                     break;
                                 case 'noContent':
+                                    lineBlame.clear();
                                     handleNoContent(message);
                                     break;
                                 case 'hoverResult':
                                     handleHoverResult(message);
+                                    break;
+                                case 'lineBlameResult':
+                                    lineBlame.handleResult(message);
                                     break;
                                 case 'updateHistory':
                                     jumpTrail.render(message);
