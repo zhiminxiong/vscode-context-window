@@ -86,25 +86,39 @@ async function gitUser(cwd: string): Promise<{ name: string; email: string }> {
     return user;
 }
 
+// 对齐 GitLens fromNow：单位门槛 + Intl.RelativeTimeFormat(numeric: 'auto')。
+// 与「满 30 天再进月、round(day/30)」不同——7 天起用 week；月按 365/12 天 trunc；
+// 年要到近两年才切换。auto 会把 -1 month 收成 last month，而不是 1 month ago。
+const MS_DAY = 24 * 60 * 60 * 1000;
+const relativeUnitThresholds: [Intl.RelativeTimeFormatUnit, number, number][] = [
+    ['year', MS_DAY * (365 * 2 - 1), MS_DAY * 365],
+    ['month', (MS_DAY * 365) / 12, (MS_DAY * 365) / 12],
+    ['week', MS_DAY * 7, MS_DAY * 7],
+    ['day', MS_DAY, MS_DAY],
+    ['hour', 60 * 60 * 1000, 60 * 60 * 1000],
+    ['minute', 60 * 1000, 60 * 1000],
+    ['second', 1000, 1000],
+];
+
+let relativeTimeFormat: Intl.RelativeTimeFormat | undefined;
+
 function formatAgo(epochSec: number): string {
-    const sec = Math.max(0, Math.floor(Date.now() / 1000 - epochSec));
-    if (sec < 45) {
-        return 'just now';
+    const elapsed = epochSec * 1000 - Date.now();
+    if (!Number.isFinite(elapsed)) {
+        return '';
     }
-    const min = Math.floor(sec / 60);
-    if (min < 60) {
-        return min <= 1 ? '1 minute ago' : `${min} minutes ago`;
+    const elapsedAbs = Math.abs(elapsed);
+    for (const [unit, threshold, divisor] of relativeUnitThresholds) {
+        if (elapsedAbs >= threshold || threshold === 1000) {
+            relativeTimeFormat ??= new Intl.RelativeTimeFormat(undefined, {
+                localeMatcher: 'best fit',
+                numeric: 'auto',
+                style: 'long',
+            });
+            return relativeTimeFormat.format(Math.trunc(elapsed / divisor), unit);
+        }
     }
-    const hr = Math.floor(min / 60);
-    if (hr < 24) {
-        return hr === 1 ? '1 hour ago' : `${hr} hours ago`;
-    }
-    const day = Math.floor(hr / 24);
-    if (day < 30) {
-        return day === 1 ? '1 day ago' : `${day} days ago`;
-    }
-    const month = Math.max(1, Math.round(day / 30));
-    return month === 1 ? '1 month ago' : `${month} months ago`;
+    return '';
 }
 
 function parsePorcelain(stdout: string): {
@@ -153,7 +167,7 @@ function displayAuthor(author: string, email: string, user: { name: string; emai
 }
 
 /**
- * 当前行一行 git blame 摘要：`You, 12 months ago • Optimize keyboard response.`
+ * 当前行一行 git blame 摘要：`You, 3 weeks ago • Optimize keyboard response.`
  * 非 file URI、未提交、或不在仓库里时返回 undefined。
  */
 export async function blameLineSummary(uriString: string, line1Based: number): Promise<string | undefined> {
