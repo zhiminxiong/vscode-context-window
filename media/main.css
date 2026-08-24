@@ -136,8 +136,10 @@ body.has-jump-trail #container {
 /* 用户点击行行尾 git 摘要：隔一段距离、浅灰斜体，不抢代码颜色。 */
 .monaco-editor .cw-line-blame {
     margin-left: 6ch;
-    color: var(--vscode-editorCodeLens-foreground, rgba(153, 153, 153, 0.72));
-    opacity: 0.72;
+    /* GitLens trailing blame：#99999959（约 35% 透明灰）。装了 GitLens 时跟主题走。 */
+    color: var(--vscode-gitlens-trailingLineForegroundColor, #99999959);
+    background: var(--vscode-gitlens-trailingLineBackgroundColor, transparent);
+    opacity: 1;
     font-family: var(--vscode-editor-font-family, Consolas, monospace);
     font-style: normal;
     font-weight: normal;

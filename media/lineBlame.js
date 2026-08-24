@@ -319,9 +319,9 @@ export function createLineBlame(ctx) {
             foot.appendChild(actions);
         }
 
+        const changes = document.createElement('div');
+        changes.className = 'cw-line-blame-hover-changes';
         if (h.previousShortSha && h.shortSha) {
-            const changes = document.createElement('div');
-            changes.className = 'cw-line-blame-hover-changes';
             changes.appendChild(document.createTextNode('Changes '));
             changes.appendChild(makeShaButton(h.previousShortSha, h.previousSha || h.previousShortSha));
             const sep = document.createElement('span');
@@ -333,11 +333,18 @@ export function createLineBlame(ctx) {
             if (h.previousSha && h.sha && lastShown.uri) {
                 changes.appendChild(makeOpenChangesButton(lastShown.uri, h.previousSha, h.sha));
             }
-            foot.appendChild(changes);
+        } else if (h.shortSha) {
+            // 首提交没有 parent：GitLens 仍固定写 Changes added in <sha>，并可打开对空树的 diff。
+            changes.appendChild(document.createTextNode('Changes added in '));
+            changes.appendChild(makeShaButton(h.shortSha, h.sha));
+            if (h.sha && lastShown.uri) {
+                changes.appendChild(makeOpenChangesButton(lastShown.uri, '', h.sha));
+            }
+        } else {
+            changes.appendChild(document.createTextNode('Uncommitted changes'));
         }
-        if (foot.childNodes.length) {
-            hoverEl.appendChild(foot);
-        }
+        foot.appendChild(changes);
+        hoverEl.appendChild(foot);
 
         hoverEl.style.visibility = 'hidden';
         positionHover();

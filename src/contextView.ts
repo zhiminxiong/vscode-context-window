@@ -412,7 +412,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const uri = String(message?.uri ?? '');
         const previousSha = String(message?.previousSha ?? '');
         const sha = String(message?.sha ?? '');
-        if (!uri || !previousSha || !sha) {
+        if (!uri || !sha) {
             return;
         }
         try {

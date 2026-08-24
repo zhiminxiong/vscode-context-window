@@ -935,12 +935,16 @@ function editorViewColumn(): vscode.ViewColumn {
     return visible?.viewColumn ?? vscode.ViewColumn.One;
 }
 
+// git 空树：首提交没有 parent 时，左侧对空树即「整文件新增」，对齐 GitLens Open Changes。
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
 /**
  * 在 VS Code 主编辑区打开该行 blame 对应的两次提交 diff（对齐 GitLens Open Changes）。
+ * previousSha 为空时对空树 diff，展示该提交首次加入的内容。
  */
 export async function openBlameDiff(uriString: string, previousSha: string, sha: string): Promise<void> {
     const uri = toFileUri(uriString);
-    if (!uri || !previousSha || !sha) {
+    if (!uri || !sha) {
         return;
     }
     try {
@@ -952,10 +956,13 @@ export async function openBlameDiff(uriString: string, previousSha: string, sha:
         // git 方案由 vscode.git 提供；激活失败时 vscode.diff 仍可能打开空页
     }
     const name = path.basename(uri.fsPath);
-    const title = `${name} (${shortSha(previousSha)}) ↔ ${name} (${shortSha(sha)})`;
+    const leftRef = previousSha || EMPTY_TREE_SHA;
+    const title = previousSha
+        ? `${name} (${shortSha(previousSha)}) ↔ ${name} (${shortSha(sha)})`
+        : `${name} ↔ ${name} (${shortSha(sha)})`;
     await vscode.commands.executeCommand(
         'vscode.diff',
-        toGitUri(uri, previousSha),
+        toGitUri(uri, leftRef),
         toGitUri(uri, sha),
         title,
         { preview: true, preserveFocus: false, viewColumn: editorViewColumn() }
