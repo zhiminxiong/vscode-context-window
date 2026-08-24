@@ -121,12 +121,48 @@ function formatAgo(epochSec: number): string {
     return '';
 }
 
+function ordinal(n: number): string {
+    const v = n % 100;
+    if (v >= 11 && v <= 13) {
+        return `${n}th`;
+    }
+    switch (n % 10) {
+        case 1: return `${n}st`;
+        case 2: return `${n}nd`;
+        case 3: return `${n}rd`;
+        default: return `${n}th`;
+    }
+}
+
+const MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+// 对齐 GitLens 默认绝对时间：`June 28th, 2026 11:51 PM`
+function formatAbsoluteDate(epochSec: number): string {
+    const d = new Date(epochSec * 1000);
+    if (Number.isNaN(d.getTime())) {
+        return '';
+    }
+    let h = d.getHours();
+    const ap = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${MONTHS[d.getMonth()]} ${ordinal(d.getDate())}, ${d.getFullYear()} ${h}:${min} ${ap}`;
+}
+
+function shortSha(sha: string): string {
+    return sha.length > 7 ? sha.slice(0, 7) : sha;
+}
+
 function parsePorcelain(stdout: string): {
     sha: string;
     author: string;
     email: string;
     time: number;
     summary: string;
+    previous: string;
 } | null {
     const lines = stdout.split(/\r?\n/);
     if (!lines.length) {
@@ -140,6 +176,7 @@ function parsePorcelain(stdout: string): {
     let email = '';
     let time = 0;
     let summary = '';
+    let previous = '';
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
         if (line.startsWith('author ')) {
@@ -150,9 +187,11 @@ function parsePorcelain(stdout: string): {
             time = parseInt(line.slice(12), 10) || 0;
         } else if (line.startsWith('summary ')) {
             summary = line.slice(8).trim();
+        } else if (line.startsWith('previous ')) {
+            previous = (line.slice(9).split(' ')[0] || '').trim();
         }
     }
-    return { sha, author, email, time, summary };
+    return { sha, author, email, time, summary, previous };
 }
 
 function displayAuthor(author: string, email: string, user: { name: string; email: string }): string {
@@ -166,11 +205,27 @@ function displayAuthor(author: string, email: string, user: { name: string; emai
     return name;
 }
 
+export interface LineBlameHoverInfo {
+    author: string;
+    ago: string;
+    date: string;
+    summary: string;
+    sha: string;
+    shortSha: string;
+    previousSha?: string;
+    previousShortSha?: string;
+}
+
+export interface LineBlameInfo {
+    text: string;
+    hover: LineBlameHoverInfo;
+}
+
 /**
- * 当前行一行 git blame 摘要：`You, 3 weeks ago • Optimize keyboard response.`
+ * 当前行一行 git blame：行尾摘要 + 浮窗详情。
  * 非 file URI、未提交、或不在仓库里时返回 undefined。
  */
-export async function blameLineSummary(uriString: string, line1Based: number): Promise<string | undefined> {
+export async function blameLine(uriString: string, line1Based: number): Promise<LineBlameInfo | undefined> {
     if (!uriString || line1Based < 1) {
         return undefined;
     }
@@ -205,19 +260,78 @@ export async function blameLineSummary(uriString: string, line1Based: number): P
         }
         const who = displayAuthor(parsed.author, parsed.email, user);
         const when = parsed.time ? formatAgo(parsed.time) : '';
-        let subject = parsed.summary.replace(/\s+/g, ' ');
-        if (subject.length > 72) {
-            subject = subject.slice(0, 71) + '…';
+        const date = parsed.time ? formatAbsoluteDate(parsed.time) : '';
+        const subject = parsed.summary.replace(/\s+/g, ' ');
+        let textSubject = subject;
+        if (textSubject.length > 72) {
+            textSubject = textSubject.slice(0, 71) + '…';
         }
-        if (who && when && subject) {
-            return `${who}, ${when} • ${subject}`;
+        let text = '';
+        if (who && when && textSubject) {
+            text = `${who}, ${when} • ${textSubject}`;
+        } else if (who && when) {
+            text = `${who}, ${when}`;
         }
-        if (who && when) {
-            return `${who}, ${when}`;
+        if (!text) {
+            return undefined;
         }
-        return undefined;
+        const hover: LineBlameHoverInfo = {
+            author: who,
+            ago: when,
+            date,
+            summary: subject,
+            sha: parsed.sha,
+            shortSha: shortSha(parsed.sha)
+        };
+        if (parsed.previous) {
+            hover.previousSha = parsed.previous;
+            hover.previousShortSha = shortSha(parsed.previous);
+        }
+        return { text, hover };
     } catch (err) {
         console.warn('[context-window] line blame failed:', fsPath, line1Based, err);
         return undefined;
     }
+}
+
+function toGitUri(uri: vscode.Uri, ref: string): vscode.Uri {
+    return uri.with({
+        scheme: 'git',
+        query: JSON.stringify({ path: uri.fsPath, ref })
+    });
+}
+
+function editorViewColumn(): vscode.ViewColumn {
+    if (vscode.window.activeTextEditor?.viewColumn) {
+        return vscode.window.activeTextEditor.viewColumn;
+    }
+    const visible = vscode.window.visibleTextEditors.find(e => e.viewColumn);
+    return visible?.viewColumn ?? vscode.ViewColumn.One;
+}
+
+/**
+ * 在 VS Code 主编辑区打开该行 blame 对应的两次提交 diff（对齐 GitLens Open Changes）。
+ */
+export async function openBlameDiff(uriString: string, previousSha: string, sha: string): Promise<void> {
+    const uri = toFileUri(uriString);
+    if (!uri || !previousSha || !sha) {
+        return;
+    }
+    try {
+        const gitExt = vscode.extensions.getExtension('vscode.git');
+        if (gitExt && !gitExt.isActive) {
+            await gitExt.activate();
+        }
+    } catch {
+        // git 方案由 vscode.git 提供；激活失败时 vscode.diff 仍可能打开空页
+    }
+    const name = path.basename(uri.fsPath);
+    const title = `${name} (${shortSha(previousSha)}) ↔ ${name} (${shortSha(sha)})`;
+    await vscode.commands.executeCommand(
+        'vscode.diff',
+        toGitUri(uri, previousSha),
+        toGitUri(uri, sha),
+        title,
+        { preview: true, preserveFocus: false, viewColumn: editorViewColumn() }
+    );
 }

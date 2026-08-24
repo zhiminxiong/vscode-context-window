@@ -146,6 +146,121 @@ body.has-jump-trail #container {
     white-space: nowrap;
 }
 
+.monaco-editor .cw-line-blame.cw-line-blame-live {
+    pointer-events: auto;
+    cursor: default;
+}
+
+.cw-line-blame-hover {
+    position: fixed;
+    z-index: 10000;
+    max-width: 480px;
+    min-width: 280px;
+    padding: 12px 14px 10px;
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+    color: var(--vscode-editorHoverWidget-foreground, var(--vscode-editorWidget-foreground, #cccccc));
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-editorWidget-border, #454545));
+    border-radius: 3px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+    font-size: 14px;
+    line-height: 1.45;
+    font-family: var(--vscode-font-family, "Segoe UI", sans-serif);
+}
+
+.cw-line-blame-hover-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.cw-line-blame-hover-author {
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.cw-line-blame-hover-when {
+    color: var(--vscode-descriptionForeground, #999);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cw-line-blame-hover-summary {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 8px;
+}
+
+.cw-line-blame-hover-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.cw-line-blame-hover-sha {
+    font-family: var(--vscode-editor-font-family, Consolas, monospace);
+    font-size: 13px;
+    padding: 2px 8px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--vscode-button-secondaryForeground, #cccccc);
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+}
+
+.cw-line-blame-hover-sha:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+.cw-line-blame-hover-changes {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    color: var(--vscode-descriptionForeground, #999);
+    font-size: 13px;
+    padding-top: 6px;
+    border-top: 1px solid var(--vscode-editorHoverWidget-border, rgba(128, 128, 128, 0.35));
+}
+
+.cw-line-blame-hover-changes .cw-line-blame-hover-sha {
+    font-size: 13px;
+    padding: 1px 6px;
+}
+
+.cw-line-blame-hover-sep {
+    font-size: 18px;
+    line-height: 1;
+    font-weight: 600;
+    padding: 0 2px;
+}
+
+.cw-line-blame-hover-open-changes {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin-left: 4px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--vscode-icon-foreground, #c5c5c5);
+    background: transparent;
+}
+
+.cw-line-blame-hover-open-changes svg {
+    width: 20px;
+    height: 20px;
+}
+
+.cw-line-blame-hover-open-changes:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
 .cw-cursor-pointer, .cw-cursor-pointer * { cursor: pointer !important; }
 .cw-cursor-default, .cw-cursor-default * { cursor: default !important; }
 

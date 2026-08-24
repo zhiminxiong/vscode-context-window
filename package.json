@@ -238,6 +238,11 @@
           "default": true,
           "description": "After clicking a line in the Context Window, show a gray git summary (author, time, commit subject) at the end of that line. Jumping does not show it. Can be toggled from the right-click menu."
         },
+        "contextView.contextWindow.lineBlameHover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow holding Alt over the git line-blame annotation to open the hover card. Releasing Alt does not close it. Off: Alt does nothing. Has no effect unless Git Line Blame is on and an annotation is currently visible."
+        },
         "contextView.contextWindow.jumpTrail": {
           "type": "boolean",
           "default": true,

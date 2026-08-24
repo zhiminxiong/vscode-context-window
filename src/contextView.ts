@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { Renderer, FileContentInfo } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent } from './grammarRegistry';
-import { blameLineSummary } from './lineBlame';
+import { blameLine, openBlameDiff } from './lineBlame';
 
 enum UpdateMode {
     Live = 'live',
@@ -407,6 +407,22 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    // 浮窗 Changes：在主编辑区打开 previousSha ↔ sha 的文件 diff。
+    private async handleOpenLineBlameChanges(message: any) {
+        const uri = String(message?.uri ?? '');
+        const previousSha = String(message?.previousSha ?? '');
+        const sha = String(message?.sha ?? '');
+        if (!uri || !previousSha || !sha) {
+            return;
+        }
+        try {
+            await openBlameDiff(uri, previousSha, sha);
+        } catch (err) {
+            console.error('[context-window] openLineBlameChanges failed:', err);
+            vscode.window.showErrorMessage('Failed to open git changes');
+        }
+    }
+
     private async handleSetJumpTrail(message: any) {
         try {
             const value = !!message?.value;
@@ -504,6 +520,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 jumpTrailMaxItems: contextWindowConfig.get('jumpTrailMaxItems', 8),
                 // 用户点击某行后，在该行行尾显示 git 摘要。跳转定位不显示。
                 lineBlame: contextWindowConfig.get('lineBlame', true),
+                // 是否允许按住 Alt 打开行尾 blame 浮窗。lineBlame 关闭或当前没有摘要时仍不出现。
+                lineBlameHover: contextWindowConfig.get('lineBlameHover', true),
             }
         };
 
@@ -804,6 +822,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'setLineBlame':
                     await this.handleSetLineBlame(message);
+                    break;
+                case 'openLineBlameChanges':
+                    await this.handleOpenLineBlameChanges(message);
                     break;
                 case 'toggleSelectBracketPair':
                     // 底部导航栏 {si} 指示器点击：切换「双击选中整对括号/引号」开关。
@@ -1126,8 +1147,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return;
         }
         try {
-            const text = await blameLineSummary(uri, line);
-            this.postMessageToWebview({ type: 'lineBlameResult', reqId, uri, line, text: text || '' });
+            const info = await blameLine(uri, line);
+            this.postMessageToWebview({
+                type: 'lineBlameResult',
+                reqId,
+                uri,
+                line,
+                text: info?.text || '',
+                hover: info?.hover
+            });
         } catch {
             empty();
         }
