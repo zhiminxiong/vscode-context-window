@@ -1,4 +1,5 @@
 import { execFile } from 'child_process';
+import { createHash } from 'crypto';
 import * as path from 'path';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
@@ -156,6 +157,28 @@ function shortSha(sha: string): string {
     return sha.length > 7 ? sha.slice(0, 7) : sha;
 }
 
+function firstLine(text: string): string {
+    return (text.split(/\r?\n/)[0] || '').trim();
+}
+
+// Git 不存头像。用作者邮箱的 Gravatar；未登记时返回 404，前端改用首字母。
+function gravatarUrl(email: string): string | undefined {
+    const trimmed = (email || '').trim().toLowerCase();
+    if (!trimmed || !trimmed.includes('@')) {
+        return undefined;
+    }
+    const hash = createHash('md5').update(trimmed).digest('hex');
+    return `https://www.gravatar.com/avatar/${hash}?s=64&d=404`;
+}
+
+async function commitMessage(cwd: string, sha: string): Promise<string> {
+    try {
+        return (await gitExec(cwd, ['log', '-1', '--format=%B', '--no-patch', sha])).replace(/\s+$/g, '');
+    } catch {
+        return '';
+    }
+}
+
 function parsePorcelain(stdout: string): {
     sha: string;
     author: string;
@@ -207,9 +230,11 @@ function displayAuthor(author: string, email: string, user: { name: string; emai
 
 export interface LineBlameHoverInfo {
     author: string;
+    authorName: string;
     ago: string;
     date: string;
     summary: string;
+    avatarUrl?: string;
     sha: string;
     shortSha: string;
     previousSha?: string;
@@ -258,10 +283,11 @@ export async function blameLine(uriString: string, line1Based: number): Promise<
         if (!parsed) {
             return undefined;
         }
+        const fullMessage = (await commitMessage(cwd, parsed.sha)) || parsed.summary;
         const who = displayAuthor(parsed.author, parsed.email, user);
         const when = parsed.time ? formatAgo(parsed.time) : '';
         const date = parsed.time ? formatAbsoluteDate(parsed.time) : '';
-        const subject = parsed.summary.replace(/\s+/g, ' ');
+        const subject = firstLine(fullMessage) || parsed.summary.replace(/\s+/g, ' ');
         let textSubject = subject;
         if (textSubject.length > 72) {
             textSubject = textSubject.slice(0, 71) + '…';
@@ -277,9 +303,11 @@ export async function blameLine(uriString: string, line1Based: number): Promise<
         }
         const hover: LineBlameHoverInfo = {
             author: who,
+            authorName: (parsed.author || '').trim() || who,
             ago: when,
             date,
-            summary: subject,
+            summary: fullMessage,
+            avatarUrl: gravatarUrl(parsed.email),
             sha: parsed.sha,
             shortSha: shortSha(parsed.sha)
         };

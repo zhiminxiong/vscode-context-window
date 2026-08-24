@@ -66,13 +66,15 @@ export function createLineBlame(ctx) {
 
     function tryRevealHover() {
         if (overBlame && altDown && canShowHover()) {
-            showHover();
+            showHover(false);
         }
     }
 
     function setAltDown(down) {
-        altDown = !!down;
-        if (altDown) {
+        const next = !!down;
+        const rose = next && !altDown;
+        altDown = next;
+        if (rose) {
             tryRevealHover();
         }
     }
@@ -146,6 +148,73 @@ export function createLineBlame(ctx) {
         return shaBtn;
     }
 
+    function avatarLetter(name) {
+        const s = String(name || '').trim();
+        if (!s) {
+            return '?';
+        }
+        return [...s][0].toUpperCase();
+    }
+
+    // 按首字母分段配色（A–C / D–F / …），白字保证对比度。
+    const AVATAR_COLORS = [
+        '#c0392b', // A–C
+        '#d35400', // D–F
+        '#b7950b', // G–I
+        '#1e8449', // J–L
+        '#148f77', // M–O
+        '#2471a3', // P–R
+        '#6c3483', // S–U
+        '#7d3c98'  // V–Z 及其它
+    ];
+
+    function avatarColor(name) {
+        const letter = avatarLetter(name);
+        const code = letter.charCodeAt(0);
+        let idx;
+        if (code >= 65 && code <= 90) {
+            idx = Math.min(AVATAR_COLORS.length - 1, Math.floor((code - 65) * AVATAR_COLORS.length / 26));
+        } else {
+            idx = (letter.codePointAt(0) || 0) % AVATAR_COLORS.length;
+        }
+        return AVATAR_COLORS[idx];
+    }
+
+    function makeLetterAvatar(name) {
+        const badge = document.createElement('div');
+        badge.className = 'cw-line-blame-hover-avatar-letter';
+        badge.textContent = avatarLetter(name);
+        badge.style.background = avatarColor(name);
+        return badge;
+    }
+
+    function makeAvatar(h) {
+        const name = h.authorName || h.author || '?';
+        const letter = makeLetterAvatar(name);
+        if (!h.avatarUrl) {
+            return letter;
+        }
+        const wrap = document.createElement('span');
+        wrap.className = 'cw-line-blame-hover-avatar-wrap';
+        wrap.appendChild(letter);
+        const img = document.createElement('img');
+        img.className = 'cw-line-blame-hover-avatar';
+        img.alt = '';
+        img.referrerPolicy = 'no-referrer';
+        img.hidden = true;
+        img.addEventListener('load', () => {
+            img.hidden = false;
+            letter.hidden = true;
+        });
+        img.addEventListener('error', () => {
+            img.remove();
+            letter.hidden = false;
+        });
+        img.src = h.avatarUrl;
+        wrap.appendChild(img);
+        return wrap;
+    }
+
     function addText(parent, className, text) {
         const el = document.createElement('div');
         if (className) {
@@ -162,24 +231,36 @@ export function createLineBlame(ctx) {
         }
         const rect = node.getBoundingClientRect();
         const pad = 8;
+        const gap = 6;
+        const availAbove = Math.max(0, rect.top - pad - gap);
+        const availBelow = Math.max(0, window.innerHeight - rect.bottom - pad - gap);
+        const placeBelow = availBelow >= Math.max(availAbove, 120);
+        const avail = placeBelow ? availBelow : availAbove;
+        hoverEl.style.maxHeight = Math.max(140, Math.floor(avail)) + 'px';
+
         const hw = hoverEl.offsetWidth;
         const hh = hoverEl.offsetHeight;
         let left = rect.left;
-        let top = rect.top - hh - 6;
-        if (top < pad) {
-            top = rect.bottom + 6;
-        }
         if (left + hw > window.innerWidth - pad) {
             left = window.innerWidth - hw - pad;
+        }
+        let top = placeBelow ? rect.bottom + gap : rect.top - hh - gap;
+        if (top + hh > window.innerHeight - pad) {
+            top = window.innerHeight - hh - pad;
         }
         hoverEl.style.left = Math.max(pad, left) + 'px';
         hoverEl.style.top = Math.max(pad, top) + 'px';
     }
 
-    function showHover() {
+    function showHover(force) {
         cancelHideHover();
         if (!canShowHover() || !node) {
             hideHover();
+            return;
+        }
+        // 按住 Alt 会重复 keydown；已打开就不要拆 DOM，否则头像会在照片/字母间闪。
+        if (hoverEl && !force) {
+            positionHover();
             return;
         }
         const h = lastShown.hover;
@@ -195,7 +276,11 @@ export function createLineBlame(ctx) {
 
         const head = document.createElement('div');
         head.className = 'cw-line-blame-hover-head';
-        addText(head, 'cw-line-blame-hover-author', h.author || '');
+        const who = document.createElement('div');
+        who.className = 'cw-line-blame-hover-who';
+        who.appendChild(makeAvatar(h));
+        addText(who, 'cw-line-blame-hover-author', h.author || '');
+        head.appendChild(who);
         const when = document.createElement('div');
         when.className = 'cw-line-blame-hover-when';
         if (h.ago && h.date) {
@@ -206,17 +291,31 @@ export function createLineBlame(ctx) {
         head.appendChild(when);
         hoverEl.appendChild(head);
 
-        if (h.summary) {
-            addText(hoverEl, 'cw-line-blame-hover-summary', h.summary);
+        const raw = h.summary || '';
+        const nl = raw.search(/\r?\n/);
+        const subject = (nl < 0 ? raw : raw.slice(0, nl)).trim();
+        const body = nl < 0 ? '' : raw.slice(nl).replace(/^\r?\n+/, '').replace(/\s+$/, '');
+        const msg = document.createElement('div');
+        msg.className = 'cw-line-blame-hover-msg';
+        if (subject) {
+            addText(msg, 'cw-line-blame-hover-summary', subject);
+        }
+        if (body) {
+            addText(msg, 'cw-line-blame-hover-body', body);
+        }
+        if (msg.childNodes.length) {
+            hoverEl.appendChild(msg);
         }
 
+        const foot = document.createElement('div');
+        foot.className = 'cw-line-blame-hover-foot';
         const actions = document.createElement('div');
         actions.className = 'cw-line-blame-hover-actions';
         if (h.shortSha) {
             actions.appendChild(makeShaButton(h.shortSha, h.sha));
         }
         if (actions.childNodes.length) {
-            hoverEl.appendChild(actions);
+            foot.appendChild(actions);
         }
 
         if (h.previousShortSha && h.shortSha) {
@@ -233,7 +332,10 @@ export function createLineBlame(ctx) {
             if (h.previousSha && h.sha && lastShown.uri) {
                 changes.appendChild(makeOpenChangesButton(lastShown.uri, h.previousSha, h.sha));
             }
-            hoverEl.appendChild(changes);
+            foot.appendChild(changes);
+        }
+        if (foot.childNodes.length) {
+            hoverEl.appendChild(foot);
         }
 
         hoverEl.style.visibility = 'hidden';
@@ -307,7 +409,7 @@ export function createLineBlame(ctx) {
         try { editor.layoutContentWidget(widget); } catch (_) { /* noop */ }
         if (hoverEl) {
             if (canShowHover()) {
-                showHover();
+                showHover(true);
             } else {
                 hideHover();
             }
@@ -411,6 +513,9 @@ export function createLineBlame(ctx) {
     editor.onMouseUp(clickLine);
 
     window.addEventListener('keydown', e => {
+        if (e.repeat) {
+            return;
+        }
         if (e.altKey || e.key === 'Alt') {
             setAltDown(true);
         }
@@ -424,6 +529,9 @@ export function createLineBlame(ctx) {
         setAltDown(false);
     });
     editor.onKeyDown(e => {
+        if (e.browserEvent && e.browserEvent.repeat) {
+            return;
+        }
         if (e.altKey || e.keyCode === monaco.KeyCode.Alt) {
             setAltDown(true);
         }

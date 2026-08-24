@@ -154,8 +154,13 @@ body.has-jump-trail #container {
 .cw-line-blame-hover {
     position: fixed;
     z-index: 10000;
-    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    max-width: 520px;
     min-width: 280px;
+    max-height: min(70vh, 440px);
+    overflow: hidden;
     padding: 12px 14px 10px;
     background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
     color: var(--vscode-editorHoverWidget-foreground, var(--vscode-editorWidget-foreground, #cccccc));
@@ -171,8 +176,47 @@ body.has-jump-trail #container {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    flex-shrink: 0;
     gap: 16px;
     margin-bottom: 8px;
+}
+
+.cw-line-blame-hover-who {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.cw-line-blame-hover-avatar-wrap {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+}
+
+.cw-line-blame-hover-avatar,
+.cw-line-blame-hover-avatar-letter {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    flex-shrink: 0;
+}
+
+.cw-line-blame-hover-avatar {
+    position: absolute;
+    inset: 0;
+    object-fit: cover;
+}
+
+.cw-line-blame-hover-avatar-letter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
 }
 
 .cw-line-blame-hover-author {
@@ -186,17 +230,34 @@ body.has-jump-trail #container {
     white-space: nowrap;
 }
 
+.cw-line-blame-hover-msg {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+
 .cw-line-blame-hover-summary {
     white-space: pre-wrap;
     word-break: break-word;
     margin-bottom: 8px;
 }
 
+.cw-line-blame-hover-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0 0 8px;
+    color: var(--vscode-descriptionForeground, #999);
+}
+
+.cw-line-blame-hover-foot {
+    flex-shrink: 0;
+}
+
 .cw-line-blame-hover-actions {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 6px;
+    margin: 4px 0 6px;
 }
 
 .cw-line-blame-hover-sha {
