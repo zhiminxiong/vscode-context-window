@@ -5,27 +5,15 @@ import { promisify } from 'util';
 import * as vscode from 'vscode';
 
 const execFileAsync = promisify(execFile);
-const GIT_TIMEOUT_MS = 2500;
+const GIT_TIMEOUT_MS = 8000;
+const GIT_TIMEOUT_COLD_MS = 15000;
 const userCache = new Map<string, { name: string; email: string }>();
 let resolvedGit: string | undefined;
+let gitWarmed = false;
 
 async function resolveGit(): Promise<string> {
     if (resolvedGit) {
         return resolvedGit;
-    }
-    try {
-        const gitExt = vscode.extensions.getExtension<any>('vscode.git');
-        if (gitExt && !gitExt.isActive) {
-            await gitExt.activate();
-        }
-        const api = gitExt?.exports?.getAPI?.(1);
-        const fromApi = api?.git?.path;
-        if (typeof fromApi === 'string' && fromApi.trim()) {
-            resolvedGit = fromApi.trim();
-            return resolvedGit;
-        }
-    } catch {
-        // vscode.git 未就绪时退回配置 / PATH
     }
     const configured = vscode.workspace.getConfiguration('git').get<string | string[]>('path');
     if (typeof configured === 'string' && configured.trim()) {
@@ -38,6 +26,25 @@ async function resolveGit(): Promise<string> {
             resolvedGit = first.trim();
             return resolvedGit;
         }
+    }
+    try {
+        const gitExt = vscode.extensions.getExtension<any>('vscode.git');
+        if (gitExt?.isActive) {
+            const fromApi = gitExt.exports?.getAPI?.(1)?.git?.path;
+            if (typeof fromApi === 'string' && fromApi.trim()) {
+                resolvedGit = fromApi.trim();
+                return resolvedGit;
+            }
+        } else if (gitExt) {
+            void Promise.resolve(gitExt.activate()).then(() => {
+                const fromApi = gitExt.exports?.getAPI?.(1)?.git?.path;
+                if (typeof fromApi === 'string' && fromApi.trim()) {
+                    resolvedGit = fromApi.trim();
+                }
+            }, () => { /* 后台激活失败不影响本次用 PATH 里的 git */ });
+        }
+    } catch {
+        // vscode.git 未就绪时退回 PATH
     }
     resolvedGit = process.platform === 'win32' ? 'git.exe' : 'git';
     return resolvedGit;
@@ -58,15 +65,51 @@ function toFileUri(uriString: string): vscode.Uri | undefined {
     return undefined;
 }
 
-async function gitExec(cwd: string, args: string[]): Promise<string> {
-    const { stdout } = await execFileAsync(await resolveGit(), args, {
-        cwd,
-        timeout: GIT_TIMEOUT_MS,
-        windowsHide: true,
-        encoding: 'utf8',
-        maxBuffer: 256 * 1024
-    });
-    return String(stdout || '');
+function gitErrText(err: unknown): string {
+    const e = err as { stderr?: string; message?: string };
+    const stderr = String(e?.stderr || '').trim();
+    return stderr || String(e?.message || err);
+}
+
+function isGitTimeout(err: unknown): boolean {
+    const e = err as { killed?: boolean; signal?: string; code?: string; message?: string; timeout?: boolean };
+    return e?.timeout === true
+        || e?.killed === true
+        || e?.signal === 'SIGTERM'
+        || e?.code === 'ETIMEDOUT'
+        || /ETIMEDOUT|timed? ?out/i.test(String(e?.message || ''));
+}
+
+async function gitExec(cwd: string, args: string[], timeout = GIT_TIMEOUT_MS): Promise<string> {
+    try {
+        const { stdout } = await execFileAsync(await resolveGit(), args, {
+            cwd,
+            timeout,
+            windowsHide: true,
+            encoding: 'utf8',
+            maxBuffer: 256 * 1024
+        });
+        gitWarmed = true;
+        return String(stdout || '');
+    } catch (err) {
+        const e = new Error(isGitTimeout(err)
+            ? `timeout after ${timeout}ms (${args.join(' ')})`
+            : gitErrText(err)) as Error & { timeout?: boolean };
+        e.timeout = isGitTimeout(err);
+        throw e;
+    }
+}
+
+// git rev-parse --show-toplevel 在 Windows 上常给出 D:/foo 或 /d/foo，和 uri.fsPath 对不上。
+function normalizeGitFsPath(p: string): string {
+    let s = p.trim().replace(/^['"]|['"]$/g, '');
+    const msys = s.match(/^\/([a-zA-Z])(\/.*)?$/);
+    if (process.platform === 'win32' && msys) {
+        s = `${msys[1].toUpperCase()}:${(msys[2] || '/').replace(/\//g, '\\')}`;
+    } else if (process.platform === 'win32') {
+        s = s.replace(/\//g, '\\');
+    }
+    return path.normalize(s);
 }
 
 async function gitUser(cwd: string): Promise<{ name: string; email: string }> {
@@ -186,15 +229,17 @@ function parsePorcelain(stdout: string): {
     time: number;
     summary: string;
     previous: string;
+    uncommitted: boolean;
 } | null {
     const lines = stdout.split(/\r?\n/);
     if (!lines.length) {
         return null;
     }
     const sha = (lines[0].split(' ')[0] || '').trim();
-    if (!sha || /^0+$/.test(sha)) {
+    if (!sha) {
         return null;
     }
+    const uncommitted = /^0+$/.test(sha);
     let author = '';
     let email = '';
     let time = 0;
@@ -214,7 +259,15 @@ function parsePorcelain(stdout: string): {
             previous = (line.slice(9).split(' ')[0] || '').trim();
         }
     }
-    return { sha, author, email, time, summary, previous };
+    return {
+        sha: uncommitted ? '' : sha,
+        author,
+        email,
+        time,
+        summary,
+        previous,
+        uncommitted
+    };
 }
 
 function displayAuthor(author: string, email: string, user: { name: string; email: string }): string {
@@ -248,8 +301,54 @@ export interface LineBlameInfo {
 
 /**
  * 当前行一行 git blame：行尾摘要 + 浮窗详情。
- * 非 file URI、未提交、或不在仓库里时返回 undefined。
+ * 非 file URI 或不在仓库里时返回 undefined。未提交行仍返回摘要。
  */
+function blameArgs(line: number, filePath: string): string[] {
+    return ['blame', '-L', `${line},${line}`, '--porcelain', '--', filePath];
+}
+
+// 先在文件目录用文件名 blame（git 自己往上找仓库）。
+// 超时只原命令重试一次，不换路径连打三次；路径错误再试相对路径 / 绝对路径。
+async function blamePorcelain(fileDir: string, fsPath: string, line: number): Promise<string> {
+    const base = path.basename(fsPath);
+    const firstTimeout = gitWarmed ? GIT_TIMEOUT_MS : GIT_TIMEOUT_COLD_MS;
+    try {
+        return await gitExec(fileDir, blameArgs(line, base), firstTimeout);
+    } catch (err) {
+        const msg = String((err as Error).message || err);
+        if (/has only \d+ lines?/i.test(msg)) {
+            return [
+                '0000000000000000000000000000000000000000 1 1 1',
+                'author Not Committed Yet',
+                'summary Not Committed Yet'
+            ].join('\n');
+        }
+        if ((err as { timeout?: boolean }).timeout) {
+            return await gitExec(fileDir, blameArgs(line, base), GIT_TIMEOUT_COLD_MS);
+        }
+        const fallbacks: { cwd: string; file: string }[] = [];
+        try {
+            const root = normalizeGitFsPath(await gitExec(fileDir, ['rev-parse', '--show-toplevel']));
+            const rel = path.relative(root, fsPath);
+            if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+                fallbacks.push({ cwd: root, file: rel.replace(/\\/g, '/') });
+            }
+        } catch {
+            // 没有仓库根就只试绝对路径
+        }
+        fallbacks.push({ cwd: fileDir, file: fsPath.replace(/\\/g, '/') });
+        let lastErr: unknown = err;
+        for (const { cwd, file } of fallbacks) {
+            try {
+                return await gitExec(cwd, blameArgs(line, file));
+            } catch (next) {
+                lastErr = next;
+            }
+        }
+        throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+    }
+}
+
 export async function blameLine(uriString: string, line1Based: number): Promise<LineBlameInfo | undefined> {
     if (!uriString || line1Based < 1) {
         return undefined;
@@ -261,27 +360,35 @@ export async function blameLine(uriString: string, line1Based: number): Promise<
     const fsPath = uri.fsPath;
     const fileDir = path.dirname(fsPath);
     try {
-        let cwd = fileDir;
-        let blamePath = path.basename(fsPath);
-        try {
-            const root = (await gitExec(fileDir, ['rev-parse', '--show-toplevel'])).trim();
-            if (root) {
-                const rel = path.relative(root, fsPath);
-                if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
-                    cwd = root;
-                    blamePath = rel.replace(/\\/g, '/');
-                }
-            }
-        } catch {
-            // 找不到仓库根：在文件目录下用文件名 blame
-        }
-        const [stdout, user] = await Promise.all([
-            gitExec(cwd, ['blame', '-L', `${line1Based},${line1Based}`, '--porcelain', '--', blamePath]),
-            gitUser(cwd)
-        ]);
+        const cwd = fileDir;
+        const userP = gitUser(cwd);
+        const stdout = await blamePorcelain(fileDir, fsPath, line1Based);
         const parsed = parsePorcelain(stdout);
         if (!parsed) {
             return undefined;
+        }
+        const user = await userP;
+        if (parsed.uncommitted) {
+            const who = (!parsed.author || /^not committed yet$/i.test(parsed.author))
+                ? 'You'
+                : displayAuthor(parsed.author, parsed.email, user);
+            const text = `${who}, uncommitted changes`;
+            const hover: LineBlameHoverInfo = {
+                author: who,
+                authorName: (parsed.author && !/^not committed yet$/i.test(parsed.author))
+                    ? parsed.author.trim()
+                    : (user.name || who),
+                ago: 'uncommitted changes',
+                date: parsed.time ? formatAbsoluteDate(parsed.time) : '',
+                summary: parsed.summary || 'Not Committed Yet',
+                sha: '',
+                shortSha: ''
+            };
+            if (parsed.previous) {
+                hover.previousSha = parsed.previous;
+                hover.previousShortSha = shortSha(parsed.previous);
+            }
+            return { text, hover };
         }
         const fullMessage = (await commitMessage(cwd, parsed.sha)) || parsed.summary;
         const who = displayAuthor(parsed.author, parsed.email, user);
@@ -316,8 +423,7 @@ export async function blameLine(uriString: string, line1Based: number): Promise<
             hover.previousShortSha = shortSha(parsed.previous);
         }
         return { text, hover };
-    } catch (err) {
-        console.warn('[context-window] line blame failed:', fsPath, line1Based, err);
+    } catch {
         return undefined;
     }
 }
