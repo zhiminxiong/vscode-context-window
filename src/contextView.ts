@@ -500,6 +500,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 stickyScroll: this._resolveStickyScrollEnabled(contextWindowConfig, editorConfig),
                 // 跳转链顶栏（定义 hop 面包屑）：右键可关，默认开。
                 jumpTrail: contextWindowConfig.get('jumpTrail', true),
+                // 顶栏最多显示几个具名 crumb（不含 › / …）。超出收进 … 下拉。
+                jumpTrailMaxItems: contextWindowConfig.get('jumpTrailMaxItems', 8),
                 // 用户点击某行后，在该行行尾显示 git 摘要。跳转定位不显示。
                 lineBlame: contextWindowConfig.get('lineBlame', true),
             }

@@ -243,6 +243,12 @@
           "default": true,
           "description": "Show the jump trail (definition hop breadcrumbs) at the top of the Context Window. On by default. Can be toggled from the right-click menu."
         },
+        "contextView.contextWindow.jumpTrailMaxItems": {
+          "type": "number",
+          "default": 8,
+          "minimum": 2,
+          "description": "Maximum number of named items shown on the jump trail. Extra hops collapse into the … dropdown. The first and current items are always kept. Minimum 2."
+        },
         "contextView.contextWindow.stickyScroll": {
           "type": [
             "boolean",

@@ -3,19 +3,28 @@
 // 跳转链顶栏：foo › bar › baz。
 // 长链用「中间折叠」：首项 + 当前项始终完整显示，其余能放下的贴在当前项两侧，
 // 放不下的收进 … 下拉（对齐 VS Code breadcrumbs / 资源管理器路径栏）。
+// 另有个数上限 jumpTrailMaxItems（默认 8）：具名 crumb 超过上限的同样收进 …。
 
 /**
- * @param {{ editor?: import('monaco-editor').editor.IStandaloneCodeEditor, onLayout?: () => void, enabled?: boolean }} [ctx]
+ * @param {{ editor?: import('monaco-editor').editor.IStandaloneCodeEditor, onLayout?: () => void, enabled?: boolean, maxItems?: number }} [ctx]
  */
 export function createJumpTrail(ctx) {
     const editor = ctx && ctx.editor;
     let enabled = ctx && typeof ctx.enabled === 'boolean' ? ctx.enabled : true;
+    let maxItems = clampMaxItems(ctx && ctx.maxItems);
 
     /** @type {{ items: any[], index: number } | null} */
     let lastState = null;
     /** @type {HTMLElement | null} */
     let dropdownEl = null;
     let resizeTimer = 0;
+
+    function clampMaxItems(n) {
+        if (typeof n !== 'number' || !isFinite(n)) {
+            return 8;
+        }
+        return Math.max(2, Math.floor(n));
+    }
 
     function host() {
         let el = document.getElementById('jump-trail');
@@ -300,11 +309,13 @@ export function createJumpTrail(ctx) {
         return w;
     }
 
-    // 优先钉住首项和当前项；剩余宽度先填当前项左侧（怎么跟过来的），再填右侧（链的尾巴）。
+    // 优先钉住首项和当前项；剩余名额/宽度先填当前项左侧（怎么跟过来的），再填右侧（链的尾巴）。
     function pickVisible(widths, current, avail, sepW, overflowW) {
         const n = widths.length;
+        const cap = maxItems;
         const visible = new Set([0, current]);
         const fits = (set) => usedWidth(set, widths, n, sepW, overflowW) <= avail;
+        const underCap = (set) => set.size <= cap;
 
         if (n <= 2 || !fits(visible)) {
             return visible;
@@ -312,14 +323,14 @@ export function createJumpTrail(ctx) {
 
         for (let i = current - 1; i >= 1; i--) {
             visible.add(i);
-            if (!fits(visible)) {
+            if (!fits(visible) || !underCap(visible)) {
                 visible.delete(i);
                 break;
             }
         }
         for (let i = n - 1; i > current; i--) {
             visible.add(i);
-            if (!fits(visible)) {
+            if (!fits(visible) || !underCap(visible)) {
                 visible.delete(i);
                 break;
             }
@@ -450,5 +461,12 @@ export function createJumpTrail(ctx) {
         }
     }
 
-    return { render, setEnabled };
+    function setMaxItems(value) {
+        maxItems = clampMaxItems(value);
+        if (lastState) {
+            render(lastState);
+        }
+    }
+
+    return { render, setEnabled, setMaxItems };
 }

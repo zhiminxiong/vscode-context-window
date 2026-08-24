@@ -34,6 +34,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
         const cfg0 = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
         window.enableHover = (cfg0 && typeof cfg0.enableHover === 'boolean') ? cfg0.enableHover : false;
         window.jumpTrailEnabled = (cfg0 && typeof cfg0.jumpTrail === 'boolean') ? cfg0.jumpTrail : true;
+        window.jumpTrailMaxItems = (cfg0 && typeof cfg0.jumpTrailMaxItems === 'number')
+            ? Math.max(2, Math.floor(cfg0.jumpTrailMaxItems))
+            : 8;
         window.lineBlameEnabled = (cfg0 && typeof cfg0.lineBlame === 'boolean') ? cfg0.lineBlame : true;
     }
 
@@ -868,6 +871,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     const jumpTrail = createJumpTrail({
                         editor,
                         enabled: window.jumpTrailEnabled,
+                        maxItems: window.jumpTrailMaxItems,
                         onLayout: () => {
                             if (typeof updateEditorContent.revealCurrent === 'function') {
                                 updateEditorContent.revealCurrent();
@@ -978,6 +982,12 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                             && window.jumpTrailEnabled !== message.contextEditorCfg.jumpTrail) {
                                             window.jumpTrailEnabled = message.contextEditorCfg.jumpTrail;
                                             jumpTrail.setEnabled(window.jumpTrailEnabled);
+                                        }
+
+                                        if (typeof message.contextEditorCfg.jumpTrailMaxItems === 'number'
+                                            && window.jumpTrailMaxItems !== message.contextEditorCfg.jumpTrailMaxItems) {
+                                            window.jumpTrailMaxItems = Math.max(2, Math.floor(message.contextEditorCfg.jumpTrailMaxItems));
+                                            jumpTrail.setMaxItems(window.jumpTrailMaxItems);
                                         }
 
                                         if (typeof message.contextEditorCfg.lineBlame === 'boolean'
