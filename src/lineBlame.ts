@@ -9,8 +9,89 @@ const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 8000;
 const GIT_TIMEOUT_COLD_MS = 15000;
 const userCache = new Map<string, { name: string; email: string }>();
+const commitMessageCache = new Map<string, string>();
+const commitMessageInflight = new Map<string, Promise<string>>();
+const lineBlameCache = new Map<string, LineBlameCacheEntry>();
+const lineBlameInflight = new Map<string, Promise<LineBlameInfo | undefined>>();
+const gitHeadFileByDir = new Map<string, string>();
+const repoHeadMemo = new Map<string, { sha: string; headMtime: number; refFile?: string; refMtime: number }>();
+const LINE_BLAME_CACHE_MAX = 400;
+const COMMIT_MESSAGE_CACHE_MAX = 300;
+const FILE_BLAME_CACHE_MAX = 24;
+const GIT_TIMEOUT_FILE_MS = 25000;
+const GIT_FILE_MAX_BUFFER = 32 * 1024 * 1024;
+const fileBlameCache = new Map<string, FileBlameCache>();
+const fileBlameInflight = new Map<string, Promise<void>>();
 let resolvedGit: string | undefined;
 let gitWarmed = false;
+
+type PorcelainFields = {
+    sha: string;
+    author: string;
+    email: string;
+    time: number;
+    summary: string;
+    previous: string;
+    uncommitted: boolean;
+};
+
+type FileBlameCache = {
+    stamp: string;
+    lines: Map<number, PorcelainFields>;
+    failed?: boolean;
+};
+
+type LineBlameCacheHit = {
+    stamp: string;
+    miss?: false;
+    uncommitted: boolean;
+    time: number;
+    who: string;
+    authorName: string;
+    date: string;
+    summary: string;
+    textSubject: string;
+    avatarUrl?: string;
+    sha: string;
+    shortSha: string;
+    previousSha?: string;
+    previousShortSha?: string;
+};
+
+type LineBlameCacheEntry = LineBlameCacheHit | { stamp: string; miss: true };
+
+function cacheFileKey(fsPath: string): string {
+    const n = path.normalize(fsPath);
+    return process.platform === 'win32' ? n.toLowerCase() : n;
+}
+
+function lineCacheKey(fsPath: string, line: number): string {
+    return `${cacheFileKey(fsPath)}\0${line}`;
+}
+
+function lruSet<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
+    if (map.has(key)) {
+        map.delete(key);
+    }
+    map.set(key, value);
+    while (map.size > max) {
+        const first = map.keys().next().value;
+        if (first === undefined) {
+            break;
+        }
+        map.delete(first);
+    }
+}
+
+function lruGet<K, V>(map: Map<K, V>, key: K): V | undefined {
+    const hit = map.get(key);
+    if (hit === undefined) {
+        return undefined;
+    }
+    map.delete(key);
+    map.set(key, hit);
+    return hit;
+}
 
 async function resolveGit(): Promise<string> {
     if (resolvedGit) {
@@ -81,14 +162,19 @@ function isGitTimeout(err: unknown): boolean {
         || /ETIMEDOUT|timed? ?out/i.test(String(e?.message || ''));
 }
 
-async function gitExec(cwd: string, args: string[], timeout = GIT_TIMEOUT_MS): Promise<string> {
+async function gitExec(
+    cwd: string,
+    args: string[],
+    timeout = GIT_TIMEOUT_MS,
+    maxBuffer = 256 * 1024
+): Promise<string> {
     try {
         const { stdout } = await execFileAsync(await resolveGit(), args, {
             cwd,
             timeout,
             windowsHide: true,
             encoding: 'utf8',
-            maxBuffer: 256 * 1024
+            maxBuffer
         });
         gitWarmed = true;
         return String(stdout || '');
@@ -240,22 +326,196 @@ function gravatarUrl(email: string): string | undefined {
 }
 
 async function commitMessage(cwd: string, sha: string): Promise<string> {
-    try {
-        return (await gitExec(cwd, ['log', '-1', '--format=%B', '--no-patch', sha])).replace(/\s+$/g, '');
-    } catch {
+    if (!sha) {
         return '';
+    }
+    const cached = lruGet(commitMessageCache, sha);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const pending = commitMessageInflight.get(sha);
+    if (pending) {
+        return pending;
+    }
+    const job = (async () => {
+        try {
+            const msg = (await gitExec(cwd, ['log', '-1', '--format=%B', '--no-patch', sha])).replace(/\s+$/g, '');
+            lruSet(commitMessageCache, sha, msg, COMMIT_MESSAGE_CACHE_MAX);
+            return msg;
+        } catch {
+            return '';
+        } finally {
+            commitMessageInflight.delete(sha);
+        }
+    })();
+    commitMessageInflight.set(sha, job);
+    return job;
+}
+
+async function findGitHeadFile(startDir: string): Promise<string | undefined> {
+    const startKey = cacheFileKey(startDir);
+    const memo = gitHeadFileByDir.get(startKey);
+    if (memo) {
+        return memo;
+    }
+    let dir = path.normalize(startDir);
+    for (let i = 0; i < 48; i++) {
+        const gitPath = path.join(dir, '.git');
+        try {
+            const st = await fs.stat(gitPath);
+            let headFile: string | undefined;
+            if (st.isDirectory()) {
+                headFile = path.join(gitPath, 'HEAD');
+            } else {
+                const text = await fs.readFile(gitPath, 'utf8');
+                const m = text.match(/^gitdir:\s*(.+)\s*$/m);
+                if (m) {
+                    const raw = m[1].trim();
+                    const gitDir = path.isAbsolute(raw) ? raw : path.resolve(dir, raw);
+                    headFile = path.join(gitDir, 'HEAD');
+                }
+            }
+            if (headFile) {
+                gitHeadFileByDir.set(startKey, headFile);
+                return headFile;
+            }
+        } catch {
+            // 这一层没有 .git，继续往上
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) {
+            break;
+        }
+        dir = parent;
+    }
+    return undefined;
+}
+
+async function readPackedRef(packedRefsFile: string, refName: string): Promise<string | undefined> {
+    try {
+        const text = await fs.readFile(packedRefsFile, 'utf8');
+        const needle = ` ${refName}`;
+        for (const line of text.split(/\r?\n/)) {
+            if (!line || line.startsWith('#') || line.startsWith('^')) {
+                continue;
+            }
+            if (line.endsWith(needle)) {
+                const sha = line.slice(0, line.length - needle.length).trim();
+                if (/^[0-9a-f]{40,}$/i.test(sha)) {
+                    return sha.toLowerCase();
+                }
+            }
+        }
+    } catch {
+        // packed-refs 不存在或读失败
+    }
+    return undefined;
+}
+
+// 读 .git/HEAD（及对应 ref）得到 SHA。HEAD/ref 的 mtime 没变就复用，避免每次 rev-parse。
+async function repoHead(fileDir: string): Promise<string> {
+    const headFile = await findGitHeadFile(fileDir);
+    if (!headFile) {
+        try {
+            return (await gitExec(fileDir, ['rev-parse', 'HEAD'])).trim().toLowerCase();
+        } catch {
+            return '';
+        }
+    }
+    try {
+        const headSt = await fs.stat(headFile);
+        const memo = repoHeadMemo.get(headFile);
+        if (memo && memo.headMtime === headSt.mtimeMs) {
+            if (!memo.refFile) {
+                return memo.sha;
+            }
+            try {
+                const refSt = await fs.stat(memo.refFile);
+                if (refSt.mtimeMs === memo.refMtime) {
+                    return memo.sha;
+                }
+            } catch {
+                // ref 文件没了，下面整段重读
+            }
+        }
+        const text = (await fs.readFile(headFile, 'utf8')).trim();
+        if (/^[0-9a-f]{40,}$/i.test(text)) {
+            const sha = text.toLowerCase();
+            repoHeadMemo.set(headFile, { sha, headMtime: headSt.mtimeMs, refMtime: 0 });
+            return sha;
+        }
+        const m = text.match(/^ref:\s*(.+)$/i);
+        if (!m) {
+            repoHeadMemo.set(headFile, { sha: '', headMtime: headSt.mtimeMs, refMtime: 0 });
+            return '';
+        }
+        const refRel = m[1].trim();
+        const gitDir = path.dirname(headFile);
+        const refFile = path.join(gitDir, refRel);
+        try {
+            const refSt = await fs.stat(refFile);
+            const sha = (await fs.readFile(refFile, 'utf8')).trim().toLowerCase();
+            repoHeadMemo.set(headFile, {
+                sha,
+                headMtime: headSt.mtimeMs,
+                refFile,
+                refMtime: refSt.mtimeMs
+            });
+            return sha;
+        } catch {
+            const sha = (await readPackedRef(path.join(gitDir, 'packed-refs'), refRel)) || '';
+            repoHeadMemo.set(headFile, { sha, headMtime: headSt.mtimeMs, refMtime: 0 });
+            return sha;
+        }
+    } catch {
+        try {
+            return (await gitExec(fileDir, ['rev-parse', 'HEAD'])).trim().toLowerCase();
+        } catch {
+            return '';
+        }
     }
 }
 
-function parsePorcelain(stdout: string): {
-    sha: string;
-    author: string;
-    email: string;
-    time: number;
-    summary: string;
-    previous: string;
-    uncommitted: boolean;
-} | null {
+async function blameStamp(fileDir: string, uri: vscode.Uri, fsPath: string): Promise<string> {
+    const [head, mtime] = await Promise.all([
+        repoHead(fileDir),
+        fileMtimeSec(uri, fsPath)
+    ]);
+    return `${head}|${mtime ?? 0}`;
+}
+
+function materializeBlame(hit: LineBlameCacheHit): LineBlameInfo {
+    const when = hit.time ? formatAgo(hit.time) : '';
+    const hover: LineBlameHoverInfo = {
+        author: hit.who,
+        authorName: hit.authorName,
+        ago: when,
+        date: hit.date,
+        summary: hit.summary,
+        sha: hit.sha,
+        shortSha: hit.shortSha
+    };
+    if (hit.avatarUrl) {
+        hover.avatarUrl = hit.avatarUrl;
+    }
+    if (hit.previousSha) {
+        hover.previousSha = hit.previousSha;
+        hover.previousShortSha = hit.previousShortSha;
+    }
+    let text = '';
+    if (hit.uncommitted) {
+        text = when
+            ? `${hit.who}, ${when} • Uncommitted changes`
+            : `${hit.who}, Uncommitted changes`;
+    } else if (hit.who && when && hit.textSubject) {
+        text = `${hit.who}, ${when} • ${hit.textSubject}`;
+    } else if (hit.who && when) {
+        text = `${hit.who}, ${when}`;
+    }
+    return { text, hover };
+}
+
+function parsePorcelain(stdout: string): PorcelainFields | null {
     const lines = stdout.split(/\r?\n/);
     if (!lines.length) {
         return null;
@@ -295,6 +555,71 @@ function parsePorcelain(stdout: string): {
     };
 }
 
+// 整文件 porcelain：同一 SHA 只在首次出现时带 author/summary，后续行只有 SHA + 行号。
+function parsePorcelainFile(stdout: string): Map<number, PorcelainFields> {
+    const out = new Map<number, PorcelainFields>();
+    const commits = new Map<string, PorcelainFields>();
+    const rows = stdout.split(/\r?\n/);
+    const recRe = /^([0-9a-f]+)\s+(\d+)\s+(\d+)(?:\s+\d+)?$/i;
+    let i = 0;
+    while (i < rows.length) {
+        const rec = recRe.exec(rows[i]);
+        if (!rec) {
+            i++;
+            continue;
+        }
+        const rawSha = rec[1];
+        const resultLine = parseInt(rec[3], 10);
+        i++;
+        let author = '';
+        let email = '';
+        let time = 0;
+        let summary = '';
+        let previous = '';
+        let gotMeta = false;
+        while (i < rows.length) {
+            const line = rows[i];
+            if (line.startsWith('\t')) {
+                i++;
+                break;
+            }
+            if (recRe.test(line)) {
+                break;
+            }
+            gotMeta = true;
+            if (line.startsWith('author ')) {
+                author = line.slice(7);
+            } else if (line.startsWith('author-mail ')) {
+                email = line.slice(12).replace(/^[<]/, '').replace(/[>]$/, '');
+            } else if (line.startsWith('author-time ')) {
+                time = parseInt(line.slice(12), 10) || 0;
+            } else if (line.startsWith('summary ')) {
+                summary = line.slice(8).trim();
+            } else if (line.startsWith('previous ')) {
+                previous = (line.slice(9).split(' ')[0] || '').trim();
+            }
+            i++;
+        }
+        const uncommitted = /^0+$/.test(rawSha);
+        if (gotMeta) {
+            commits.set(rawSha, {
+                sha: uncommitted ? '' : rawSha,
+                author,
+                email,
+                time,
+                summary,
+                previous,
+                uncommitted
+            });
+        }
+        const meta = commits.get(rawSha);
+        if (meta && resultLine >= 1) {
+            out.set(resultLine, meta);
+        }
+    }
+    return out;
+}
+
 function displayAuthor(author: string, email: string, user: { name: string; email: string }): string {
     const name = (author || '').trim() || 'Someone';
     if (user.email && email && user.email.toLowerCase() === email.toLowerCase()) {
@@ -330,6 +655,10 @@ export interface LineBlameInfo {
  */
 function blameArgs(line: number, filePath: string): string[] {
     return ['blame', '-L', `${line},${line}`, '--porcelain', '--', filePath];
+}
+
+function fileBlameArgs(filePath: string): string[] {
+    return ['blame', '--porcelain', '--', filePath];
 }
 
 // 先在文件目录用文件名 blame（git 自己往上找仓库）。
@@ -374,6 +703,181 @@ async function blamePorcelain(fileDir: string, fsPath: string, line: number): Pr
     }
 }
 
+async function blamePorcelainFile(fileDir: string, fsPath: string): Promise<string> {
+    const base = path.basename(fsPath);
+    try {
+        return await gitExec(fileDir, fileBlameArgs(base), GIT_TIMEOUT_FILE_MS, GIT_FILE_MAX_BUFFER);
+    } catch (err) {
+        if ((err as { timeout?: boolean }).timeout) {
+            return await gitExec(fileDir, fileBlameArgs(base), GIT_TIMEOUT_FILE_MS, GIT_FILE_MAX_BUFFER);
+        }
+        const fallbacks: { cwd: string; file: string }[] = [];
+        try {
+            const root = normalizeGitFsPath(await gitExec(fileDir, ['rev-parse', '--show-toplevel']));
+            const rel = path.relative(root, fsPath);
+            if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+                fallbacks.push({ cwd: root, file: rel.replace(/\\/g, '/') });
+            }
+        } catch {
+            // 没有仓库根就只试绝对路径
+        }
+        fallbacks.push({ cwd: fileDir, file: fsPath.replace(/\\/g, '/') });
+        let lastErr: unknown = err;
+        for (const { cwd, file } of fallbacks) {
+            try {
+                return await gitExec(cwd, fileBlameArgs(file), GIT_TIMEOUT_FILE_MS, GIT_FILE_MAX_BUFFER);
+            } catch (next) {
+                lastErr = next;
+            }
+        }
+        throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+    }
+}
+
+async function storedFromParsed(
+    parsed: PorcelainFields,
+    stamp: string,
+    user: { name: string; email: string },
+    cwd: string,
+    uncommittedMtime?: number
+): Promise<LineBlameCacheHit | undefined> {
+    if (parsed.uncommitted) {
+        const who = (!parsed.author || /^not committed yet$/i.test(parsed.author))
+            ? 'You'
+            : displayAuthor(parsed.author, parsed.email, user);
+        const time = uncommittedMtime ?? Math.floor(Date.now() / 1000);
+        const stored: LineBlameCacheHit = {
+            stamp,
+            uncommitted: true,
+            time,
+            who,
+            authorName: (parsed.author && !/^not committed yet$/i.test(parsed.author))
+                ? parsed.author.trim()
+                : (user.name || who),
+            date: formatAbsoluteDate(time),
+            summary: 'Uncommitted changes',
+            textSubject: 'Uncommitted changes',
+            sha: '',
+            shortSha: ''
+        };
+        if (parsed.previous) {
+            stored.previousSha = parsed.previous;
+            stored.previousShortSha = shortSha(parsed.previous);
+        }
+        return stored;
+    }
+    const fullMessage = (await commitMessage(cwd, parsed.sha)) || parsed.summary;
+    const who = displayAuthor(parsed.author, parsed.email, user);
+    const subject = firstLine(fullMessage) || parsed.summary.replace(/\s+/g, ' ');
+    let textSubject = subject;
+    if (textSubject.length > 72) {
+        textSubject = textSubject.slice(0, 71) + '…';
+    }
+    if (!who || !parsed.time) {
+        return undefined;
+    }
+    const stored: LineBlameCacheHit = {
+        stamp,
+        uncommitted: false,
+        time: parsed.time,
+        who,
+        authorName: (parsed.author || '').trim() || who,
+        date: formatAbsoluteDate(parsed.time),
+        summary: fullMessage,
+        textSubject,
+        avatarUrl: gravatarUrl(parsed.email),
+        sha: parsed.sha,
+        shortSha: shortSha(parsed.sha)
+    };
+    if (parsed.previous) {
+        stored.previousSha = parsed.previous;
+        stored.previousShortSha = shortSha(parsed.previous);
+    }
+    return stored;
+}
+
+async function infoFromParsed(
+    parsed: PorcelainFields,
+    fsPath: string,
+    line1Based: number,
+    stamp: string,
+    user: { name: string; email: string },
+    cwd: string,
+    uncommittedMtime?: number
+): Promise<LineBlameInfo | undefined> {
+    const stored = await storedFromParsed(parsed, stamp, user, cwd, uncommittedMtime);
+    const key = lineCacheKey(fsPath, line1Based);
+    if (!stored) {
+        lruSet(lineBlameCache, key, { stamp, miss: true }, LINE_BLAME_CACHE_MAX);
+        return undefined;
+    }
+    lruSet(lineBlameCache, key, stored, LINE_BLAME_CACHE_MAX);
+    const info = materializeBlame(stored);
+    return info.text ? info : undefined;
+}
+
+async function infoFromFileCache(
+    fileHit: FileBlameCache,
+    uri: vscode.Uri,
+    fsPath: string,
+    fileDir: string,
+    line1Based: number,
+    stamp: string
+): Promise<LineBlameInfo | undefined> {
+    const parsed = fileHit.lines.get(line1Based);
+    if (!parsed) {
+        lruSet(lineBlameCache, lineCacheKey(fsPath, line1Based), { stamp, miss: true }, LINE_BLAME_CACHE_MAX);
+        return undefined;
+    }
+    const user = await gitUser(fileDir);
+    const mtime = parsed.uncommitted ? await fileMtimeSec(uri, fsPath) : undefined;
+    return infoFromParsed(parsed, fsPath, line1Based, stamp, user, fileDir, mtime);
+}
+
+function scheduleFileBlame(fileDir: string, fsPath: string, stamp: string): void {
+    const fileKey = cacheFileKey(fsPath);
+    const hit = fileBlameCache.get(fileKey);
+    if (hit && hit.stamp === stamp) {
+        return;
+    }
+    const inflightKey = `${fileKey}\0${stamp}`;
+    if (fileBlameInflight.has(inflightKey)) {
+        return;
+    }
+    const job = (async () => {
+        try {
+            const stdout = await blamePorcelainFile(fileDir, fsPath);
+            const lines = parsePorcelainFile(stdout);
+            lruSet(fileBlameCache, fileKey, { stamp, lines }, FILE_BLAME_CACHE_MAX);
+        } catch {
+            lruSet(fileBlameCache, fileKey, { stamp, lines: new Map(), failed: true }, FILE_BLAME_CACHE_MAX);
+        } finally {
+            fileBlameInflight.delete(inflightKey);
+        }
+    })();
+    fileBlameInflight.set(inflightKey, job);
+}
+
+async function blameLineFetch(
+    uri: vscode.Uri,
+    fsPath: string,
+    fileDir: string,
+    line1Based: number,
+    stamp: string
+): Promise<LineBlameInfo | undefined> {
+    const userP = gitUser(fileDir);
+    const mtimeP = fileMtimeSec(uri, fsPath);
+    const stdout = await blamePorcelain(fileDir, fsPath, line1Based);
+    const parsed = parsePorcelain(stdout);
+    if (!parsed) {
+        lruSet(lineBlameCache, lineCacheKey(fsPath, line1Based), { stamp, miss: true }, LINE_BLAME_CACHE_MAX);
+        return undefined;
+    }
+    const user = await userP;
+    const mtime = parsed.uncommitted ? await mtimeP : undefined;
+    return infoFromParsed(parsed, fsPath, line1Based, stamp, user, fileDir, mtime);
+}
+
 export async function blameLine(uriString: string, line1Based: number): Promise<LineBlameInfo | undefined> {
     if (!uriString || line1Based < 1) {
         return undefined;
@@ -384,80 +888,36 @@ export async function blameLine(uriString: string, line1Based: number): Promise<
     }
     const fsPath = uri.fsPath;
     const fileDir = path.dirname(fsPath);
-    try {
-        const cwd = fileDir;
-        // GitLens：先 stat 再 blame。mtime 必须在 git 之前取，否则 blame 期间写盘/过滤器会把时间改新。
-        const userP = gitUser(cwd);
-        const mtimeP = fileMtimeSec(uri, fsPath);
-        const stdout = await blamePorcelain(fileDir, fsPath, line1Based);
-        const parsed = parsePorcelain(stdout);
-        if (!parsed) {
-            return undefined;
-        }
-        const user = await userP;
-        if (parsed.uncommitted) {
-            const who = (!parsed.author || /^not committed yet$/i.test(parsed.author))
-                ? 'You'
-                : displayAuthor(parsed.author, parsed.email, user);
-            const time = (await mtimeP) ?? Math.floor(Date.now() / 1000);
-            const when = formatAgo(time);
-            const date = formatAbsoluteDate(time);
-            const text = when
-                ? `${who}, ${when} • Uncommitted changes`
-                : `${who}, Uncommitted changes`;
-            const hover: LineBlameHoverInfo = {
-                author: who,
-                authorName: (parsed.author && !/^not committed yet$/i.test(parsed.author))
-                    ? parsed.author.trim()
-                    : (user.name || who),
-                ago: when,
-                date,
-                summary: 'Uncommitted changes',
-                sha: '',
-                shortSha: ''
-            };
-            if (parsed.previous) {
-                hover.previousSha = parsed.previous;
-                hover.previousShortSha = shortSha(parsed.previous);
-            }
-            return { text, hover };
-        }
-        const fullMessage = (await commitMessage(cwd, parsed.sha)) || parsed.summary;
-        const who = displayAuthor(parsed.author, parsed.email, user);
-        const when = parsed.time ? formatAgo(parsed.time) : '';
-        const date = parsed.time ? formatAbsoluteDate(parsed.time) : '';
-        const subject = firstLine(fullMessage) || parsed.summary.replace(/\s+/g, ' ');
-        let textSubject = subject;
-        if (textSubject.length > 72) {
-            textSubject = textSubject.slice(0, 71) + '…';
-        }
-        let text = '';
-        if (who && when && textSubject) {
-            text = `${who}, ${when} • ${textSubject}`;
-        } else if (who && when) {
-            text = `${who}, ${when}`;
-        }
-        if (!text) {
-            return undefined;
-        }
-        const hover: LineBlameHoverInfo = {
-            author: who,
-            authorName: (parsed.author || '').trim() || who,
-            ago: when,
-            date,
-            summary: fullMessage,
-            avatarUrl: gravatarUrl(parsed.email),
-            sha: parsed.sha,
-            shortSha: shortSha(parsed.sha)
-        };
-        if (parsed.previous) {
-            hover.previousSha = parsed.previous;
-            hover.previousShortSha = shortSha(parsed.previous);
-        }
-        return { text, hover };
-    } catch {
-        return undefined;
+    const key = lineCacheKey(fsPath, line1Based);
+    const pending = lineBlameInflight.get(key);
+    if (pending) {
+        return pending;
     }
+    const job = (async () => {
+        try {
+            const stamp = await blameStamp(fileDir, uri, fsPath);
+            const fileKey = cacheFileKey(fsPath);
+            const fileHit = lruGet(fileBlameCache, fileKey);
+            if (fileHit && fileHit.stamp === stamp && !fileHit.failed) {
+                return await infoFromFileCache(fileHit, uri, fsPath, fileDir, line1Based, stamp);
+            }
+            const cached = lruGet(lineBlameCache, key);
+            if (cached && cached.stamp === stamp) {
+                if (!fileHit || fileHit.stamp !== stamp) {
+                    scheduleFileBlame(fileDir, fsPath, stamp);
+                }
+                return cached.miss ? undefined : materializeBlame(cached);
+            }
+            scheduleFileBlame(fileDir, fsPath, stamp);
+            return await blameLineFetch(uri, fsPath, fileDir, line1Based, stamp);
+        } catch {
+            return undefined;
+        } finally {
+            lineBlameInflight.delete(key);
+        }
+    })();
+    lineBlameInflight.set(key, job);
+    return job;
 }
 
 function toGitUri(uri: vscode.Uri, ref: string): vscode.Uri {

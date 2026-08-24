@@ -23,10 +23,11 @@ export function createLineBlame(ctx) {
     let hoverEnabled = ctx && ctx.hoverEnabled !== false;
     let seq = 0;
     let timer = 0;
-    /** @type {{ uri: string, line: number, text: string, hover?: any } | null} */
+    /** @type {{ uri: string, line: number, text: string, hover?: any, versionId: number } | null} */
     let lastShown = null;
     let lastReqLine = 0;
     let lastReqUri = '';
+    let pendingReq = false;
     /** @type {HTMLSpanElement | null} */
     let node = null;
     /** @type {import('monaco-editor').editor.IContentWidget | null} */
@@ -401,7 +402,13 @@ export function createLineBlame(ctx) {
             hideWidget();
             return;
         }
-        lastShown = { uri: (state && state.uri) || '', line, text, hover };
+        lastShown = {
+            uri: (state && state.uri) || '',
+            line,
+            text,
+            hover,
+            versionId: model.getVersionId()
+        };
         ensureWidget();
         syncFont();
         syncLiveClass();
@@ -423,6 +430,7 @@ export function createLineBlame(ctx) {
         }
         lastReqLine = 0;
         lastReqUri = '';
+        pendingReq = false;
         seq++;
         hideWidget();
     }
@@ -439,8 +447,20 @@ export function createLineBlame(ctx) {
         if (model.getValue() === 'No symbol found.') {
             return;
         }
+        const versionId = model.getVersionId();
+        if (lastShown
+            && lastShown.uri === uri
+            && lastShown.line === line
+            && lastShown.versionId === versionId) {
+            apply(line, lastShown.text, lastShown.hover);
+            return;
+        }
+        if (pendingReq && lastReqLine === line && lastReqUri === uri) {
+            return;
+        }
         lastReqLine = line;
         lastReqUri = uri;
+        pendingReq = true;
         const reqId = ++seq;
         vscode.postMessage({
             type: 'requestLineBlame',
@@ -480,6 +500,7 @@ export function createLineBlame(ctx) {
         if (!message || message.reqId !== seq) {
             return;
         }
+        pendingReq = false;
         if (!enabled) {
             clear();
             return;
