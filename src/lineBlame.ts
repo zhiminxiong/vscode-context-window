@@ -1,5 +1,6 @@
 import { execFile } from 'child_process';
 import { createHash } from 'crypto';
+import { promises as fs } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
@@ -204,6 +205,30 @@ function firstLine(text: string): string {
     return (text.split(/\r?\n/)[0] || '').trim();
 }
 
+// git blame 未提交行经常给出 0；1970 不能拿来显示「1 minute ago」。
+function isPlausibleGitTime(epochSec: number): boolean {
+    return epochSec >= 1_000_000_000;
+}
+
+async function fileMtimeSec(uri: vscode.Uri, fsPath: string): Promise<number | undefined> {
+    try {
+        const st = await vscode.workspace.fs.stat(uri);
+        const sec = Math.floor(st.mtime / 1000);
+        if (isPlausibleGitTime(sec)) {
+            return sec;
+        }
+    } catch {
+        // 虚拟文档或 stat 失败时退回磁盘
+    }
+    try {
+        const st = await fs.stat(fsPath);
+        const sec = Math.floor(st.mtimeMs / 1000);
+        return isPlausibleGitTime(sec) ? sec : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 // Git 不存头像。用作者邮箱的 Gravatar；未登记时返回 404，前端改用首字母。
 function gravatarUrl(email: string): string | undefined {
     const trimmed = (email || '').trim().toLowerCase();
@@ -361,7 +386,9 @@ export async function blameLine(uriString: string, line1Based: number): Promise<
     const fileDir = path.dirname(fsPath);
     try {
         const cwd = fileDir;
+        // GitLens：先 stat 再 blame。mtime 必须在 git 之前取，否则 blame 期间写盘/过滤器会把时间改新。
         const userP = gitUser(cwd);
+        const mtimeP = fileMtimeSec(uri, fsPath);
         const stdout = await blamePorcelain(fileDir, fsPath, line1Based);
         const parsed = parsePorcelain(stdout);
         if (!parsed) {
@@ -372,15 +399,20 @@ export async function blameLine(uriString: string, line1Based: number): Promise<
             const who = (!parsed.author || /^not committed yet$/i.test(parsed.author))
                 ? 'You'
                 : displayAuthor(parsed.author, parsed.email, user);
-            const text = `${who}, uncommitted changes`;
+            const time = (await mtimeP) ?? Math.floor(Date.now() / 1000);
+            const when = formatAgo(time);
+            const date = formatAbsoluteDate(time);
+            const text = when
+                ? `${who}, ${when} • Uncommitted changes`
+                : `${who}, Uncommitted changes`;
             const hover: LineBlameHoverInfo = {
                 author: who,
                 authorName: (parsed.author && !/^not committed yet$/i.test(parsed.author))
                     ? parsed.author.trim()
                     : (user.name || who),
-                ago: 'uncommitted changes',
-                date: parsed.time ? formatAbsoluteDate(parsed.time) : '',
-                summary: parsed.summary || 'Not Committed Yet',
+                ago: when,
+                date,
+                summary: 'Uncommitted changes',
                 sha: '',
                 shortSha: ''
             };
