@@ -313,11 +313,19 @@ export function createJumpTrail(ctx) {
     function pickVisible(widths, current, avail, sepW, overflowW) {
         const n = widths.length;
         const cap = maxItems;
-        const visible = new Set([0, current]);
+        const all = new Set(Array.from({ length: n }, (_, i) => i));
+        // 两项及以下（或未超上限且宽度够）必须全显示。
+        // 否则 current===0 时 Set([0, current]) 只有首项，第二项会被收成 …。
+        if (n <= 2) {
+            return all;
+        }
         const fits = (set) => usedWidth(set, widths, n, sepW, overflowW) <= avail;
         const underCap = (set) => set.size <= cap;
-
-        if (n <= 2 || !fits(visible)) {
+        if (n <= cap && fits(all)) {
+            return all;
+        }
+        const visible = new Set([0, current]);
+        if (!fits(visible)) {
             return visible;
         }
 
@@ -430,7 +438,8 @@ export function createJumpTrail(ctx) {
         const avail = Math.max(0, contentWidth(el) - 8);
         const visible = pickVisible(widths, current, avail, sepW, overflowW);
         paint(el, items, current, visible);
-        while (overflowsTrail(el) && dropFarthestExtra(visible, current)) {
+        // 两项时即使测量略溢出也不应收成 …（点回第一项时 current===0，会误丢掉第二项）。
+        while (items.length > 2 && overflowsTrail(el) && dropFarthestExtra(visible, current)) {
             paint(el, items, current, visible);
         }
         layoutEditor();
