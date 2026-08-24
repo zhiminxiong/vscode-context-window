@@ -730,7 +730,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             const t = e.target;
                             // 底栏和跳转链顶栏有自己的自定义右键菜单，放行。
                             if (t && typeof t.closest === 'function' &&
-                                (t.closest('.nav-bar') || t.closest('.double-click-area') || t.closest('#jump-trail'))) {
+                                (t.closest('.nav-bar') || t.closest('.double-click-area') || t.closest('#jump-trail') || t.closest('#jump-mode-menu'))) {
                                 return;
                             }
                             // 其它区域：统一禁用浏览器原生右键菜单
@@ -1008,6 +1008,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         // 配置变更都会广播到这里，刷新底部导航栏 {si} 指示器的开/关外观。
                                         if (typeof window.updateSiIndicator === 'function') {
                                             window.updateSiIndicator();
+                                        }
+                                        if (typeof window.updateJumpMode === 'function') {
+                                            window.updateJumpMode();
                                         }
 
                                         // 方案 B：用户自定义规则变化后，刷新可着色 scope 集合，

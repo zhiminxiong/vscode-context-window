@@ -8,6 +8,17 @@ enum UpdateMode {
     Live = 'live',
     Sticky = 'sticky',
 }
+
+type JumpMode = 'definition' | 'typeDefinition' | 'implementation' | 'references';
+
+const JUMP_MODES: readonly JumpMode[] = ['definition', 'typeDefinition', 'implementation', 'references'];
+
+const JUMP_PROVIDER_COMMAND: Record<JumpMode, string> = {
+    definition: 'vscode.executeDefinitionProvider',
+    typeDefinition: 'vscode.executeTypeDefinitionProvider',
+    implementation: 'vscode.executeImplementationProvider',
+    references: 'vscode.executeReferenceProvider',
+};
 const maxHistorySize = 50;
 const MOUSE_RELEASE_DELAY = 300;   // 鼠标松开检测延时（ms）
 const INITIAL_UPDATE_DELAY = 2000; // 初始化后保底更新延时（ms）
@@ -124,6 +135,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     customThemeRules: newConfig.customThemeRules
                 });
                 this.updateConfiguration();
+                if (e.affectsConfiguration('contextView.contextWindow.jumpMode')) {
+                    this.postMessageToWebview({ type: 'clearDefinitionList' });
+                    this.invalidateCacheKey();
+                    this.update();
+                }
             }
         }, null, this._disposables);
 
@@ -433,6 +449,17 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    // 底栏上拉列表切换跳转模式。写入后 onDidChangeConfiguration 会回推 webview 并按新 provider 重查。
+    private async handleSetJumpMode(message: any) {
+        try {
+            const mode = normalizeJumpMode(message?.mode);
+            const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+            await cfg.update('jumpMode', mode, true);
+        } catch (err) {
+            console.error('[context-window] setJumpMode failed:', err);
+        }
+    }
+
     // 持久化 Sticky Scroll 开关：右键菜单切换时由webview 发来，写入插件自身配置（覆盖跟随 VSCode 的默认行为）。
     // 写入后 onDidChangeConfiguration 回调会通过 updateContextEditorCfg 把最新有效值广播回 webview。
     private async handleSetStickyScroll(message: any) {
@@ -522,6 +549,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 lineBlame: contextWindowConfig.get('lineBlame', true),
                 // 是否允许按住 Alt 打开行尾 blame 浮窗。lineBlame 关闭或当前没有摘要时仍不出现。
                 lineBlameHover: contextWindowConfig.get('lineBlameHover', true),
+                // 点击符号时走哪一种 LSP 跳转。默认 Definition；底栏上拉列表可改。
+                jumpMode: normalizeJumpMode(contextWindowConfig.get('jumpMode', 'definition')),
             }
         };
 
@@ -819,6 +848,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'setJumpTrail':
                     await this.handleSetJumpTrail(message);
+                    break;
+                case 'setJumpMode':
+                    await this.handleSetJumpMode(message);
                     break;
                 case 'setLineBlame':
                     await this.handleSetLineBlame(message);
@@ -1345,14 +1377,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return;
         }
         const selected = this._pickItems[message.index];
-        if (!selected || !editor) {
+        if (!selected) {
             return;
         }
 
         const updatePromise = (async () => {
             try {
                 const contentInfo = await this._renderer.renderDefinition(
-                    editor.document.languageId,
+                    editor?.document.languageId || 'plaintext',
                     selected.definition
                 );
 
@@ -1648,7 +1680,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 <button class="nav-button" id="nav-back" title="Go Back">  </button>
                 <button class="nav-button" id="nav-forward" title="Go Forward">  </button>
                 <button class="nav-jump" id="nav-jump" title="Jump to definition"></button>
-                <!-- 开关指示器：靠 margin-left:auto 显示在导航栏最右端；本会话曾开启过才显示，标识「双击选中整对括号/引号（含定界符）」是否开启，点击可切换 -->
+                <!-- 跳转模式：靠 margin-left:auto 停在底栏右侧、{ } 左侧。点击上拉选择。 -->
+                <div class="jump-mode" id="jump-mode" title="Jump mode: Go to Definition">
+                    <span class="jump-mode-label" id="jump-mode-label">Definition</span>
+                    <span class="jump-mode-caret" aria-hidden="true"></span>
+                </div>
+                <!-- 开关指示器：本会话曾开启过才显示，标识「双击选中整对括号/引号（含定界符）」是否开启，点击可切换 -->
                 <div class="si-indicator" id="si-indicator" title="Double-click selects the whole bracket/quote pair (including delimiters)">{ }</div>
             </div>
 
@@ -1821,13 +1858,24 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         return await this._renderer.renderDefinition(editor.document.languageId, definition);
     }
 
-    // 统一的定义解析入口：所有定义查询都收敛到这里
+    // 统一的跳转解析入口：主编辑区跟踪与面板内点击都走当前 jumpMode。
     private async getDefinitionsAt(uri: vscode.Uri, position: vscode.Position) {
-        return await vscode.commands.executeCommand<vscode.Location[]>(
-            'vscode.executeDefinitionProvider',
-            uri,
-            position
-        );
+        return await this.executeJumpProvider(JUMP_PROVIDER_COMMAND[this.getJumpMode()], uri, position);
+    }
+
+    private getJumpMode(): JumpMode {
+        const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+        return normalizeJumpMode(cfg.get('jumpMode', 'definition'));
+    }
+
+    private async executeJumpProvider(command: string, uri: vscode.Uri, position: vscode.Position): Promise<any[]> {
+        try {
+            const result = await vscode.commands.executeCommand<any[]>(command, uri, position);
+            return Array.isArray(result) ? result : [];
+        } catch (err) {
+            console.error('[context-window] jump provider failed:', command, err);
+            return [];
+        }
     }
 
     private async getDefinitionAtCurrentPositionInEditor(editor: vscode.TextEditor) {
@@ -1871,8 +1919,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // 缓存定义项供后续使用
             this._pickItems = validDefinitions;
             
-            // 只有在多个定义时才发送定义列表数据到webview
-            if (this._view && validDefinitions.length > 1) {
+            // 只有在多个结果时才发送列表到 webview（面板 + 浮动窗都走 postMessageToWebview）
+            if (validDefinitions.length > 1) {
                 // 尝试找到与当前位置最匹配的定义作为默认选择
                 const currentFileUri = editor.document.uri.toString();
                 let defaultIndex = 0;
@@ -1935,6 +1983,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return definitions[0]; // 出错时返回第一个定义
         }
     }
+}
+
+function normalizeJumpMode(value: unknown): JumpMode {
+    return (typeof value === 'string' && (JUMP_MODES as readonly string[]).includes(value))
+        ? value as JumpMode
+        : 'definition';
 }
 
 function basenameFromUri(uri?: string): string {

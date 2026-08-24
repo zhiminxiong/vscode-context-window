@@ -10,7 +10,140 @@
     function init() {
         setupNavigation();
         setupDoubleClickArea();
+        setupJumpMode();
         setupSiIndicator();
+    }
+
+    // 底栏右侧跳转模式：点击上拉 Definition / Type Definition / Implementation / References。
+    function setupJumpMode() {
+        const JUMP_MODE_ITEMS = [
+            { id: 'definition', label: 'Definition', short: 'Definition', title: 'Go to Definition (default)' },
+            { id: 'typeDefinition', label: 'Type Definition', short: 'Type Definition', title: 'Go to Type Definition' },
+            { id: 'implementation', label: 'Implementation', short: 'Implementation', title: 'Go to Implementation' },
+            { id: 'references', label: 'References', short: 'References', title: 'List references and open in Context' }
+        ];
+
+        function currentMode() {
+            const cfg = (window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg) || {};
+            const mode = cfg.jumpMode;
+            return JUMP_MODE_ITEMS.some(item => item.id === mode) ? mode : 'definition';
+        }
+
+        function modeItem(id) {
+            return JUMP_MODE_ITEMS.find(item => item.id === id) || JUMP_MODE_ITEMS[0];
+        }
+
+        window.updateJumpMode = function() {
+            const btn = document.getElementById('jump-mode');
+            const label = document.getElementById('jump-mode-label');
+            const item = modeItem(currentMode());
+            if (label) {
+                label.textContent = item.short;
+            }
+            if (btn) {
+                btn.title = 'Jump mode: ' + item.title;
+            }
+        };
+
+        let onDocDown = null;
+
+        function closeMenu() {
+            const menu = document.getElementById('jump-mode-menu');
+            if (menu) {
+                menu.remove();
+            }
+            const btn = document.getElementById('jump-mode');
+            if (btn) {
+                btn.classList.remove('open');
+            }
+            if (onDocDown) {
+                document.removeEventListener('mousedown', onDocDown, true);
+                onDocDown = null;
+            }
+        }
+
+        function openMenu() {
+            const btn = document.getElementById('jump-mode');
+            if (!btn) {
+                return;
+            }
+            if (document.getElementById('jump-mode-menu')) {
+                closeMenu();
+                return;
+            }
+
+            const menu = document.createElement('div');
+            menu.id = 'jump-mode-menu';
+            menu.className = 'jump-mode-menu';
+            const selected = currentMode();
+            JUMP_MODE_ITEMS.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'jump-mode-menu-item' + (item.id === selected ? ' selected' : '');
+                el.textContent = (item.id === selected ? '✔ ' : '') + item.label;
+                el.title = item.title;
+                el.addEventListener('mousedown', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeMenu();
+                    if (item.id === selected) {
+                        return;
+                    }
+                    const label = document.getElementById('jump-mode-label');
+                    if (label) {
+                        label.textContent = item.short;
+                    }
+                    btn.title = 'Jump mode: ' + item.title;
+                    window.vscode.postMessage({ type: 'setJumpMode', mode: item.id });
+                });
+                menu.appendChild(el);
+            });
+            menu.addEventListener('contextmenu', e => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+            document.body.appendChild(menu);
+            btn.classList.add('open');
+
+            const rect = btn.getBoundingClientRect();
+            const menuRect = menu.getBoundingClientRect();
+            let left = rect.right - menuRect.width;
+            let top = rect.top - menuRect.height - 4;
+            if (left < 4) {
+                left = 4;
+            }
+            if (top < 4) {
+                top = rect.bottom + 4;
+            }
+            menu.style.left = left + 'px';
+            menu.style.top = top + 'px';
+
+            onDocDown = (e) => {
+                if (btn.contains(e.target) || menu.contains(e.target)) {
+                    return;
+                }
+                closeMenu();
+            };
+            document.addEventListener('mousedown', onDocDown, true);
+            window.addEventListener('blur', function onBlur() {
+                closeMenu();
+                window.removeEventListener('blur', onBlur);
+            });
+        }
+
+        const btn = document.getElementById('jump-mode');
+        if (btn) {
+            btn.addEventListener('click', e => {
+                e.preventDefault();
+                e.stopPropagation();
+                openMenu();
+            });
+            btn.addEventListener('contextmenu', e => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        }
+
+        window.updateJumpMode();
     }
 
     // 底部导航栏右侧 {si} 指示器：标识「双击选中整对括号/引号」开关状态，点击切换。

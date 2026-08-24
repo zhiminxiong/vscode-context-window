@@ -623,6 +623,8 @@ body.has-jump-trail #container {
     left: 0;
     right: 0;
     height: 24px;
+    box-sizing: border-box;
+    overflow: visible;
     background-color: var(--vscode-editor-background);
     border-top: 1px solid var(--vscode-editorWidget-border);
     display: flex;
@@ -710,12 +712,77 @@ body.has-jump-trail #container {
 .nav-jump:hover::before {
     opacity: 1;
 }
+/* 底栏右侧跳转模式：停在 { } 左侧，点击上拉选择。 */
+.jump-mode {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;  /* 推到导航栏右侧（{ } 之前） */
+    margin-right: 10px;
+    height: 18px;
+    padding: 0 6px;
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+    font-size: 12px;
+    font-family: var(--vscode-font-family, 'Segoe UI', system-ui, sans-serif);
+    font-weight: 400;
+    line-height: 18px;
+    color: var(--vscode-descriptionForeground);
+    opacity: 0.72;
+    white-space: nowrap;
+    border-radius: 3px;
+    box-sizing: border-box;
+    overflow: visible;
+}
+.jump-mode:hover,
+.jump-mode.open {
+    opacity: 1;
+    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+}
+.jump-mode-label {
+    pointer-events: none;
+    line-height: 18px;
+    display: block;
+}
+.jump-mode-caret {
+    width: 0;
+    height: 0;
+    border-left: 3.5px solid transparent;
+    border-right: 3.5px solid transparent;
+    border-bottom: 4px solid currentColor; /* 向上，表示上拉 */
+    opacity: 0.7;
+    pointer-events: none;
+}
+.jump-mode-menu {
+    position: fixed;
+    z-index: 9999;
+    min-width: 220px;
+    background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #fff));
+    color: var(--vscode-menu-foreground, var(--vscode-foreground, #333));
+    border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, #ccc));
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    padding: 4px 0;
+    font-size: 13px;
+    font-family: var(--vscode-font-family, "Segoe UI", Arial, sans-serif);
+    user-select: none;
+}
+.jump-mode-menu-item {
+    padding: 4px 24px 4px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.jump-mode-menu-item:hover {
+    background: var(--vscode-menu-selectionBackground, #1d8705);
+    color: var(--vscode-menu-selectionForeground, #fff);
+}
 /* 底部导航栏的开关指示器：纯文本。字体颜色与底部文件名（contextView.ts）一致。
    显示策略：本会话「曾开启过」才显示（.revealed，见下）；关闭 = 暗淡，开启 = 全不透明 + 绿勾。 */
 .si-indicator {
     display: none; /* 默认隐藏；仅当底部有文件名显示（body.ctx-has-file）时才显示 */
     position: relative; /* 供开启态右下角 ✓ 定位 */
-    margin-left: auto;  /* 推到底部导航栏最右端 */
+    margin-left: 0;
     margin-right: 12px; /* 与窗口右边缘留出间距 */
     align-items: center;
     height: 100%;
@@ -763,7 +830,8 @@ body.has-jump-trail #container {
     /* 文件名固定紧贴上箭头（{ } 指示器已移到导航栏最右端，不再占用此处空间）。
        上箭头右缘约 108px，留出小间距。 */
     left: 114px;
-    right: 0;
+    /* 给右侧「跳转模式」让位，避免铺满的透明区挡住上拉按钮 */
+    right: 148px;
     height: 24px;
     z-index: 1001;
     cursor: default;
@@ -776,9 +844,12 @@ body.has-jump-trail #container {
     font-style: italic;
     padding-left: 6px;
 }
-/* { } 指示器显示在导航栏最右端时：文件名区右侧让位，避免其铺满的透明区遮挡对 { } 的点击 */
+/* { } 指示器显示时：文件名区再让出 { } 宽度，避免挡住跳转模式和 { } */
 body.si-revealed .double-click-area {
-    right: 32px;
+    right: 180px;
+}
+body.si-revealed .jump-mode {
+    margin-right: 4px;
 }
 /* 添加文件名显示样式 */
 .filename-display {

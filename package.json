@@ -261,6 +261,23 @@
           ],
           "default": null,
           "description": "Show sticky scroll (pinned function/class headers) in the Context Window. When null (default), it follows the main editor's editor.stickyScroll.enabled setting. Toggling it from the right-click menu writes this setting explicitly, which then takes precedence over the main editor's value."
+        },
+        "contextView.contextWindow.jumpMode": {
+          "type": "string",
+          "default": "definition",
+          "enum": [
+            "definition",
+            "typeDefinition",
+            "implementation",
+            "references"
+          ],
+          "enumDescriptions": [
+            "Go to Definition (default). Same as the current click behavior.",
+            "Go to Type Definition. Click a variable to see its type, not where it is declared.",
+            "Go to Implementation. Jump to implementations of an interface or virtual function.",
+            "Find References. Click a symbol to list references in Context, then click one to open that location in the panel (not the main editor)."
+          ],
+          "description": "What a click in the Context Window jumps to. Change it from the pull-up at the right of the Context footer."
         }
       }
     }
