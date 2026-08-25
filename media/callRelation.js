@@ -147,6 +147,23 @@ function edgeHubId(graph, edge) {
     return Math.abs(to?.hop || 0) > Math.abs(from?.hop || 0) ? edge.from : edge.to;
 }
 
+function arrowMarker(id, className) {
+    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+    marker.setAttribute('id', id);
+    marker.setAttribute('viewBox', '0 0 10 10');
+    marker.setAttribute('refX', '9');
+    marker.setAttribute('refY', '5');
+    marker.setAttribute('markerWidth', '8');
+    marker.setAttribute('markerHeight', '8');
+    marker.setAttribute('markerUnits', 'userSpaceOnUse');
+    marker.setAttribute('orient', 'auto');
+    const tip = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    tip.setAttribute('d', 'M 0 1.2 L 9 5 L 0 8.8 z');
+    tip.setAttribute('class', className);
+    marker.appendChild(tip);
+    return marker;
+}
+
 function busXForHub(hubPos, childPos) {
     const gap = 28;
     if (childPos.x >= hubPos.x) {
@@ -301,6 +318,10 @@ function render(graph) {
     svg.setAttribute('class', 'cr-edges');
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.appendChild(arrowMarker('cr-arrow', 'cr-arrow'));
+    defs.appendChild(arrowMarker('cr-arrow-hover', 'cr-arrow cr-arrow-hover'));
+    svg.appendChild(defs);
     const hoverLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     hoverLayer.setAttribute('class', 'cr-edge-hover-layer');
     hoverLayer.setAttribute('pointer-events', 'none');
@@ -314,6 +335,7 @@ function render(graph) {
         const hoverPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         hoverPath.setAttribute('class', 'cr-edge cr-edge-hover');
         hoverPath.setAttribute('d', pathD);
+        hoverPath.setAttribute('marker-end', 'url(#cr-arrow-hover)');
         hoverLayer.appendChild(hoverPath);
     };
     for (const edge of graph.edges) {
@@ -325,14 +347,15 @@ function render(graph) {
         const sameCol = Math.abs(a.x - b.x) < 1;
         let d;
         if (sameCol) {
-            const top = a.y <= b.y ? a : b;
-            const bot = a.y <= b.y ? b : a;
             const x = a.x + NODE_W / 2;
-            d = `M ${x} ${top.y + top.h} L ${x} ${bot.y}`;
+            const down = a.y <= b.y;
+            const y1 = down ? a.y + a.h : a.y;
+            const y2 = down ? b.y : b.y + b.h;
+            d = `M ${x} ${y1} L ${x} ${y2}`;
         } else {
-            const fromRight = a.x < b.x;
-            const x1 = fromRight ? a.x + NODE_W : a.x;
-            const x2 = fromRight ? b.x : b.x + NODE_W;
+            const leftToRight = a.x <= b.x;
+            const x1 = leftToRight ? a.x + NODE_W : a.x;
+            const x2 = leftToRight ? b.x : b.x + NODE_W;
             const y1 = a.y + a.h / 2;
             const y2 = b.y + b.h / 2;
             const hubId = edgeHubId(graph, edge);
@@ -346,6 +369,7 @@ function render(graph) {
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('class', 'cr-edge' + (edge.style === 'anchor' ? ' is-anchor' : ''));
         path.setAttribute('d', d);
+        path.setAttribute('marker-end', 'url(#cr-arrow)');
         g.appendChild(path);
         if (live) {
             const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');

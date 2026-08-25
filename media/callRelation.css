@@ -127,6 +127,15 @@ html, body {
     stroke-width: 2.4;
 }
 
+.cr-arrow {
+    fill: color-mix(in srgb, var(--vscode-foreground) 42%, transparent);
+    stroke: none;
+}
+
+.cr-arrow-hover {
+    fill: var(--vscode-textLink-foreground, #3794ff);
+}
+
 .cr-node {
     position: absolute;
     box-sizing: border-box;
