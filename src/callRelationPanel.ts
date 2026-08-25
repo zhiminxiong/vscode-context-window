@@ -119,9 +119,6 @@ export class CallRelationPanel {
             case 'ready':
                 this.postGraph();
                 break;
-            case 'refresh':
-                await this.reloadFromEditor(vscode.window.activeTextEditor);
-                break;
             case 'setPinned':
                 this.pinned = !!message.value;
                 this.postState();
@@ -213,7 +210,7 @@ export class CallRelationPanel {
                 title: '',
                 nodes: [],
                 edges: [],
-                empty: 'Open a source file and place the cursor on a function, then refresh.'
+                empty: 'Open a source file and place the cursor on a function.'
             };
             this.postGraph();
             return;
@@ -273,7 +270,6 @@ export class CallRelationPanel {
       <button type="button" id="cr-zoom-label" class="cr-btn cr-zoom-label" title="Reset zoom to 100%">100%</button>
       <button type="button" id="cr-zoom-in" class="cr-btn" title="Zoom in (Ctrl+scroll)">+</button>
       <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
-      <button type="button" id="cr-refresh" class="cr-btn" title="Reload from the current editor cursor">Refresh</button>
     </div>
   </header>
   <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, thick link border = previous center, ring = selected. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Elbow / Direct / Arc switches connectors. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>

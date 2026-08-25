@@ -6,6 +6,23 @@ html, body {
     font-size: var(--vscode-font-size, 13px);
     color: var(--vscode-foreground);
     background: var(--vscode-editor-background);
+    /* 工具栏/强调色不跟各主题的 button token，只分 light / dark 两套。 */
+    --cr-btn-fg: #1f1f1f;
+    --cr-btn-bg: #b8b8b8;
+    --cr-btn-hover: #a4a4a4;
+    --cr-btn-on-fg: #ffffff;
+    --cr-btn-on-bg: #007acc;
+    --cr-btn-on-hover: #0062a3;
+}
+
+body.vscode-dark,
+body.vscode-high-contrast {
+    --cr-btn-fg: #e0e0e0;
+    --cr-btn-bg: #3a3a3a;
+    --cr-btn-hover: #4c4c4c;
+    --cr-btn-on-fg: #ffffff;
+    --cr-btn-on-bg: #0e639c;
+    --cr-btn-on-hover: #1177bb;
 }
 
 .cr-bar {
@@ -45,20 +62,27 @@ html, body {
 
 .cr-btn {
     border: none;
-    border-radius: 3px;
-    padding: 3px 10px;
+    border-radius: 4px;
+    padding: 4px 10px;
     cursor: pointer;
-    color: var(--vscode-button-secondaryForeground);
-    background: var(--vscode-button-secondaryBackground);
+    font: inherit;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--cr-btn-fg);
+    background: var(--cr-btn-bg);
 }
 
-.cr-btn:hover {
-    background: var(--vscode-button-secondaryHoverBackground);
+.cr-btn:hover:not(:disabled) {
+    background: var(--cr-btn-hover);
 }
 
 .cr-btn.is-on {
-    color: var(--vscode-button-foreground);
-    background: var(--vscode-button-background);
+    color: var(--cr-btn-on-fg);
+    background: var(--cr-btn-on-bg);
+}
+
+.cr-btn.is-on:hover:not(:disabled) {
+    background: var(--cr-btn-on-hover);
 }
 
 .cr-hint {

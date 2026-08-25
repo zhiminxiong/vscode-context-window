@@ -25,7 +25,6 @@ const titleEl = document.getElementById('cr-title');
 const stage = document.getElementById('cr-stage');
 const emptyEl = document.getElementById('cr-empty');
 const pinBtn = document.getElementById('cr-pin');
-const refreshBtn = document.getElementById('cr-refresh');
 const styleBtn = document.getElementById('cr-style');
 const zoomInBtn = document.getElementById('cr-zoom-in');
 const zoomOutBtn = document.getElementById('cr-zoom-out');
@@ -1035,10 +1034,6 @@ styleBtn?.addEventListener('click', () => {
     vscode.postMessage({ type: 'setEdgeStyle', value: next });
 });
 
-refreshBtn?.addEventListener('click', () => {
-    vscode.postMessage({ type: 'refresh' });
-});
-
 function clampZoom(value) {
     return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 100) / 100));
 }
@@ -1052,7 +1047,6 @@ function applyZoomChrome() {
     }
     if (zoomLabel) {
         zoomLabel.textContent = Math.round(zoom * 100) + '%';
-        zoomLabel.disabled = Math.abs(zoom - 1) < 0.001;
     }
 }
 
