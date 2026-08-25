@@ -1,10 +1,13 @@
 import * as vscode from 'vscode';
 import { ContextWindowProvider } from './contextView';
+import { CallRelationPanel } from './callRelationPanel';
 
 export function activate(context: vscode.ExtensionContext) {
 
     const provider = new ContextWindowProvider(context.extensionUri);
     context.subscriptions.push(provider);
+    const callRelation = new CallRelationPanel(context.extensionUri);
+    context.subscriptions.push(callRelation);
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ContextWindowProvider.viewType, provider, {
@@ -41,7 +44,12 @@ export function activate(context: vscode.ExtensionContext) {
         }));
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('vscode-context-window.navigateUri', async (uri?: string, range?: { start: { line: number; character: number }; end: { line: number; character: number } }) => {
+        vscode.commands.registerCommand('contextView.callRelation.show', () => {
+            callRelation.show();
+        }));
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('vscode-context-window.navigateUri', async (uri?: string, range?: { start: { line: number; character: number }; end: { line: number; character: number } }, token?: string, recordTrail: boolean = true) => {
             // 如果没有提供参数，则显示输入框
             if (!uri || !range) {
                 try {
@@ -181,7 +189,7 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                     
                     // 执行导航
-                    await provider.navigateCommand(uriInput, inputRange);
+                    await provider.navigateCommand(uriInput, inputRange, '', recordTrail);
                     vscode.window.showInformationMessage(`Navigated to ${uriInput}:${inputRange.start.line}:${inputRange.start.character}-${inputRange.end.line}:${inputRange.end.character}`);
                     
                 } catch (error) {
@@ -189,7 +197,7 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             } else {
                 // 如果提供了参数，直接执行导航
-                await provider.navigateCommand(uri, range);
+                await provider.navigateCommand(uri, range, token || '', recordTrail);
             }
         }));
     

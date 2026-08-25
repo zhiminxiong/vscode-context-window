@@ -91,6 +91,12 @@
         "command": "contextView.contextWindow.toggleSelectBracketPair",
         "title": "Toggle: Double-Click Selects Whole Bracket/Quote Pair (incl. delimiters)",
         "category": "Context View"
+      },
+      {
+        "command": "contextView.callRelation.show",
+        "title": "Show Call Relation",
+        "icon": "$(type-hierarchy)",
+        "category": "Context View"
       }
     ],
     "keybindings": [
@@ -124,6 +130,13 @@
           "command": "contextView.contextWindow.unpin",
           "when": "view == contextView.context && contextView.contextWindow.isPinned",
           "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "contextView.callRelation.show",
+          "group": "navigation@9",
+          "when": "editorTextFocus"
         }
       ]
     },

@@ -716,7 +716,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         this._currentPanel?.webview.postMessage(message);
     }
 
-    public async navigateCommand(uri: string, range: { start: { line: number; character: number }; end: { line: number; character: number } }, token: string = '') {
+    public async navigateCommand(
+        uri: string,
+        range: { start: { line: number; character: number }; end: { line: number; character: number } },
+        token: string = '',
+        recordTrail: boolean = true
+    ) {
         // Validate input parameters
         if (!uri || typeof uri !== 'string') {
             vscode.window.showErrorMessage('Invalid URI provided');
@@ -772,18 +777,30 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const editor = vscode.window.activeTextEditor || this._lastUpdateEditor;
         const languageId = editor ? editor.document.languageId : 'plaintext';
 
-        // Create location using the range
+        const startLine = range.start.line - 1;
+        const startChar = range.start.character - 1;
+        let endLine = range.end.line - 1;
+        let endChar = range.end.character - 1;
+        // 点位置 range 是零宽，前端不会画符号高亮。有 token 时扩到该标识符。
+        const tokenName = (token || '').trim();
+        if (tokenName && startLine === endLine && startChar === endChar) {
+            const ident = tokenName.replace(/\(.*\)$/, '').split(/::|\./).pop() || tokenName;
+            endChar = startChar + ident.length;
+        }
+
         const definition = new vscode.Location(
             targetUri,
             new vscode.Range(
-                new vscode.Position(range.start.line - 1, range.start.character-1),
-                new vscode.Position(range.end.line - 1, range.end.character-1)
+                new vscode.Position(startLine, startChar),
+                new vscode.Position(endLine, endChar)
             )
         );
 
         const contentInfo = await this._renderer.renderDefinition(languageId, definition);
         // 先入历史再刷新内容，这样 updateContent 下发的跳转链已含本条。
-        this.addToHistory(contentInfo, range.start.line - 1, range.start.character - 1, token);
+        if (recordTrail) {
+            this.addToHistory(contentInfo, range.start.line - 1, range.start.character - 1, token);
+        }
         this.updateContent(contentInfo);
 
         // 同 handleJumpDefinition：命令式跳转同样只改了展示内容，主编辑区光标没动，缓存键需失效

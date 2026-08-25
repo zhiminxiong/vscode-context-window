@@ -1,0 +1,250 @@
+html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    font-family: var(--vscode-font-family, sans-serif);
+    font-size: var(--vscode-font-size, 13px);
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-background);
+}
+
+.cr-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px 4px;
+    flex-shrink: 0;
+}
+
+.cr-title {
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cr-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+}
+
+.cr-btn {
+    border: none;
+    border-radius: 3px;
+    padding: 3px 10px;
+    cursor: pointer;
+    color: var(--vscode-button-secondaryForeground);
+    background: var(--vscode-button-secondaryBackground);
+}
+
+.cr-btn:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.cr-btn.is-on {
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+}
+
+.cr-hint {
+    padding: 0 12px 8px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.cr-stage {
+    position: relative;
+    height: calc(100% - 68px);
+    overflow: auto;
+    cursor: grab;
+}
+
+.cr-stage.is-panning {
+    cursor: grabbing;
+    user-select: none;
+}
+
+.cr-empty {
+    padding: 24px 16px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.cr-canvas {
+    position: relative;
+    min-width: 100%;
+    min-height: 100%;
+}
+
+.cr-edges {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+}
+
+.cr-edge {
+    fill: none;
+    stroke: var(--vscode-editorWidget-border, #666);
+    stroke-width: 1.4;
+}
+
+.cr-node {
+    position: absolute;
+    box-sizing: border-box;
+    width: 168px;
+    min-height: 52px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--vscode-editorWidget-border, #555);
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    cursor: pointer;
+    user-select: none;
+}
+
+.cr-node:hover {
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.cr-node.is-root {
+    border-color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #3fb950) 35%, transparent);
+}
+
+.cr-node.is-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    color: var(--vscode-descriptionForeground);
+    border-style: dashed;
+}
+
+.cr-node-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.cr-node-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.cr-node-meta {
+    margin-top: 2px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cr-toggle {
+    position: absolute;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    margin-top: -7px;
+    padding: 0;
+    border: 1px solid var(--vscode-editorWidget-border, #666);
+    border-radius: 50%;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    color: var(--vscode-foreground);
+    font-size: 0;
+    line-height: 0;
+    cursor: pointer;
+    z-index: 3;
+}
+
+.cr-toggle::before,
+.cr-toggle::after {
+    content: '';
+    position: absolute;
+    background: currentColor;
+}
+
+.cr-toggle::before {
+    left: 3px;
+    right: 3px;
+    top: 50%;
+    height: 1.5px;
+    margin-top: -0.75px;
+}
+
+.cr-toggle:not(.is-collapse)::after {
+    top: 3px;
+    bottom: 3px;
+    left: 50%;
+    width: 1.5px;
+    margin-left: -0.75px;
+}
+
+.cr-toggle:hover {
+    border-color: var(--vscode-focusBorder, #007fd4);
+    color: var(--vscode-focusBorder, #007fd4);
+}
+
+.cr-toggle.is-left {
+    left: -7px;
+}
+
+.cr-toggle.is-right {
+    right: -7px;
+}
+
+.cr-edge-dot {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 2px solid var(--vscode-focusBorder, #007fd4);
+    border-radius: 50%;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+    font-size: 10px;
+    line-height: 12px;
+    text-align: center;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.cr-edge-dot:hover {
+    background: var(--vscode-focusBorder, #007fd4);
+    color: var(--vscode-editor-background);
+}
+
+.cr-site-menu {
+    position: absolute;
+    z-index: 5;
+    min-width: 88px;
+    padding: 4px;
+    border: 1px solid var(--vscode-editorWidget-border, #555);
+    border-radius: 4px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.cr-site-item {
+    display: block;
+    width: 100%;
+    padding: 3px 8px;
+    border: none;
+    border-radius: 3px;
+    text-align: left;
+    cursor: pointer;
+    color: var(--vscode-foreground);
+    background: transparent;
+}
+
+.cr-site-item:hover {
+    background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.2));
+}
