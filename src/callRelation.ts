@@ -122,6 +122,18 @@ function visualId(key: string, hop: number, parentId: string): string {
     return `${key}@${hop}@${parentId}`;
 }
 
+function branchKeepKey(parentKey: string, dir: -1 | 1, childKey: string): string {
+    return `b:${dir}:${parentKey}\x1e${childKey}`;
+}
+
+function keepExpandItemKey(key: string): string {
+    if (key.startsWith('self\0')) {
+        return key.slice(5);
+    }
+    const sep = key.lastIndexOf('\x1e');
+    return sep >= 0 ? key.slice(sep + 1) : key;
+}
+
 function fileLabel(uri: vscode.Uri): string {
     return path.basename(uri.fsPath);
 }
@@ -271,8 +283,9 @@ export class CallRelationModel {
         for (const id of drop) {
             this.expanded.delete(id);
             const n = nodes.find(x => x.id === id);
-            if (n?.itemKey) {
-                this.keepExpand.delete(n.itemKey);
+            const parent = n?.parentId ? nodes.find(x => x.id === n.parentId) : undefined;
+            if (n?.itemKey && parent?.itemKey) {
+                this.keepExpand.delete(branchKeepKey(parent.itemKey, n.hop < 0 ? -1 : 1, n.itemKey));
             }
         }
         return this.buildGraph();
@@ -298,7 +311,10 @@ export class CallRelationModel {
             await Promise.all([this.ensureIncoming(item), this.ensureOutgoing(item)]);
         }
         this.expanded.add(nodeId);
-        this.keepExpand.add(node.itemKey);
+        const parent = node.parentId ? nodes.find(n => n.id === node.parentId) : undefined;
+        if (parent?.itemKey && node.itemKey) {
+            this.keepExpand.add(branchKeepKey(parent.itemKey, node.hop < 0 ? -1 : 1, node.itemKey));
+        }
         return this.buildVisible();
     }
 
@@ -345,11 +361,19 @@ export class CallRelationModel {
             if (drop.has(n.id) || n.id === focus.id) {
                 continue;
             }
-            if (n.kind === 'symbol' && n.expanded && n.itemKey) {
-                this.keepExpand.add(n.itemKey);
+            if (n.kind === 'symbol' && n.expanded && n.itemKey && n.parentId) {
+                const parent = nodes.find(p => p.id === n.parentId);
+                if (parent?.itemKey) {
+                    this.keepExpand.add(branchKeepKey(parent.itemKey, n.hop < 0 ? -1 : 1, n.itemKey));
+                }
             }
             if (n.kind === 'symbol' && n.hop === 0 && n.itemKey) {
-                this.keepExpand.add(n.itemKey);
+                this.keepExpand.add(`self\0${n.itemKey}`);
+                for (const c of nodes) {
+                    if (c.parentId === n.id && c.kind === 'symbol' && c.itemKey) {
+                        this.keepExpand.add(branchKeepKey(n.itemKey, c.hop > 0 ? 1 : -1, c.itemKey));
+                    }
+                }
             }
             if (n.kind === 'group' && n.expanded && n.parentId) {
                 const parent = nodes.find(p => p.id === n.parentId);
@@ -369,7 +393,7 @@ export class CallRelationModel {
             this.ensureOutgoing(item)
         ];
         for (const key of this.keepExpand) {
-            const next = this.items.get(key);
+            const next = this.items.get(keepExpandItemKey(key));
             if (!next) {
                 continue;
             }
@@ -523,29 +547,41 @@ export class CallRelationModel {
         );
         const seenGroup = new Set<string>();
         const rootKey = this.root ? itemKey(this.root) : '';
+        const pendingExpand: RelationNode[] = [];
+        const link = (fromId: string, toId: string, childKey: string) => {
+            if (edges.some(e => e.from === fromId && e.to === toId)) {
+                return;
+            }
+            edges.push({
+                from: fromId,
+                to: toId,
+                sites: this.callSites.get(`${parent.itemKey}\0${dir}\0${childKey}`)
+            });
+        };
         const emitChild = (child: vscode.CallHierarchyItem) => {
             const childKey = itemKey(child);
             if (childKey === rootKey) {
                 return;
             }
-            if (nodes.some(n => n.kind === 'symbol' && n.itemKey === childKey)) {
+            const childNode = toSymbolNode(child, hop, parent.id, false);
+            if (nodes.some(n => n.id === childNode.id)) {
                 return;
             }
-            const childNode = toSymbolNode(child, hop, parent.id, false);
-            const opened = this.expanded.has(childNode.id) || this.keepExpand.has(childKey);
+            const opened = this.expanded.has(childNode.id)
+                || this.keepExpand.has(branchKeepKey(parent.itemKey, dir, childKey))
+                || this.keepExpand.has(`self\0${childKey}`);
             childNode.expanded = opened;
             childNode.expandable = Math.abs(hop) < CALL_MAX_HOP && this.canExpand(child, dir);
             childNode.compact = compact;
             nodes.push(childNode);
-            const sites = this.callSites.get(`${parent.itemKey}\0${dir}\0${childNode.itemKey}`);
             if (dir < 0) {
-                edges.push({ from: childNode.id, to: parent.id, sites });
+                link(childNode.id, parent.id, childKey);
             } else {
-                edges.push({ from: parent.id, to: childNode.id, sites });
+                link(parent.id, childNode.id, childKey);
             }
             if (opened) {
                 this.expanded.add(childNode.id);
-                this.addSide(nodes, edges, childNode, dir);
+                pendingExpand.push(childNode);
             }
         };
         for (const child of visible) {
@@ -557,7 +593,7 @@ export class CallRelationModel {
                 seenGroup.add(file);
                 const bunch = (libByFile.get(file) || []).filter(item => {
                     const k = itemKey(item);
-                    return k !== rootKey && !nodes.some(n => n.kind === 'symbol' && n.itemKey === k);
+                    return k !== rootKey;
                 });
                 if (bunch.length < 2) {
                     for (const item of bunch) {
@@ -601,6 +637,9 @@ export class CallRelationModel {
                 continue;
             }
             emitChild(child);
+        }
+        for (const childNode of pendingExpand) {
+            this.addSide(nodes, edges, childNode, dir);
         }
         const hidden = kids.length - visible.length;
         if (hidden > 0) {
