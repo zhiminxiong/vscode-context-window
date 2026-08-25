@@ -199,7 +199,7 @@ export class CallRelationPanel {
       <button type="button" id="cr-refresh" class="cr-btn" title="Reload from the current editor cursor">Refresh</button>
     </div>
   </header>
-  <div class="cr-hint">Click a node for its definition. The dot on a link is that call site (badge = multiple sites). + / − expand or collapse. Drag empty space to pan.</div>
+  <div class="cr-hint">Click a node for its definition. Click a link for that call site. + / − expand or collapse. Drag empty space to pan.</div>
   <div class="cr-stage" id="cr-stage">
     <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
   </div>

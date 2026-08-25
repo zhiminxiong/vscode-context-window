@@ -42,6 +42,8 @@ export interface RelationOpenTarget {
     line: number;
     character: number;
     name: string;
+    file?: string;
+    snippet?: string;
 }
 
 function identFromToken(name: string): string {
@@ -380,7 +382,7 @@ export class CallRelationModel {
             }
             seen.add(k);
             items.push(this.items.get(k)!);
-            this.rememberCallSite(key, -1, call.from, call.from.uri, call.fromRanges, item.name);
+            await this.rememberCallSite(key, -1, call.from, call.from.uri, call.fromRanges, item.name);
         }
         this.incoming.set(key, items);
     }
@@ -411,7 +413,7 @@ export class CallRelationModel {
             }
             seen.add(k);
             items.push(this.items.get(k)!);
-            this.rememberCallSite(key, 1, call.to, item.uri, call.fromRanges, call.to.name);
+            await this.rememberCallSite(key, 1, call.to, item.uri, call.fromRanges, call.to.name);
         }
         this.outgoing.set(key, items);
     }
@@ -422,16 +424,23 @@ export class CallRelationModel {
         return list?.length ?? 0;
     }
 
-    private rememberCallSite(
+    private async rememberCallSite(
         parentKey: string,
         dir: -1 | 1,
         child: vscode.CallHierarchyItem,
         uri: vscode.Uri,
         ranges: vscode.Range[] | undefined,
         token: string
-    ): void {
+    ): Promise<void> {
         const sites: RelationOpenTarget[] = [];
         const seen = new Set<string>();
+        let doc: vscode.TextDocument | undefined;
+        try {
+            doc = await vscode.workspace.openTextDocument(uri);
+        } catch {
+            doc = undefined;
+        }
+        const file = fileLabel(uri);
         for (const range of ranges || []) {
             const start = range?.start;
             if (!start) {
@@ -442,11 +451,17 @@ export class CallRelationModel {
                 continue;
             }
             seen.add(dedupe);
+            let snippet = '';
+            if (doc && start.line >= 0 && start.line < doc.lineCount) {
+                snippet = doc.lineAt(start.line).text.replace(/\s+/g, ' ').trim();
+            }
             sites.push({
                 uri: uri.toString(),
                 line: start.line,
                 character: start.character,
-                name: token
+                name: token,
+                file,
+                snippet
             });
         }
         if (sites.length) {

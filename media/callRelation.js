@@ -113,20 +113,99 @@ function bezier(x1, y1, x2, y2) {
     return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
 }
 
-function bezierPoint(x1, y1, x2, y2, t) {
-    const mid = (x1 + x2) / 2;
-    const u = 1 - t;
-    return {
-        x: u * u * u * x1 + 3 * u * u * t * mid + 3 * u * t * t * mid + t * t * t * x2,
-        y: u * u * u * y1 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y2
-    };
-}
-
 function hideSiteMenu() {
     const old = document.querySelector('.cr-site-menu');
     if (old && old.parentNode) {
         old.parentNode.removeChild(old);
     }
+}
+
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function identName(name) {
+    return (name || '').replace(/\(.*\)$/, '').split(/::|\./).pop() || name || '';
+}
+
+function snippetHtml(site) {
+    const raw = site.snippet || '';
+    const ident = identName(site.name);
+    if (!raw) {
+        return '<span class="cr-site-snippet is-empty">No preview</span>';
+    }
+    const idx = ident ? raw.indexOf(ident) : -1;
+    if (idx < 0) {
+        return `<span class="cr-site-snippet">${escapeHtml(raw)}</span>`;
+    }
+    return `<span class="cr-site-snippet">${escapeHtml(raw.slice(0, idx))}<em>${escapeHtml(ident)}</em>${escapeHtml(raw.slice(idx + ident.length))}</span>`;
+}
+
+function eventOnCanvas(ev, canvas) {
+    const r = canvas.getBoundingClientRect();
+    return {
+        x: ev.clientX - r.left,
+        y: ev.clientY - r.top
+    };
+}
+
+function openCallSite(edge, index) {
+    vscode.postMessage({
+        type: 'openCallSite',
+        fromId: edge.from,
+        toId: edge.to,
+        index
+    });
+}
+
+function showSitePicker(canvas, x, y, edge) {
+    hideSiteMenu();
+    const sites = edge.sites || [];
+    const menu = document.createElement('div');
+    menu.className = 'cr-site-menu';
+    const head = document.createElement('div');
+    head.className = 'cr-site-head';
+    head.textContent = `${sites.length} call site${sites.length === 1 ? '' : 's'}`;
+    menu.appendChild(head);
+    sites.forEach((site, index) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'cr-site-item';
+        const loc = document.createElement('div');
+        loc.className = 'cr-site-loc';
+        loc.textContent = `${site.file || 'file'}:${site.line + 1}`;
+        item.appendChild(loc);
+        const snip = document.createElement('div');
+        snip.className = 'cr-site-preview';
+        snip.innerHTML = snippetHtml(site);
+        item.appendChild(snip);
+        item.addEventListener('click', e2 => {
+            e2.stopPropagation();
+            hideSiteMenu();
+            openCallSite(edge, index);
+        });
+        menu.appendChild(item);
+    });
+    canvas.appendChild(menu);
+    const pad = 8;
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    const cw = canvas.clientWidth;
+    const ch = canvas.clientHeight;
+    let left = x + 10;
+    let top = y + 10;
+    if (left + mw + pad > cw) {
+        left = Math.max(pad, x - mw - 10);
+    }
+    if (top + mh + pad > ch) {
+        top = Math.max(pad, y - mh - 10);
+    }
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
 }
 
 function render(graph) {
@@ -158,30 +237,46 @@ function render(graph) {
     svg.setAttribute('class', 'cr-edges');
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
-    /** @type {{ edge: any, x: number, y: number }[]} */
-    const siteMarks = [];
     for (const edge of graph.edges) {
         const a = pos[edge.from];
         const b = pos[edge.to];
         if (!a || !b) {
             continue;
         }
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('class', 'cr-edge');
         const fromRight = a.x < b.x;
         const x1 = fromRight ? a.x + NODE_W : a.x;
         const x2 = fromRight ? b.x : b.x + NODE_W;
         const y1 = a.y + a.h / 2;
         const y2 = b.y + b.h / 2;
-        path.setAttribute('d', bezier(x1, y1, x2, y2));
-        svg.appendChild(path);
-        if (edge.sites && edge.sites.length) {
-            const fromNode = graph.nodes.find(n => n.id === edge.from);
-            const toNode = graph.nodes.find(n => n.id === edge.to);
-            const childIsTo = Math.abs(toNode?.hop || 0) > Math.abs(fromNode?.hop || 0);
-            const pt = bezierPoint(x1, y1, x2, y2, childIsTo ? 0.78 : 0.22);
-            siteMarks.push({ edge, x: pt.x, y: pt.y });
+        const d = bezier(x1, y1, x2, y2);
+        const live = !!(edge.sites && edge.sites.length);
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'cr-edge-group' + (live ? ' is-live' : ''));
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('class', 'cr-edge');
+        path.setAttribute('d', d);
+        g.appendChild(path);
+        if (live) {
+            const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            hit.setAttribute('class', 'cr-edge-hit');
+            hit.setAttribute('d', d);
+            const n = edge.sites.length;
+            hit.setAttribute('title', n > 1
+                ? `${n} call sites — click to choose`
+                : 'Open call site in Context Window');
+            hit.addEventListener('click', ev => {
+                ev.stopPropagation();
+                const pt = eventOnCanvas(ev, canvas);
+                if (n === 1) {
+                    hideSiteMenu();
+                    openCallSite(edge, 0);
+                    return;
+                }
+                showSitePicker(canvas, pt.x, pt.y, edge);
+            });
+            g.appendChild(hit);
         }
+        svg.appendChild(g);
     }
     canvas.appendChild(svg);
 
@@ -248,54 +343,6 @@ function render(graph) {
         }
         canvas.appendChild(el);
     }
-    for (const mark of siteMarks) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'cr-edge-dot';
-        const n = mark.edge.sites.length;
-        btn.textContent = n > 1 ? String(n) : '';
-        btn.title = n > 1
-            ? `${n} call sites — click to choose`
-            : 'Open call site in Context Window';
-        btn.style.left = (mark.x - 8) + 'px';
-        btn.style.top = (mark.y - 8) + 'px';
-        btn.addEventListener('click', ev => {
-            ev.stopPropagation();
-            hideSiteMenu();
-            if (n === 1) {
-                vscode.postMessage({
-                    type: 'openCallSite',
-                    fromId: mark.edge.from,
-                    toId: mark.edge.to,
-                    index: 0
-                });
-                return;
-            }
-            const menu = document.createElement('div');
-            menu.className = 'cr-site-menu';
-            menu.style.left = (mark.x + 10) + 'px';
-            menu.style.top = (mark.y + 10) + 'px';
-            mark.edge.sites.forEach((site, index) => {
-                const item = document.createElement('button');
-                item.type = 'button';
-                item.className = 'cr-site-item';
-                item.textContent = `line ${site.line + 1}`;
-                item.addEventListener('click', e2 => {
-                    e2.stopPropagation();
-                    hideSiteMenu();
-                    vscode.postMessage({
-                        type: 'openCallSite',
-                        fromId: mark.edge.from,
-                        toId: mark.edge.to,
-                        index
-                    });
-                });
-                menu.appendChild(item);
-            });
-            canvas.appendChild(menu);
-        });
-        canvas.appendChild(btn);
-    }
     stage.appendChild(canvas);
 }
 
@@ -310,7 +357,7 @@ function bindPan(el) {
             return;
         }
         const hit = e.target;
-        if (hit && hit.closest && hit.closest('.cr-node, .cr-toggle, .cr-edge-dot, .cr-site-menu')) {
+        if (hit && hit.closest && hit.closest('.cr-node, .cr-toggle, .cr-edge-group, .cr-site-menu')) {
             return;
         }
         dragging = true;
@@ -364,7 +411,7 @@ if (stage) {
     bindPan(stage);
     stage.addEventListener('click', e => {
         const hit = e.target;
-        if (hit && hit.closest && hit.closest('.cr-edge-dot, .cr-site-menu')) {
+        if (hit && hit.closest && hit.closest('.cr-edge-group, .cr-site-menu')) {
             return;
         }
         hideSiteMenu();
