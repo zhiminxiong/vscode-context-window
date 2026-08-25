@@ -22,12 +22,14 @@ export interface RelationNode {
     expanded?: boolean;
     expandKey?: string;
     compact?: boolean;
+    prevCenter?: boolean;
 }
 
 export interface RelationEdge {
     from: string;
     to: string;
     sites?: RelationOpenTarget[];
+    style?: 'anchor';
 }
 
 export interface RelationGraph {
@@ -159,7 +161,10 @@ export class CallRelationModel {
     private readonly callSites = new Map<string, RelationOpenTarget[]>();
     private readonly shown = new Map<string, number>();
     private readonly expanded = new Set<string>();
+    private readonly keepExpand = new Set<string>();
+    private readonly keepGroups = new Set<string>();
     private root: vscode.CallHierarchyItem | undefined;
+    private prevRoot: vscode.CallHierarchyItem | undefined;
     private seq = 0;
 
     reset(): void {
@@ -169,7 +174,10 @@ export class CallRelationModel {
         this.callSites.clear();
         this.shown.clear();
         this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
         this.root = undefined;
+        this.prevRoot = undefined;
         this.seq++;
     }
 
@@ -207,7 +215,10 @@ export class CallRelationModel {
         this.callSites.clear();
         this.shown.clear();
         this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
         this.root = undefined;
+        this.prevRoot = undefined;
 
         let prepared: vscode.CallHierarchyItem[] | undefined;
         try {
@@ -259,6 +270,10 @@ export class CallRelationModel {
         }
         for (const id of drop) {
             this.expanded.delete(id);
+            const n = nodes.find(x => x.id === id);
+            if (n?.itemKey) {
+                this.keepExpand.delete(n.itemKey);
+            }
         }
         return this.buildGraph();
     }
@@ -279,17 +294,108 @@ export class CallRelationModel {
             await this.ensureIncoming(item);
         } else if (node.hop > 0) {
             await this.ensureOutgoing(item);
+        } else {
+            await Promise.all([this.ensureIncoming(item), this.ensureOutgoing(item)]);
         }
         this.expanded.add(nodeId);
+        this.keepExpand.add(node.itemKey);
         return this.buildVisible();
     }
 
-    async toggleGroup(nodeId: string): Promise<RelationGraph> {
+    async focusNode(nodeId: string, nodes: RelationNode[]): Promise<RelationGraph> {
+        const focus = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
+        if (!focus) {
+            return this.buildGraph();
+        }
+        const item = this.items.get(focus.itemKey);
+        if (!item) {
+            return this.buildGraph();
+        }
+        if (this.root && itemKey(this.root) === focus.itemKey && focus.hop === 0) {
+            return this.buildGraph();
+        }
+
+        const drop = new Set<string>();
+        if (focus.parentId) {
+            for (const n of nodes) {
+                if (n.id === focus.id || n.parentId !== focus.parentId || n.hop === 0) {
+                    continue;
+                }
+                const sameSide = focus.hop < 0 ? n.hop < 0 : n.hop > 0;
+                if (sameSide) {
+                    drop.add(n.id);
+                }
+            }
+            let grew = true;
+            while (grew) {
+                grew = false;
+                for (const n of nodes) {
+                    if (n.parentId && drop.has(n.parentId) && !drop.has(n.id)) {
+                        drop.add(n.id);
+                        grew = true;
+                    }
+                }
+            }
+        }
+
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.expanded.clear();
+        for (const n of nodes) {
+            if (drop.has(n.id) || n.id === focus.id) {
+                continue;
+            }
+            if (n.kind === 'symbol' && n.expanded && n.itemKey) {
+                this.keepExpand.add(n.itemKey);
+            }
+            if (n.kind === 'symbol' && n.hop === 0 && n.itemKey) {
+                this.keepExpand.add(n.itemKey);
+            }
+            if (n.kind === 'group' && n.expanded && n.parentId) {
+                const parent = nodes.find(p => p.id === n.parentId);
+                if (parent?.itemKey) {
+                    this.keepGroups.add(`${parent.itemKey}:${n.hop > 0 ? 1 : -1}:${n.file}`);
+                }
+            }
+        }
+
+        const oldRoot = this.root;
+        this.prevRoot = oldRoot && itemKey(oldRoot) !== focus.itemKey ? oldRoot : undefined;
+        this.root = item;
+        this.remember(item);
+        this.shown.clear();
+        const warm: Promise<void>[] = [
+            this.ensureIncoming(item),
+            this.ensureOutgoing(item)
+        ];
+        for (const key of this.keepExpand) {
+            const next = this.items.get(key);
+            if (!next) {
+                continue;
+            }
+            warm.push(this.ensureIncoming(next), this.ensureOutgoing(next));
+        }
+        await Promise.all(warm);
+        return this.buildVisible();
+    }
+
+    async toggleGroup(nodeId: string, nodes: RelationNode[]): Promise<RelationGraph> {
+        const group = nodes.find(n => n.id === nodeId);
+        const parent = group?.parentId ? nodes.find(n => n.id === group.parentId) : undefined;
+        const keepKey = group && parent?.itemKey
+            ? `${parent.itemKey}:${group.hop > 0 ? 1 : -1}:${group.file}`
+            : '';
         if (this.expanded.has(nodeId)) {
             this.expanded.delete(nodeId);
+            if (keepKey) {
+                this.keepGroups.delete(keepKey);
+            }
             return this.buildGraph();
         }
         this.expanded.add(nodeId);
+        if (keepKey) {
+            this.keepGroups.add(keepKey);
+        }
         return this.buildVisible();
     }
 
@@ -304,17 +410,28 @@ export class CallRelationModel {
 
     private async prefetchNextHop(nodes: RelationNode[]): Promise<void> {
         const pending: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
+        const seen = new Set<string>();
         for (const node of nodes) {
             if (node.kind !== 'symbol' || node.hop === 0 || Math.abs(node.hop) >= CALL_MAX_HOP) {
+                continue;
+            }
+            if (node.expanded) {
                 continue;
             }
             const item = this.items.get(node.itemKey);
             if (!item) {
                 continue;
             }
-            const dir = node.hop < 0 ? -1 : 1;
-            const peeked = dir < 0 ? this.incoming.has(node.itemKey) : this.outgoing.has(node.itemKey);
-            if (!peeked) {
+            for (const dir of [-1, 1] as const) {
+                const mark = `${node.itemKey}:${dir}`;
+                if (seen.has(mark)) {
+                    continue;
+                }
+                const peeked = dir < 0 ? this.incoming.has(node.itemKey) : this.outgoing.has(node.itemKey);
+                if (peeked) {
+                    continue;
+                }
+                seen.add(mark);
                 pending.push({ item, dir });
             }
         }
@@ -335,12 +452,39 @@ export class CallRelationModel {
         const edges: RelationEdge[] = [];
         this.addSide(nodes, edges, rootNode, -1);
         this.addSide(nodes, edges, rootNode, 1);
+        const prevKey = this.prevRoot ? itemKey(this.prevRoot) : '';
+        if (prevKey) {
+            const prevNode = nodes.find(n => n.kind === 'symbol' && n.itemKey === prevKey);
+            if (prevNode) {
+                prevNode.prevCenter = true;
+            }
+        }
+        this.syncToggleState(nodes);
         return {
             rootId: rootNode.id,
             title: this.root.name,
             nodes,
             edges
         };
+    }
+
+    private syncToggleState(nodes: RelationNode[]): void {
+        const hasChild = new Set<string>();
+        for (const n of nodes) {
+            if (n.parentId) {
+                hasChild.add(n.parentId);
+            }
+        }
+        for (const node of nodes) {
+            if (node.kind !== 'symbol' || node.hop === 0) {
+                continue;
+            }
+            const opened = hasChild.has(node.id);
+            node.expanded = opened;
+            if (opened) {
+                node.expandable = Math.abs(node.hop) < CALL_MAX_HOP;
+            }
+        }
     }
 
     private emptyGraph(empty: string): RelationGraph {
@@ -361,7 +505,7 @@ export class CallRelationModel {
             return;
         }
         const shownKey = `${parent.id}:${dir}`;
-        const limit = this.shown.get(shownKey) ?? CALL_PAGE;
+        const limit = parent.hop === 0 ? kids.length : (this.shown.get(shownKey) ?? CALL_PAGE);
         const visible = kids.slice(0, limit);
         const compact = kids.length >= 6;
         const libByFile = new Map<string, vscode.CallHierarchyItem[]>();
@@ -378,9 +522,17 @@ export class CallRelationModel {
             [...libByFile.entries()].filter(([, list]) => list.length >= 2).map(([file]) => file)
         );
         const seenGroup = new Set<string>();
+        const rootKey = this.root ? itemKey(this.root) : '';
         const emitChild = (child: vscode.CallHierarchyItem) => {
+            const childKey = itemKey(child);
+            if (childKey === rootKey) {
+                return;
+            }
+            if (nodes.some(n => n.kind === 'symbol' && n.itemKey === childKey)) {
+                return;
+            }
             const childNode = toSymbolNode(child, hop, parent.id, false);
-            const opened = this.expanded.has(childNode.id);
+            const opened = this.expanded.has(childNode.id) || this.keepExpand.has(childKey);
             childNode.expanded = opened;
             childNode.expandable = Math.abs(hop) < CALL_MAX_HOP && this.canExpand(child, dir);
             childNode.compact = compact;
@@ -391,7 +543,8 @@ export class CallRelationModel {
             } else {
                 edges.push({ from: parent.id, to: childNode.id, sites });
             }
-            if (this.expanded.has(childNode.id)) {
+            if (opened) {
+                this.expanded.add(childNode.id);
                 this.addSide(nodes, edges, childNode, dir);
             }
         };
@@ -402,9 +555,19 @@ export class CallRelationModel {
                     continue;
                 }
                 seenGroup.add(file);
-                const bunch = libByFile.get(file) || [];
+                const bunch = (libByFile.get(file) || []).filter(item => {
+                    const k = itemKey(item);
+                    return k !== rootKey && !nodes.some(n => n.kind === 'symbol' && n.itemKey === k);
+                });
+                if (bunch.length < 2) {
+                    for (const item of bunch) {
+                        emitChild(item);
+                    }
+                    continue;
+                }
                 const groupId = `${parent.id}:lib:${dir}:${file}`;
-                const opened = this.expanded.has(groupId);
+                const opened = this.expanded.has(groupId)
+                    || this.keepGroups.has(`${parent.itemKey}:${dir}:${file}`);
                 nodes.push({
                     id: groupId,
                     itemKey: '',
@@ -430,6 +593,7 @@ export class CallRelationModel {
                     }
                 }
                 if (opened) {
+                    this.expanded.add(groupId);
                     for (const item of bunch) {
                         emitChild(item);
                     }
@@ -536,7 +700,7 @@ export class CallRelationModel {
         const key = itemKey(item);
         const peeked = dir < 0 ? this.incoming.has(key) : this.outgoing.has(key);
         if (!peeked) {
-            return true;
+            return false;
         }
         return this.sideCount(item, dir) > 0;
     }

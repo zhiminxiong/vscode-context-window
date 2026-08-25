@@ -20,10 +20,15 @@ const refreshBtn = document.getElementById('cr-refresh');
 
 /** @type {any} */
 let lastGraph = null;
+/** @type {string} */
+let selectedKey = '';
 
-function nodeHeight(node) {
+function nodeHeight(node, rootId) {
     if (node.kind === 'more') {
         return node.compact ? 30 : MORE_H;
+    }
+    if (node.id === rootId) {
+        return 64;
     }
     return node.compact ? COMPACT_H : NODE_H;
 }
@@ -43,9 +48,22 @@ function layout(graph) {
         byHop.get(node.hop).push(node);
     }
     const hops = [...byHop.keys()].sort((a, b) => a - b);
+    const centers = (byHop.get(0) || []).filter(n => n.kind === 'symbol');
     const root = graph.nodes.find(n => n.id === graph.rootId);
+    const orderedCenters = [];
     if (root) {
-        pos[root.id] = { x: 0, y: 0, h: NODE_H };
+        orderedCenters.push(root);
+    }
+    for (const n of centers) {
+        if (!orderedCenters.some(c => c.id === n.id)) {
+            orderedCenters.push(n);
+        }
+    }
+    let centerY = 0;
+    for (const n of orderedCenters) {
+        const h = nodeHeight(n, graph.rootId);
+        pos[n.id] = { x: 0, y: centerY, h };
+        centerY += h + ROW_GAP;
     }
 
     function placeHop(hop) {
@@ -64,17 +82,18 @@ function layout(graph) {
             groups.push({ parent: null, kids: col });
         }
         for (const group of groups) {
-            const block = group.kids.reduce((sum, n) => sum + nodeHeight(n) + nodeGap(n), 0)
+            const block = group.kids.reduce((sum, n) => sum + nodeHeight(n, graph.rootId) + nodeGap(n), 0)
                 - (group.kids.length ? nodeGap(group.kids[group.kids.length - 1]) : 0);
             const parentY = group.parent && pos[group.parent.id] ? pos[group.parent.id].y : 0;
-            let y = parentY + NODE_H / 2 - block / 2;
+            const parentH = group.parent && pos[group.parent.id] ? pos[group.parent.id].h : NODE_H;
+            let y = parentY + parentH / 2 - block / 2;
             for (const kid of group.kids) {
                 pos[kid.id] = {
                     x: hop * (NODE_W + COL_GAP),
                     y,
-                    h: nodeHeight(kid)
+                    h: nodeHeight(kid, graph.rootId)
                 };
-                y += nodeHeight(kid) + nodeGap(kid);
+                y += nodeHeight(kid, graph.rootId) + nodeGap(kid);
             }
         }
         const ordered = col.filter(n => pos[n.id]).sort((a, b) => pos[a.id].y - pos[b.id].y);
@@ -303,20 +322,29 @@ function render(graph) {
         if (!a || !b) {
             continue;
         }
-        const fromRight = a.x < b.x;
-        const x1 = fromRight ? a.x + NODE_W : a.x;
-        const x2 = fromRight ? b.x : b.x + NODE_W;
-        const y1 = a.y + a.h / 2;
-        const y2 = b.y + b.h / 2;
-        const hubId = edgeHubId(graph, edge);
-        const hubPos = pos[hubId] || a;
-        const childPos = hubId === edge.from ? b : a;
-        const d = orthoPath(x1, y1, x2, y2, busXForHub(hubPos, childPos));
-        const live = !!(edge.sites && edge.sites.length);
+        const sameCol = Math.abs(a.x - b.x) < 1;
+        let d;
+        if (sameCol) {
+            const top = a.y <= b.y ? a : b;
+            const bot = a.y <= b.y ? b : a;
+            const x = a.x + NODE_W / 2;
+            d = `M ${x} ${top.y + top.h} L ${x} ${bot.y}`;
+        } else {
+            const fromRight = a.x < b.x;
+            const x1 = fromRight ? a.x + NODE_W : a.x;
+            const x2 = fromRight ? b.x : b.x + NODE_W;
+            const y1 = a.y + a.h / 2;
+            const y2 = b.y + b.h / 2;
+            const hubId = edgeHubId(graph, edge);
+            const hubPos = pos[hubId] || a;
+            const childPos = hubId === edge.from ? b : a;
+            d = orthoPath(x1, y1, x2, y2, busXForHub(hubPos, childPos));
+        }
+        const live = !!(edge.sites && edge.sites.length) && edge.style !== 'anchor';
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.setAttribute('class', 'cr-edge-group' + (live ? ' is-live' : ''));
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('class', 'cr-edge');
+        path.setAttribute('class', 'cr-edge' + (edge.style === 'anchor' ? ' is-anchor' : ''));
         path.setAttribute('d', d);
         g.appendChild(path);
         if (live) {
@@ -359,6 +387,12 @@ function render(graph) {
         el.className = 'cr-node';
         if (node.id === graph.rootId) {
             el.classList.add('is-root');
+        }
+        if (node.prevCenter) {
+            el.classList.add('is-prev');
+        }
+        if (node.itemKey && node.itemKey === selectedKey) {
+            el.classList.add('is-selected');
         }
         if (node.kind === 'more') {
             el.classList.add('is-more');
@@ -414,14 +448,37 @@ function render(graph) {
             meta.className = 'cr-node-meta';
             meta.textContent = node.file ? `${node.file}:${node.line}` : '';
             el.appendChild(meta);
+            let clickTimer = 0;
             el.addEventListener('click', () => {
-                vscode.postMessage({ type: 'openNode', nodeId: node.id });
+                if (clickTimer) {
+                    return;
+                }
+                clickTimer = setTimeout(() => {
+                    clickTimer = 0;
+                    selectedKey = node.itemKey || '';
+                    document.querySelectorAll('.cr-node.is-selected').forEach(n => {
+                        n.classList.remove('is-selected');
+                    });
+                    el.classList.add('is-selected');
+                    vscode.postMessage({ type: 'openNode', nodeId: node.id });
+                }, 280);
             });
-            if (node.expandable && node.id !== graph.rootId) {
+            el.addEventListener('dblclick', ev => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (clickTimer) {
+                    clearTimeout(clickTimer);
+                    clickTimer = 0;
+                }
+                selectedKey = node.itemKey || '';
+                vscode.postMessage({ type: 'focusNode', nodeId: node.id });
+            });
+            const hasKids = graph.nodes.some(n => n.parentId === node.id);
+            const collapse = !!(node.expanded || hasKids);
+            if ((node.expandable || collapse) && node.id !== graph.rootId) {
                 el.classList.add(node.hop < 0 ? 'has-toggle-left' : 'has-toggle-right');
                 const exp = document.createElement('button');
                 exp.type = 'button';
-                const collapse = !!node.expanded;
                 exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
                 exp.setAttribute('aria-label', collapse ? 'Collapse' : 'Expand');
                 exp.title = collapse
@@ -429,6 +486,8 @@ function render(graph) {
                     : (node.hop < 0 ? 'Expand callers' : 'Expand callees');
                 exp.addEventListener('click', ev => {
                     ev.stopPropagation();
+                    exp.classList.toggle('is-collapse', !collapse);
+                    exp.setAttribute('aria-label', collapse ? 'Expand' : 'Collapse');
                     vscode.postMessage({
                         type: collapse ? 'collapseHop' : 'expandHop',
                         nodeId: node.id

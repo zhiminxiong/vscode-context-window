@@ -92,7 +92,8 @@ export class CallRelationPanel {
                 this.postState();
                 break;
             case 'openNode': {
-                const target = this.model.getOpenTarget(String(message.nodeId || ''), this.graph.nodes);
+                const nodeId = String(message.nodeId || '');
+                const target = this.model.getOpenTarget(nodeId, this.graph.nodes);
                 if (target) {
                     const line = target.line + 1;
                     const character = Math.max(1, target.character + 1);
@@ -109,6 +110,15 @@ export class CallRelationPanel {
                 }
                 break;
             }
+            case 'focusNode': {
+                const nodeId = String(message.nodeId || '');
+                const current = this.graph.nodes.find(n => n.id === nodeId);
+                if (current && current.kind === 'symbol' && current.id !== this.graph.rootId) {
+                    this.graph = await this.model.focusNode(nodeId, this.graph.nodes);
+                    this.postGraph();
+                }
+                break;
+            }
             case 'expandMore':
                 this.graph = await this.model.expandMore(String(message.nodeId || ''));
                 this.postGraph();
@@ -122,7 +132,7 @@ export class CallRelationPanel {
                 this.postGraph();
                 break;
             case 'toggleGroup':
-                this.graph = await this.model.toggleGroup(String(message.nodeId || ''));
+                this.graph = await this.model.toggleGroup(String(message.nodeId || ''), this.graph.nodes);
                 this.postGraph();
                 break;
             case 'openCallSite': {
@@ -203,7 +213,7 @@ export class CallRelationPanel {
       <button type="button" id="cr-refresh" class="cr-btn" title="Reload from the current editor cursor">Refresh</button>
     </div>
   </header>
-  <div class="cr-hint">Click a node for its definition. Click a link for that call site. + / − expand or collapse. Drag empty space to pan.</div>
+  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, dashed = previous center, ring = selected. Click a link for that call site. + / − expand or collapse. Drag empty space to pan.</div>
   <div class="cr-stage" id="cr-stage">
     <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
   </div>
