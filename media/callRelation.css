@@ -97,7 +97,7 @@ html, body {
 
 .cr-edge {
     fill: none;
-    stroke: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 72%, transparent);
+    stroke: var(--vscode-textLink-foreground, #3794ff);
     stroke-width: 1.2;
     stroke-linejoin: round;
     stroke-linecap: round;
@@ -131,6 +131,7 @@ html, body {
 
 .cr-arrow {
     fill: var(--vscode-textLink-foreground, #3794ff);
+    fill-opacity: 1;
     stroke: none;
 }
 

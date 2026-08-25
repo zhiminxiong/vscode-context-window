@@ -98,41 +98,45 @@ function layout(graph) {
     function placeHop(hop) {
         const col = byHop.get(hop) || [];
         const parentHop = hop < 0 ? hop + 1 : hop - 1;
-        const parents = (byHop.get(parentHop) || []).filter(n => n.kind === 'symbol');
+        const parents = (byHop.get(parentHop) || [])
+            .filter(n => pos[n.id])
+            .sort((a, b) => pos[a.id].y - pos[b.id].y);
         const groups = [];
-        if (parents.length) {
-            for (const parent of parents) {
-                const kids = col.filter(n => n.parentId === parent.id);
-                if (kids.length) {
-                    groups.push({ parent, kids });
+        const assigned = new Set();
+        for (const parent of parents) {
+            const kids = col.filter(n => n.parentId === parent.id);
+            if (kids.length) {
+                groups.push({ parent, kids });
+                for (const kid of kids) {
+                    assigned.add(kid.id);
                 }
             }
-        } else {
-            groups.push({ parent: null, kids: col });
         }
+        const orphans = col.filter(n => !assigned.has(n.id));
+        if (orphans.length) {
+            groups.push({ parent: null, kids: orphans });
+        }
+        let prevBottom = -Infinity;
         for (const group of groups) {
             const block = group.kids.reduce((sum, n) => sum + nodeHeight(n, graph.rootId) + nodeGap(n), 0)
                 - (group.kids.length ? nodeGap(group.kids[group.kids.length - 1]) : 0);
             const parentY = group.parent && pos[group.parent.id] ? pos[group.parent.id].y : 0;
             const parentH = group.parent && pos[group.parent.id] ? pos[group.parent.id].h : NODE_H;
             let y = parentY + parentH / 2 - block / 2;
+            if (prevBottom > -Infinity) {
+                y = Math.max(y, prevBottom + ROW_GAP);
+            }
             for (const kid of group.kids) {
+                const h = nodeHeight(kid, graph.rootId);
                 pos[kid.id] = {
                     x: hop * (NODE_W + COL_GAP),
                     y,
-                    h: nodeHeight(kid, graph.rootId)
+                    h
                 };
-                y += nodeHeight(kid, graph.rootId) + nodeGap(kid);
+                y += h + nodeGap(kid);
             }
-        }
-        const ordered = col.filter(n => pos[n.id]).sort((a, b) => pos[a.id].y - pos[b.id].y);
-        for (let i = 1; i < ordered.length; i++) {
-            const prev = pos[ordered[i - 1].id];
-            const cur = pos[ordered[i].id];
-            const minY = prev.y + prev.h + nodeGap(ordered[i]);
-            if (cur.y < minY) {
-                cur.y = minY;
-            }
+            const last = group.kids[group.kids.length - 1];
+            prevBottom = pos[last.id].y + pos[last.id].h;
         }
     }
 
