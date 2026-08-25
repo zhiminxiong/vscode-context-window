@@ -180,7 +180,7 @@ html, body {
     box-sizing: border-box;
     width: 168px;
     min-height: 52px;
-    padding: 6px 8px;
+    padding: 3px 8px 8px;
     border-radius: 6px;
     border: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border, #555));
     background: var(--vscode-editor-background);
@@ -199,7 +199,7 @@ html, body {
 
 .cr-node.is-root {
     min-height: 64px;
-    padding: 8px 10px;
+    padding: 5px 10px 10px;
     border-color: var(--vscode-button-background);
     background: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
@@ -272,8 +272,8 @@ html, body {
 
 .cr-node.is-compact {
     min-height: 38px;
-    padding-top: 4px;
-    padding-bottom: 4px;
+    padding-top: 2px;
+    padding-bottom: 5px;
 }
 
 .cr-node.is-compact.is-more {

@@ -383,6 +383,14 @@ export class CallRelationModel {
             }
         }
 
+        let ancestor = focus.parentId ? nodes.find(n => n.id === focus.parentId) : undefined;
+        while (ancestor) {
+            if (ancestor.itemKey) {
+                this.keepExpand.add(`self\0${ancestor.itemKey}`);
+            }
+            ancestor = ancestor.parentId ? nodes.find(n => n.id === ancestor?.parentId) : undefined;
+        }
+
         const oldRoot = this.root;
         this.prevRoot = oldRoot && itemKey(oldRoot) !== focus.itemKey ? oldRoot : undefined;
         this.root = item;
