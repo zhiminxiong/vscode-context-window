@@ -178,9 +178,12 @@ html, body {
 .cr-node {
     position: absolute;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     width: 168px;
     min-height: 52px;
-    padding: 3px 8px 8px;
+    padding: 5px 8px;
     border-radius: 6px;
     border: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border, #555));
     background: var(--vscode-editor-background);
@@ -199,7 +202,7 @@ html, body {
 
 .cr-node.is-root {
     min-height: 64px;
-    padding: 5px 10px 10px;
+    padding: 8px 10px;
     border-color: var(--vscode-button-background);
     background: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
@@ -209,10 +212,12 @@ html, body {
 .cr-node.is-root .cr-node-name {
     font-size: 16px;
     font-weight: 700;
+    line-height: 22px;
 }
 
 .cr-node.is-root .cr-node-meta {
     font-size: 12px;
+    line-height: 16px;
     color: color-mix(in srgb, var(--vscode-button-foreground) 72%, transparent);
 }
 
@@ -258,6 +263,7 @@ html, body {
 
 .cr-node.is-more {
     display: flex;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
     min-height: 36px;
@@ -272,16 +278,20 @@ html, body {
 
 .cr-node.is-compact {
     min-height: 38px;
-    padding-top: 2px;
-    padding-bottom: 5px;
+    padding: 4px 8px;
 }
 
 .cr-node.is-compact.is-more {
     min-height: 30px;
 }
 
+.cr-node.is-compact .cr-node-name {
+    line-height: 15px;
+}
+
 .cr-node.is-compact .cr-node-meta {
-    margin-top: 0;
+    margin-top: 1px;
+    line-height: 12px;
 }
 
 .cr-node.has-toggle-left {
@@ -297,6 +307,7 @@ html, body {
     align-items: center;
     gap: 4px;
     min-width: 0;
+    flex-shrink: 0;
 }
 
 .cr-node-name {
@@ -306,12 +317,15 @@ html, body {
     white-space: nowrap;
     flex: 0 1 auto;
     min-width: 0;
+    line-height: 18px;
 }
 
 .cr-node-meta {
     margin-top: 2px;
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
+    line-height: 14px;
+    flex-shrink: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -321,6 +335,7 @@ html, body {
 .cr-node.is-names.has-toggle-left,
 .cr-node.is-names.has-toggle-right {
     display: flex;
+    flex-direction: row;
     align-items: center;
     width: auto;
     min-width: 0;
