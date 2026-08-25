@@ -10,6 +10,11 @@ const COL_GAP = 88;
 const ROW_GAP = 14;
 const COMPACT_GAP = 8;
 const PAD = 40;
+
+/** @type {{ rootId: string, ox: number, oy: number } | null} */
+let savedView = null;
+/** @type {Record<string, { x: number, y: number, h: number, w: number }> | null} */
+let lastPos = null;
 const ARROW_LEN = 8;
 const TIP_GAP = 6;
 
@@ -109,7 +114,7 @@ function nodeGap(node) {
     return node.compact ? COMPACT_GAP : ROW_GAP;
 }
 
-function layout(graph) {
+function layout(graph, viewW, viewH) {
     /** @type {Record<string, { x: number, y: number, h: number, w: number }>} */
     const pos = {};
     const byHop = new Map();
@@ -175,7 +180,7 @@ function layout(graph) {
                 const w = nodeWidth(kid, graph.rootId);
                 const colX = hop * (NODE_W + COL_GAP);
                 pos[kid.id] = {
-                    x: hop < 0 ? colX + (NODE_W - w) : colX,
+                    x: colX,
                     y,
                     h,
                     w
@@ -194,26 +199,33 @@ function layout(graph) {
         placeHop(hop);
     }
 
-    let minX = 0;
-    let minY = 0;
-    let maxX = NODE_W;
-    let maxY = NODE_H;
+    const rootPos = root ? pos[root.id] : null;
+    const rootCX = rootPos ? rootPos.x + nodeW(rootPos) / 2 : 0;
+    const rootCY = rootPos ? rootPos.y + rootPos.h / 2 : 0;
+    let left = 0;
+    let right = NODE_W / 2;
+    let top = 0;
+    let bottom = NODE_H / 2;
     for (const p of Object.values(pos)) {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x + nodeW(p));
-        maxY = Math.max(maxY, p.y + p.h);
+        left = Math.max(left, rootCX - p.x);
+        right = Math.max(right, p.x + nodeW(p) - rootCX);
+        top = Math.max(top, rootCY - p.y);
+        bottom = Math.max(bottom, p.y + p.h - rootCY);
     }
-    const dx = PAD - minX;
-    const dy = PAD - minY;
+    const marginX = Math.max(PAD, viewW / 2);
+    const marginY = Math.max(PAD, viewH / 2);
+    const width = left + right + marginX * 2;
+    const height = top + bottom + marginY * 2;
+    const dx = marginX + left - rootCX;
+    const dy = marginY + top - rootCY;
     for (const p of Object.values(pos)) {
         p.x += dx;
         p.y += dy;
     }
     return {
         pos,
-        width: maxX - minX + PAD * 2,
-        height: maxY - minY + PAD * 2
+        width,
+        height
     };
 }
 
@@ -631,7 +643,36 @@ function showSitePicker(canvas, x, y, edge) {
     menu.style.top = top + 'px';
 }
 
+function captureView() {
+    if (!stage || !lastGraph?.rootId || !lastPos || !lastPos[lastGraph.rootId]) {
+        return null;
+    }
+    const root = lastPos[lastGraph.rootId];
+    return {
+        rootId: lastGraph.rootId,
+        ox: stage.scrollLeft - root.x,
+        oy: stage.scrollTop - root.y
+    };
+}
+
+function applyView(graph, pos) {
+    if (!stage || !pos[graph.rootId]) {
+        return;
+    }
+    const root = pos[graph.rootId];
+    if (savedView && savedView.rootId === graph.rootId) {
+        stage.scrollLeft = root.x + savedView.ox;
+        stage.scrollTop = root.y + savedView.oy;
+        return;
+    }
+    const vw = stage.clientWidth;
+    const vh = stage.clientHeight;
+    stage.scrollLeft = root.x + nodeW(root) / 2 - vw / 2;
+    stage.scrollTop = root.y + root.h / 2 - vh / 2;
+}
+
 function render(graph) {
+    savedView = captureView();
     lastGraph = graph;
     if (graph.rootId && nameOnlyIds.delete(graph.rootId)) {
         persistViewState();
@@ -643,6 +684,7 @@ function render(graph) {
         titleEl.textContent = graph.title ? `Call Relation — ${graph.title}` : 'Call Relation';
     }
     if (!graph.nodes || !graph.nodes.length) {
+        lastPos = null;
         stage.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'cr-empty';
@@ -651,7 +693,10 @@ function render(graph) {
         return;
     }
 
-    const { pos, width, height } = layout(graph);
+    const viewW = stage.clientWidth || 800;
+    const viewH = stage.clientHeight || 600;
+    const { pos, width, height } = layout(graph, viewW, viewH);
+    lastPos = pos;
     hideSiteMenu();
     stage.innerHTML = '';
     const canvas = document.createElement('div');
@@ -875,6 +920,7 @@ function render(graph) {
     }
     canvas.appendChild(svg);
     stage.appendChild(canvas);
+    applyView(graph, pos);
 }
 
 function bindPan(el) {
