@@ -247,7 +247,7 @@ export class CallRelationPanel {
       <button type="button" id="cr-refresh" class="cr-btn" title="Reload from the current editor cursor">Refresh</button>
     </div>
   </header>
-  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, dashed = previous center, ring = selected. Click a link for that call site. + / − expand or collapse. Elbow / Direct / Arc switches connectors. Drag empty space to pan.</div>
+  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, thick link border = previous center, ring = selected. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Elbow / Direct / Arc switches connectors. Drag empty space to pan.</div>
   <div class="cr-stage" id="cr-stage">
     <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
   </div>
