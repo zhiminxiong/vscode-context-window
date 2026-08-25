@@ -281,7 +281,7 @@ html, body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
 }
 
@@ -292,6 +292,71 @@ html, body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.cr-node.is-names,
+.cr-node.is-names.has-toggle-left,
+.cr-node.is-names.has-toggle-right {
+    display: flex;
+    align-items: center;
+    width: auto;
+    min-width: 0;
+    max-width: 168px;
+    min-height: 22px;
+    padding: 1px 8px;
+}
+
+.cr-node.is-names.is-root {
+    min-height: 26px;
+    padding: 2px 8px;
+}
+
+.cr-node.is-names .cr-node-head {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.cr-node.is-names .cr-node-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    line-height: 16px;
+}
+
+.cr-node.is-names .cr-node-meta {
+    display: none;
+}
+
+.cr-thumb {
+    flex: 0 0 auto;
+    width: 12px;
+    height: 14px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 14px;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 6;
+}
+
+.cr-node:hover .cr-thumb {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.cr-thumb:hover {
+    color: var(--vscode-focusBorder, #007fd4);
+    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.cr-node.is-root .cr-thumb {
+    color: color-mix(in srgb, var(--vscode-button-foreground) 80%, transparent);
 }
 
 .cr-toggle {

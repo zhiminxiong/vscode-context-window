@@ -60,8 +60,7 @@ export class CallRelationPanel {
 
     show(): void {
         if (this.panel) {
-            this.panel.reveal(this.panel.viewColumn ?? vscode.ViewColumn.Beside);
-            void this.reloadFromEditor(vscode.window.activeTextEditor);
+            void this.afterOpen(vscode.window.activeTextEditor);
             return;
         }
         this.panel = vscode.window.createWebviewPanel(
@@ -74,6 +73,8 @@ export class CallRelationPanel {
                 localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')]
             }
         );
+        const iconPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'icon.png');
+        this.panel.iconPath = { light: iconPath, dark: iconPath };
         this.panel.webview.html = this.html(this.panel.webview);
         this.panel.onDidDispose(() => {
             this.panel = undefined;
@@ -82,7 +83,32 @@ export class CallRelationPanel {
         this.panel.webview.onDidReceiveMessage(message => {
             void this.onMessage(message);
         });
-        void this.reloadFromEditor(vscode.window.activeTextEditor);
+        void this.afterOpen(vscode.window.activeTextEditor);
+    }
+
+    private async afterOpen(editor: vscode.TextEditor | undefined): Promise<void> {
+        await this.lockPanelGroup();
+        await this.reloadFromEditor(editor);
+    }
+
+    private async lockPanelGroup(): Promise<void> {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.reveal(this.panel.viewColumn ?? vscode.ViewColumn.Beside, false);
+        const groups = (vscode.window as unknown as {
+            tabGroups?: { all: { viewColumn?: vscode.ViewColumn; isLocked: boolean }[] };
+        }).tabGroups;
+        const column = this.panel.viewColumn;
+        const group = groups?.all.find(g => g.viewColumn === column);
+        if (group?.isLocked) {
+            return;
+        }
+        try {
+            await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+        } catch {
+            // Older VS Code builds may not have editor-group lock.
+        }
     }
 
     private async onMessage(message: any): Promise<void> {

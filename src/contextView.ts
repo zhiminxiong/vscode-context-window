@@ -251,6 +251,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         webviewPanel.title = "Context Window";
 
         this.resetWebviewPanel(this._currentPanel);
+        void this.lockPanelGroup(this._currentPanel);
     }
 
     // 键盘更新防抖方法
@@ -797,11 +798,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         );
 
         const contentInfo = await this._renderer.renderDefinition(languageId, definition);
+        this._pickItems = undefined;
+        this.postMessageToWebview({ type: 'clearDefinitionList' });
         // 先入历史再刷新内容，这样 updateContent 下发的跳转链已含本条。
         if (recordTrail) {
             this.addToHistory(contentInfo, range.start.line - 1, range.start.character - 1, token);
         }
         this.updateContent(contentInfo);
+        this.currentUri = targetUri;
+        this.currentLine = startLine;
+        this.currentColumn = startChar;
 
         // 同 handleJumpDefinition：命令式跳转同样只改了展示内容，主编辑区光标没动，缓存键需失效
         this.invalidateCacheKey();
@@ -1363,16 +1369,22 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return;
         }
 
-        const curContext = this.getCurrentContent();
-        this.currentUri = curContext?.content ? vscode.Uri.parse(curContext.content.jmpUri) : undefined;
-        this.currentLine = curContext?.content ? curContext.content.range.start.line : 0;
+        const shown = this._lastContent ?? this.getCurrentContent()?.content;
+        if (!shown?.jmpUri) {
+            return;
+        }
+
+        this.currentUri = vscode.Uri.parse(shown.jmpUri.toString());
+        this.currentLine = shown.range?.start.line ?? 0;
+        this.currentColumn = shown.range?.start.character ?? 0;
         if (!this.currentUri) {
             return;
         }
 
         const document = await vscode.workspace.openTextDocument(this.currentUri);
         const line = this.currentLine;
-        const range = new vscode.Range(line, 0, line, 0);
+        const character = Math.max(0, this.currentColumn);
+        const range = new vscode.Range(line, character, line, character);
         const column = this._currentPanel ? vscode.ViewColumn.One : vscode.ViewColumn.Active;
 
         const openedEditor = await vscode.window.showTextDocument(document, {
@@ -1475,6 +1487,27 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             type: 'pinState',
             pinned: this._pinned
         });
+        void this.lockPanelGroup(this._currentPanel);
+    }
+
+    private async lockPanelGroup(panel: vscode.WebviewPanel | undefined): Promise<void> {
+        if (!panel) {
+            return;
+        }
+        panel.reveal(panel.viewColumn ?? vscode.ViewColumn.Beside, false);
+        const groups = (vscode.window as unknown as {
+            tabGroups?: { all: { viewColumn?: vscode.ViewColumn; isLocked: boolean }[] };
+        }).tabGroups;
+        const column = panel.viewColumn;
+        const group = groups?.all.find(g => g.viewColumn === column);
+        if (group?.isLocked) {
+            return;
+        }
+        try {
+            await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+        } catch {
+            // Older VS Code builds may not have editor-group lock.
+        }
     }
 
     public resolveWebviewView(

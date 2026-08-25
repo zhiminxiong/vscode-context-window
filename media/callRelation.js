@@ -4,6 +4,9 @@ const NODE_W = 168;
 const NODE_H = 52;
 const COMPACT_H = 38;
 const MORE_H = 36;
+const NAME_H = 22;
+const NAME_ROOT_H = 26;
+const NAME_MIN_W = 24;
 const COL_GAP = 88;
 const ROW_GAP = 14;
 const COMPACT_GAP = 8;
@@ -27,10 +30,15 @@ let lastGraph = null;
 let selectedKey = '';
 /** @type {'elbow' | 'direct' | 'arc'} */
 let edgeStyle = 'elbow';
+/** @type {Set<string>} */
+let nameOnlyIds = new Set();
 try {
     const saved = vscode.getState();
     if (saved && (saved.edgeStyle === 'direct' || saved.edgeStyle === 'arc')) {
         edgeStyle = saved.edgeStyle;
+    }
+    if (saved && Array.isArray(saved.nameOnlyIds)) {
+        nameOnlyIds = new Set(saved.nameOnlyIds);
     }
 } catch (_) { /* noop */ }
 
@@ -53,13 +61,51 @@ function isSpreadStyle(value) {
 }
 
 function nodeHeight(node, rootId) {
+    const names = nameOnlyIds.has(node.id);
     if (node.kind === 'more') {
         return node.compact ? 30 : MORE_H;
     }
     if (node.id === rootId) {
-        return 64;
+        return names ? NAME_ROOT_H : 64;
+    }
+    if (names) {
+        return NAME_H;
     }
     return node.compact ? COMPACT_H : NODE_H;
+}
+
+let measureEl = null;
+function measureNameWidth(text, fontSize, bold) {
+    if (!measureEl) {
+        measureEl = document.createElement('span');
+        measureEl.setAttribute('aria-hidden', 'true');
+        measureEl.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;';
+        document.body.appendChild(measureEl);
+    }
+    const style = getComputedStyle(document.body);
+    measureEl.style.fontFamily = style.fontFamily || 'sans-serif';
+    measureEl.style.fontSize = fontSize + 'px';
+    measureEl.style.fontWeight = bold ? '700' : '600';
+    measureEl.textContent = text || '';
+    return measureEl.getBoundingClientRect().width;
+}
+
+function nodeWidth(node, rootId) {
+    if (!nameOnlyIds.has(node.id)) {
+        return NODE_W;
+    }
+    const root = node.id === rootId;
+    const fontSize = root ? 16 : 13;
+    const textW = measureNameWidth(node.name, fontSize, true);
+    const padX = 16;
+    const borderX = 2;
+    const thumb = 12;
+    const gap = 4;
+    return Math.min(NODE_W, Math.max(NAME_MIN_W, Math.ceil(textW + padX + borderX + thumb + gap)));
+}
+
+function nodeW(p) {
+    return p && p.w ? p.w : NODE_W;
 }
 
 function nodeGap(node) {
@@ -67,7 +113,7 @@ function nodeGap(node) {
 }
 
 function layout(graph) {
-    /** @type {Record<string, { x: number, y: number, h: number }>} */
+    /** @type {Record<string, { x: number, y: number, h: number, w: number }>} */
     const pos = {};
     const byHop = new Map();
     for (const node of graph.nodes) {
@@ -91,7 +137,8 @@ function layout(graph) {
     let centerY = 0;
     for (const n of orderedCenters) {
         const h = nodeHeight(n, graph.rootId);
-        pos[n.id] = { x: 0, y: centerY, h };
+        const w = nodeWidth(n, graph.rootId);
+        pos[n.id] = { x: 0, y: centerY, h, w };
         centerY += h + ROW_GAP;
     }
 
@@ -128,10 +175,13 @@ function layout(graph) {
             }
             for (const kid of group.kids) {
                 const h = nodeHeight(kid, graph.rootId);
+                const w = nodeWidth(kid, graph.rootId);
+                const colX = hop * (NODE_W + COL_GAP);
                 pos[kid.id] = {
-                    x: hop * (NODE_W + COL_GAP),
+                    x: hop < 0 ? colX + (NODE_W - w) : colX,
                     y,
-                    h
+                    h,
+                    w
                 };
                 y += h + nodeGap(kid);
             }
@@ -154,7 +204,7 @@ function layout(graph) {
     for (const p of Object.values(pos)) {
         minX = Math.min(minX, p.x);
         minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x + NODE_W);
+        maxX = Math.max(maxX, p.x + nodeW(p));
         maxY = Math.max(maxY, p.y + p.h);
     }
     const dx = PAD - minX;
@@ -198,12 +248,78 @@ function arrowMarker(id, className) {
     return marker;
 }
 
-function persistEdgeStyle() {
+function persistViewState() {
     try {
         const saved = vscode.getState() || {};
         saved.edgeStyle = edgeStyle;
+        saved.nameOnlyIds = [...nameOnlyIds];
         vscode.setState(saved);
     } catch (_) { /* noop */ }
+}
+
+function dropDescendants(graph, nodeId) {
+    const drop = new Set([nodeId]);
+    let grew = true;
+    while (grew) {
+        grew = false;
+        for (const n of graph.nodes) {
+            if (n.parentId && drop.has(n.parentId) && !drop.has(n.id)) {
+                drop.add(n.id);
+                grew = true;
+            }
+        }
+    }
+    drop.delete(nodeId);
+    return {
+        ...graph,
+        nodes: graph.nodes.filter(n => !drop.has(n.id)),
+        edges: (graph.edges || []).filter(e => !drop.has(e.from) && !drop.has(e.to))
+    };
+}
+
+function toggleNameOnly(node) {
+    const on = !nameOnlyIds.has(node.id);
+    if (on) {
+        nameOnlyIds.add(node.id);
+        if (lastGraph) {
+            lastGraph = dropDescendants(lastGraph, node.id);
+        }
+        if (node.kind === 'group' && node.expanded) {
+            vscode.postMessage({ type: 'toggleGroup', nodeId: node.id });
+        } else {
+            vscode.postMessage({ type: 'collapseHop', nodeId: node.id });
+        }
+    } else {
+        nameOnlyIds.delete(node.id);
+    }
+    persistViewState();
+    if (lastGraph) {
+        render(lastGraph);
+    }
+}
+
+function addThumb(el, head, node) {
+    const names = nameOnlyIds.has(node.id);
+    if (names) {
+        el.classList.add('is-names');
+    }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cr-thumb' + (names ? ' is-on' : '');
+    btn.textContent = names ? '>' : '<';
+    btn.title = names ? 'Restore file and line' : 'Show name only';
+    btn.setAttribute('aria-label', btn.title);
+    btn.addEventListener('pointerdown', ev => ev.stopPropagation());
+    btn.addEventListener('click', ev => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleNameOnly(node);
+    });
+    head.appendChild(btn);
+}
+
+function persistEdgeStyle() {
+    persistViewState();
 }
 
 function syncStyleBtn() {
@@ -298,9 +414,9 @@ function edgePorts(graph, pos) {
         const toPort = inRank.get(key) || { i: 0, n: 1 };
         ports[key] = {
             sameCol: false,
-            x1: leftToRight ? a.x + NODE_W : a.x,
+            x1: leftToRight ? a.x + nodeW(a) : a.x,
             y1: spreadY(a.y, a.h, fromPort.i, fromPort.n),
-            x2: leftToRight ? b.x - TIP_GAP : b.x + NODE_W + TIP_GAP,
+            x2: leftToRight ? b.x - TIP_GAP : b.x + nodeW(b) + TIP_GAP,
             y2: spreadY(b.y, b.h, toPort.i, toPort.n)
         };
     }
@@ -308,7 +424,7 @@ function edgePorts(graph, pos) {
 }
 
 function columnEnds(a, b) {
-    const x = a.x + NODE_W / 2;
+    const x = a.x + nodeW(a) / 2;
     const down = a.y <= b.y;
     return {
         sameCol: true,
@@ -352,9 +468,9 @@ function centerEnds(a, b) {
     const leftToRight = a.x <= b.x;
     return {
         sameCol: false,
-        x1: leftToRight ? a.x + NODE_W : a.x,
+        x1: leftToRight ? a.x + nodeW(a) : a.x,
         y1: a.y + a.h / 2,
-        x2: leftToRight ? b.x - TIP_GAP : b.x + NODE_W + TIP_GAP,
+        x2: leftToRight ? b.x - TIP_GAP : b.x + nodeW(b) + TIP_GAP,
         y2: b.y + b.h / 2
     };
 }
@@ -388,7 +504,7 @@ function edgePath(graph, edge, pos, ports) {
 function busXForHub(hubPos, childPos) {
     const gap = 28;
     if (childPos.x >= hubPos.x) {
-        return hubPos.x + NODE_W + gap;
+        return hubPos.x + nodeW(hubPos) + gap;
     }
     return hubPos.x - gap;
 }
@@ -649,6 +765,7 @@ function render(graph) {
         }
         el.style.left = p.x + 'px';
         el.style.top = p.y + 'px';
+        el.style.width = nodeW(p) + 'px';
         el.style.height = p.h + 'px';
         el.addEventListener('pointerenter', () => {
             setHoverPaths(edgesByNode.get(node.id) || []);
@@ -686,6 +803,7 @@ function render(graph) {
                 ev.stopPropagation();
                 vscode.postMessage({ type: 'toggleGroup', nodeId: node.id });
             });
+            addThumb(el, head, node);
         } else {
             const head = document.createElement('div');
             head.className = 'cr-node-head';
@@ -745,6 +863,7 @@ function render(graph) {
                 });
                 el.appendChild(exp);
             }
+            addThumb(el, head, node);
         }
         canvas.appendChild(el);
     }
@@ -763,7 +882,7 @@ function bindPan(el) {
             return;
         }
         const hit = e.target;
-        if (hit && hit.closest && hit.closest('.cr-node, .cr-toggle, .cr-edge-group, .cr-site-menu')) {
+        if (hit && hit.closest && hit.closest('.cr-node, .cr-toggle, .cr-thumb, .cr-edge-group, .cr-site-menu')) {
             return;
         }
         dragging = true;
