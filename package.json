@@ -294,7 +294,7 @@
         },
         "contextView.callRelation.edgeStyle": {
           "type": "string",
-          "default": "elbow",
+          "default": "arc",
           "enum": [
             "elbow",
             "direct",

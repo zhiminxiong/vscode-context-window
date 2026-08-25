@@ -233,25 +233,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }, null, this._disposables);
     }
 
-    async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: any): Promise<void> {
-        this._currentPanel = webviewPanel;
-        //console.log('[definition] deserializeWebviewPanel');
-        
-        webviewPanel.webview.options = {
-            enableScripts: true,
-            enableForms: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this._extensionUri, 'media'),
-                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor'),
-                // 方案 B：oniguruma WASM 所在目录
-                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'vscode-oniguruma')
-            ]
-        };
-
-        webviewPanel.title = "Context Window";
-
-        this.resetWebviewPanel(this._currentPanel);
-        void this.lockPanelGroup(this._currentPanel);
+    async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, _state: any): Promise<void> {
+        // Reload / 再次打开工作区时 VS Code 会还原浮动 Context 标签，但内容无法可靠恢复。
+        // 与 Call Relation 一样：反序列化时直接关掉，需要时再从命令打开。
+        webviewPanel.dispose();
     }
 
     // 键盘更新防抖方法

@@ -17,7 +17,7 @@ export class CallRelationPanel {
     private readonly model = new CallRelationModel();
     private graph: RelationGraph = { rootId: '', title: '', nodes: [], edges: [] };
     private pinned = false;
-    private edgeStyle: 'elbow' | 'direct' | 'arc' = 'elbow';
+    private edgeStyle: 'elbow' | 'direct' | 'arc' = 'arc';
     private followTimer: ReturnType<typeof setTimeout> | undefined;
     private readonly disposables: vscode.Disposable[] = [];
 
@@ -231,7 +231,7 @@ export class CallRelationPanel {
     }
 
     private normalizeEdgeStyle(value: unknown): 'elbow' | 'direct' | 'arc' {
-        return value === 'direct' || value === 'arc' ? value : 'elbow';
+        return value === 'direct' || value === 'elbow' ? value : 'arc';
     }
 
     private readEdgeStyle(): 'elbow' | 'direct' | 'arc' {
@@ -265,14 +265,16 @@ export class CallRelationPanel {
   <header class="cr-bar">
     <div class="cr-title" id="cr-title">Call Relation</div>
     <div class="cr-actions">
-      <button type="button" id="cr-style" class="cr-btn" title="Cycle connector style: Elbow, Direct, Arc">Elbow</button>
+      <div class="cr-style-wrap" id="cr-style-wrap">
+        <button type="button" id="cr-style" class="cr-btn is-on" title="Connector style">Arc</button>
+      </div>
       <button type="button" id="cr-zoom-out" class="cr-btn" title="Zoom out (Ctrl+scroll)">−</button>
       <button type="button" id="cr-zoom-label" class="cr-btn cr-zoom-label" title="Reset zoom to 100%">100%</button>
       <button type="button" id="cr-zoom-in" class="cr-btn" title="Zoom in (Ctrl+scroll)">+</button>
       <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
     </div>
   </header>
-  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, thick link border = previous center, ring = selected. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Elbow / Direct / Arc switches connectors. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
+  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, thick link border = previous center, ring = selected. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
   <div class="cr-stage" id="cr-stage">
     <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
   </div>

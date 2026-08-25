@@ -46,12 +46,12 @@ let lastGraph = null;
 /** @type {string} */
 let selectedKey = '';
 /** @type {'elbow' | 'direct' | 'arc'} */
-let edgeStyle = 'elbow';
+let edgeStyle = 'arc';
 /** @type {Set<string>} */
 let nameOnlyIds = new Set();
 try {
     const saved = vscode.getState();
-    if (saved && (saved.edgeStyle === 'direct' || saved.edgeStyle === 'arc')) {
+    if (saved && (saved.edgeStyle === 'direct' || saved.edgeStyle === 'arc' || saved.edgeStyle === 'elbow')) {
         edgeStyle = saved.edgeStyle;
     }
     if (saved && Array.isArray(saved.nameOnlyIds)) {
@@ -63,17 +63,7 @@ try {
 } catch (_) { /* noop */ }
 
 function normalizeEdgeStyle(value) {
-    return value === 'direct' || value === 'arc' ? value : 'elbow';
-}
-
-function nextEdgeStyle(value) {
-    if (value === 'elbow') {
-        return 'direct';
-    }
-    if (value === 'direct') {
-        return 'arc';
-    }
-    return 'elbow';
+    return value === 'direct' || value === 'elbow' ? value : 'arc';
 }
 
 function isSpreadStyle(value) {
@@ -380,12 +370,23 @@ function persistEdgeStyle() {
     persistViewState();
 }
 
+const EDGE_STYLE_ITEMS = [
+    { id: 'arc', label: 'Arc' },
+    { id: 'direct', label: 'Direct' },
+    { id: 'elbow', label: 'Elbow' }
+];
+
+function edgeStyleLabel(value) {
+    const item = EDGE_STYLE_ITEMS.find(s => s.id === value);
+    return item ? item.label : 'Arc';
+}
+
 function syncStyleBtn() {
     if (!styleBtn) {
         return;
     }
-    styleBtn.classList.toggle('is-on', isSpreadStyle(edgeStyle));
-    styleBtn.textContent = edgeStyle === 'direct' ? 'Direct' : edgeStyle === 'arc' ? 'Arc' : 'Elbow';
+    styleBtn.classList.add('is-on');
+    styleBtn.textContent = edgeStyleLabel(edgeStyle);
 }
 
 function applyEdgeStyle(next) {
@@ -1028,10 +1029,64 @@ pinBtn?.addEventListener('click', () => {
     vscode.postMessage({ type: 'setPinned', value: next });
 });
 
-styleBtn?.addEventListener('click', () => {
-    const next = nextEdgeStyle(edgeStyle);
-    applyEdgeStyle(next);
-    vscode.postMessage({ type: 'setEdgeStyle', value: next });
+let styleMenuDocDown = null;
+
+function closeStyleMenu() {
+    const menu = document.getElementById('cr-style-menu');
+    if (menu) {
+        menu.remove();
+    }
+    styleBtn?.classList.remove('is-open');
+    if (styleMenuDocDown) {
+        document.removeEventListener('mousedown', styleMenuDocDown, true);
+        styleMenuDocDown = null;
+    }
+}
+
+function openStyleMenu() {
+    if (!styleBtn) {
+        return;
+    }
+    if (document.getElementById('cr-style-menu')) {
+        closeStyleMenu();
+        return;
+    }
+    const menu = document.createElement('div');
+    menu.id = 'cr-style-menu';
+    menu.className = 'cr-style-menu';
+    EDGE_STYLE_ITEMS.forEach(item => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'cr-style-menu-item' + (item.id === edgeStyle ? ' is-selected' : '');
+        el.textContent = (item.id === edgeStyle ? '✔ ' : '') + item.label;
+        el.addEventListener('mousedown', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeStyleMenu();
+            if (item.id === edgeStyle) {
+                return;
+            }
+            applyEdgeStyle(item.id);
+            vscode.postMessage({ type: 'setEdgeStyle', value: item.id });
+        });
+        menu.appendChild(el);
+    });
+    const wrap = document.getElementById('cr-style-wrap') || styleBtn.parentElement;
+    (wrap || document.body).appendChild(menu);
+    styleBtn.classList.add('is-open');
+    styleMenuDocDown = e => {
+        if (styleBtn.contains(e.target) || menu.contains(e.target)) {
+            return;
+        }
+        closeStyleMenu();
+    };
+    document.addEventListener('mousedown', styleMenuDocDown, true);
+}
+
+styleBtn?.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    openStyleMenu();
 });
 
 function clampZoom(value) {
