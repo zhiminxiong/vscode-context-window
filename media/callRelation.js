@@ -5,7 +5,6 @@ const NODE_H = 52;
 const COMPACT_H = 38;
 const MORE_H = 36;
 const NAME_H = 22;
-const NAME_ROOT_H = 26;
 const NAME_MIN_W = 24;
 const COL_GAP = 88;
 const ROW_GAP = 14;
@@ -61,14 +60,13 @@ function isSpreadStyle(value) {
 }
 
 function nodeHeight(node, rootId) {
-    const names = nameOnlyIds.has(node.id);
     if (node.kind === 'more') {
         return node.compact ? 30 : MORE_H;
     }
     if (node.id === rootId) {
-        return names ? NAME_ROOT_H : 64;
+        return 64;
     }
-    if (names) {
+    if (nameOnlyIds.has(node.id)) {
         return NAME_H;
     }
     return node.compact ? COMPACT_H : NODE_H;
@@ -91,11 +89,10 @@ function measureNameWidth(text, fontSize, bold) {
 }
 
 function nodeWidth(node, rootId) {
-    if (!nameOnlyIds.has(node.id)) {
+    if (node.id === rootId || !nameOnlyIds.has(node.id)) {
         return NODE_W;
     }
-    const root = node.id === rootId;
-    const fontSize = root ? 16 : 13;
+    const fontSize = 13;
     const textW = measureNameWidth(node.name, fontSize, true);
     const padX = 16;
     const borderX = 2;
@@ -278,6 +275,9 @@ function dropDescendants(graph, nodeId) {
 }
 
 function toggleNameOnly(node) {
+    if (lastGraph && node.id === lastGraph.rootId) {
+        return;
+    }
     const on = !nameOnlyIds.has(node.id);
     if (on) {
         nameOnlyIds.add(node.id);
@@ -299,6 +299,9 @@ function toggleNameOnly(node) {
 }
 
 function addThumb(el, head, node) {
+    if (lastGraph && node.id === lastGraph.rootId) {
+        return;
+    }
     const names = nameOnlyIds.has(node.id);
     if (names) {
         el.classList.add('is-names');
@@ -630,6 +633,9 @@ function showSitePicker(canvas, x, y, edge) {
 
 function render(graph) {
     lastGraph = graph;
+    if (graph.rootId && nameOnlyIds.delete(graph.rootId)) {
+        persistViewState();
+    }
     if (!stage) {
         return;
     }
