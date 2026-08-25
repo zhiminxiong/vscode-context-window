@@ -17,11 +17,20 @@ export class CallRelationPanel {
     private readonly model = new CallRelationModel();
     private graph: RelationGraph = { rootId: '', title: '', nodes: [], edges: [] };
     private pinned = false;
+    private edgeStyle: 'elbow' | 'direct' | 'arc' = 'elbow';
     private followTimer: ReturnType<typeof setTimeout> | undefined;
     private readonly disposables: vscode.Disposable[] = [];
 
     constructor(private readonly extensionUri: vscode.Uri) {
+        this.edgeStyle = this.readEdgeStyle();
         this.disposables.push(
+            vscode.workspace.onDidChangeConfiguration(e => {
+                if (!e.affectsConfiguration('contextView.callRelation.edgeStyle')) {
+                    return;
+                }
+                this.edgeStyle = this.readEdgeStyle();
+                this.postState();
+            }),
             vscode.window.onDidChangeTextEditorSelection(e => {
                 if (this.pinned || !this.panel || e.selections.length === 0) {
                     return;
@@ -91,6 +100,16 @@ export class CallRelationPanel {
                 this.pinned = !!message.value;
                 this.postState();
                 break;
+            case 'setEdgeStyle': {
+                this.edgeStyle = this.normalizeEdgeStyle(message.value);
+                await vscode.workspace.getConfiguration('contextView.callRelation').update(
+                    'edgeStyle',
+                    this.edgeStyle,
+                    true
+                );
+                this.postState();
+                break;
+            }
             case 'openNode': {
                 const nodeId = String(message.nodeId || '');
                 const target = this.model.getOpenTarget(nodeId, this.graph.nodes);
@@ -188,8 +207,22 @@ export class CallRelationPanel {
         this.postState();
     }
 
+    private normalizeEdgeStyle(value: unknown): 'elbow' | 'direct' | 'arc' {
+        return value === 'direct' || value === 'arc' ? value : 'elbow';
+    }
+
+    private readEdgeStyle(): 'elbow' | 'direct' | 'arc' {
+        return this.normalizeEdgeStyle(
+            vscode.workspace.getConfiguration('contextView.callRelation').get<string>('edgeStyle')
+        );
+    }
+
     private postState(): void {
-        this.panel?.webview.postMessage({ type: 'state', pinned: this.pinned });
+        this.panel?.webview.postMessage({
+            type: 'state',
+            pinned: this.pinned,
+            edgeStyle: this.edgeStyle
+        });
     }
 
     private html(webview: vscode.Webview): string {
@@ -209,11 +242,12 @@ export class CallRelationPanel {
   <header class="cr-bar">
     <div class="cr-title" id="cr-title">Call Relation</div>
     <div class="cr-actions">
+      <button type="button" id="cr-style" class="cr-btn" title="Cycle connector style: Elbow, Direct, Arc">Elbow</button>
       <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
       <button type="button" id="cr-refresh" class="cr-btn" title="Reload from the current editor cursor">Refresh</button>
     </div>
   </header>
-  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, dashed = previous center, ring = selected. Click a link for that call site. + / − expand or collapse. Drag empty space to pan.</div>
+  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, dashed = previous center, ring = selected. Click a link for that call site. + / − expand or collapse. Elbow / Direct / Arc switches connectors. Drag empty space to pan.</div>
   <div class="cr-stage" id="cr-stage">
     <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
   </div>

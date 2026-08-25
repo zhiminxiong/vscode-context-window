@@ -8,8 +8,10 @@ const COL_GAP = 88;
 const ROW_GAP = 14;
 const COMPACT_GAP = 8;
 const PAD = 40;
+const ARROW_LEN = 8;
+const TIP_GAP = 6;
 
-/** @type {{ postMessage: (msg: any) => void }} */
+/** @type {{ postMessage: (msg: any) => void, getState: () => any, setState: (s: any) => void }} */
 const vscode = acquireVsCodeApi();
 
 const titleEl = document.getElementById('cr-title');
@@ -17,11 +19,38 @@ const stage = document.getElementById('cr-stage');
 const emptyEl = document.getElementById('cr-empty');
 const pinBtn = document.getElementById('cr-pin');
 const refreshBtn = document.getElementById('cr-refresh');
+const styleBtn = document.getElementById('cr-style');
 
 /** @type {any} */
 let lastGraph = null;
 /** @type {string} */
 let selectedKey = '';
+/** @type {'elbow' | 'direct' | 'arc'} */
+let edgeStyle = 'elbow';
+try {
+    const saved = vscode.getState();
+    if (saved && (saved.edgeStyle === 'direct' || saved.edgeStyle === 'arc')) {
+        edgeStyle = saved.edgeStyle;
+    }
+} catch (_) { /* noop */ }
+
+function normalizeEdgeStyle(value) {
+    return value === 'direct' || value === 'arc' ? value : 'elbow';
+}
+
+function nextEdgeStyle(value) {
+    if (value === 'elbow') {
+        return 'direct';
+    }
+    if (value === 'direct') {
+        return 'arc';
+    }
+    return 'elbow';
+}
+
+function isSpreadStyle(value) {
+    return value === 'direct' || value === 'arc';
+}
 
 function nodeHeight(node, rootId) {
     if (node.kind === 'more') {
@@ -151,17 +180,205 @@ function arrowMarker(id, className) {
     const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
     marker.setAttribute('id', id);
     marker.setAttribute('viewBox', '0 0 10 10');
-    marker.setAttribute('refX', '9');
+    marker.setAttribute('refX', '0');
     marker.setAttribute('refY', '5');
-    marker.setAttribute('markerWidth', '8');
-    marker.setAttribute('markerHeight', '8');
+    marker.setAttribute('markerWidth', String(ARROW_LEN));
+    marker.setAttribute('markerHeight', String(ARROW_LEN));
     marker.setAttribute('markerUnits', 'userSpaceOnUse');
     marker.setAttribute('orient', 'auto');
+    marker.setAttribute('overflow', 'visible');
     const tip = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    tip.setAttribute('d', 'M 0 1.2 L 9 5 L 0 8.8 z');
+    tip.setAttribute('d', 'M 0 1.2 L 10 5 L 0 8.8 z');
     tip.setAttribute('class', className);
     marker.appendChild(tip);
     return marker;
+}
+
+function persistEdgeStyle() {
+    try {
+        const saved = vscode.getState() || {};
+        saved.edgeStyle = edgeStyle;
+        vscode.setState(saved);
+    } catch (_) { /* noop */ }
+}
+
+function syncStyleBtn() {
+    if (!styleBtn) {
+        return;
+    }
+    styleBtn.classList.toggle('is-on', isSpreadStyle(edgeStyle));
+    styleBtn.textContent = edgeStyle === 'direct' ? 'Direct' : edgeStyle === 'arc' ? 'Arc' : 'Elbow';
+}
+
+function applyEdgeStyle(next) {
+    const value = normalizeEdgeStyle(next);
+    if (value === edgeStyle) {
+        syncStyleBtn();
+        return;
+    }
+    edgeStyle = value;
+    persistEdgeStyle();
+    syncStyleBtn();
+    if (lastGraph) {
+        render(lastGraph);
+    }
+}
+
+function spreadY(y, h, index, count) {
+    const pad = Math.min(14, Math.max(7, h * 0.18));
+    if (count <= 1) {
+        return y + h / 2;
+    }
+    const usable = Math.max(h - pad * 2, 4);
+    return y + pad + usable * (index / (count - 1));
+}
+
+function edgeKey(edge) {
+    return edge.from + '\0' + edge.to;
+}
+
+function edgePorts(graph, pos) {
+    /** @type {Record<string, { sameCol: boolean, x1: number, y1: number, x2: number, y2: number }>} */
+    const ports = {};
+    /** @type {Map<string, any[]>} */
+    const outgoing = new Map();
+    /** @type {Map<string, any[]>} */
+    const incoming = new Map();
+    for (const edge of graph.edges) {
+        const a = pos[edge.from];
+        const b = pos[edge.to];
+        if (!a || !b) {
+            continue;
+        }
+        if (Math.abs(a.x - b.x) < 1) {
+            ports[edgeKey(edge)] = columnEnds(a, b);
+            continue;
+        }
+        if (!outgoing.has(edge.from)) {
+            outgoing.set(edge.from, []);
+        }
+        outgoing.get(edge.from).push(edge);
+        if (!incoming.has(edge.to)) {
+            incoming.set(edge.to, []);
+        }
+        incoming.get(edge.to).push(edge);
+    }
+    const rank = (map, otherId) => {
+        const ranked = new Map();
+        for (const [id, list] of map) {
+            list.sort((e1, e2) => {
+                const p1 = pos[e1[otherId]];
+                const p2 = pos[e2[otherId]];
+                return (p1?.y ?? 0) - (p2?.y ?? 0);
+            });
+            list.forEach((edge, i) => {
+                ranked.set(edgeKey(edge), { i, n: list.length });
+            });
+        }
+        return ranked;
+    };
+    const outRank = rank(outgoing, 'to');
+    const inRank = rank(incoming, 'from');
+    for (const edge of graph.edges) {
+        const key = edgeKey(edge);
+        if (ports[key]) {
+            continue;
+        }
+        const a = pos[edge.from];
+        const b = pos[edge.to];
+        if (!a || !b) {
+            continue;
+        }
+        const leftToRight = a.x <= b.x;
+        const fromPort = outRank.get(key) || { i: 0, n: 1 };
+        const toPort = inRank.get(key) || { i: 0, n: 1 };
+        ports[key] = {
+            sameCol: false,
+            x1: leftToRight ? a.x + NODE_W : a.x,
+            y1: spreadY(a.y, a.h, fromPort.i, fromPort.n),
+            x2: leftToRight ? b.x - TIP_GAP : b.x + NODE_W + TIP_GAP,
+            y2: spreadY(b.y, b.h, toPort.i, toPort.n)
+        };
+    }
+    return ports;
+}
+
+function columnEnds(a, b) {
+    const x = a.x + NODE_W / 2;
+    const down = a.y <= b.y;
+    return {
+        sameCol: true,
+        x1: x,
+        y1: down ? a.y + a.h : a.y,
+        x2: x,
+        y2: down ? b.y - TIP_GAP : b.y + b.h + TIP_GAP
+    };
+}
+
+function stopBeforeTip(x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const back = Math.min(ARROW_LEN, len * 0.45);
+    return {
+        x: x2 - dx / len * back,
+        y: y2 - dy / len * back
+    };
+}
+
+function directPath(x1, y1, x2, y2) {
+    const end = stopBeforeTip(x1, y1, x2, y2);
+    return `M ${x1} ${y1} L ${end.x} ${end.y}`;
+}
+
+function arcPath(x1, y1, x2, y2) {
+    const dir = x2 >= x1 ? 1 : -1;
+    const xBase = x2 - dir * ARROW_LEN;
+    const span = xBase - x1;
+    const pull = Math.max(28, Math.abs(span) * 0.48);
+    const c1x = x1 + dir * pull;
+    const c2x = xBase - dir * pull;
+    return `M ${x1} ${y1} C ${c1x} ${y1} ${c2x} ${y2} ${xBase} ${y2}`;
+}
+
+function centerEnds(a, b) {
+    if (Math.abs(a.x - b.x) < 1) {
+        return columnEnds(a, b);
+    }
+    const leftToRight = a.x <= b.x;
+    return {
+        sameCol: false,
+        x1: leftToRight ? a.x + NODE_W : a.x,
+        y1: a.y + a.h / 2,
+        x2: leftToRight ? b.x - TIP_GAP : b.x + NODE_W + TIP_GAP,
+        y2: b.y + b.h / 2
+    };
+}
+
+function edgePath(graph, edge, pos, ports) {
+    const a = pos[edge.from];
+    const b = pos[edge.to];
+    if (!a || !b) {
+        return '';
+    }
+    if (isSpreadStyle(edgeStyle)) {
+        const p = ports[edgeKey(edge)];
+        if (!p) {
+            return '';
+        }
+        return edgeStyle === 'arc'
+            ? arcPath(p.x1, p.y1, p.x2, p.y2)
+            : directPath(p.x1, p.y1, p.x2, p.y2);
+    }
+    const p = centerEnds(a, b);
+    if (p.sameCol) {
+        const end = stopBeforeTip(p.x1, p.y1, p.x2, p.y2);
+        return `M ${p.x1} ${p.y1} L ${end.x} ${end.y}`;
+    }
+    const hubId = edgeHubId(graph, edge);
+    const hubPos = pos[hubId] || a;
+    const childPos = hubId === edge.from ? b : a;
+    return orthoPath(p.x1, p.y1, p.x2, p.y2, busXForHub(hubPos, childPos));
 }
 
 function busXForHub(hubPos, childPos) {
@@ -173,21 +390,23 @@ function busXForHub(hubPos, childPos) {
 }
 
 function orthoPath(x1, y1, x2, y2, busX) {
+    const dir = x2 >= x1 ? 1 : -1;
+    const xEnd = x2 - dir * ARROW_LEN;
     if (Math.abs(y1 - y2) < 0.5) {
-        return `M ${x1} ${y1} L ${x2} ${y2}`;
+        return `M ${x1} ${y1} L ${xEnd} ${y2}`;
     }
-    const r = Math.min(7, Math.abs(busX - x1), Math.abs(x2 - busX), Math.abs(y2 - y1) / 2);
+    const r = Math.min(7, Math.abs(busX - x1), Math.abs(xEnd - busX), Math.abs(y2 - y1) / 2);
     if (r < 1.5) {
-        return `M ${x1} ${y1} L ${busX} ${y1} L ${busX} ${y2} L ${x2} ${y2}`;
+        return `M ${x1} ${y1} L ${busX} ${y1} L ${busX} ${y2} L ${xEnd} ${y2}`;
     }
     const down = y2 > y1;
-    const toRight = x2 > busX;
+    const toRight = xEnd > busX;
     const fromRight = x1 > busX;
     const yCorner1 = down ? y1 + r : y1 - r;
     const yCorner2 = down ? y2 - r : y2 + r;
     const xEnter = fromRight ? busX + r : busX - r;
     const xLeave = toRight ? busX + r : busX - r;
-    return `M ${x1} ${y1} L ${xEnter} ${y1} Q ${busX} ${y1} ${busX} ${yCorner1} L ${busX} ${yCorner2} Q ${busX} ${y2} ${xLeave} ${y2} L ${x2} ${y2}`;
+    return `M ${x1} ${y1} L ${xEnter} ${y1} Q ${busX} ${y1} ${busX} ${yCorner1} L ${busX} ${yCorner2} Q ${busX} ${y2} ${xLeave} ${y2} L ${xEnd} ${y2}`;
 }
 
 function hideSiteMenu() {
@@ -310,7 +529,7 @@ function render(graph) {
     hideSiteMenu();
     stage.innerHTML = '';
     const canvas = document.createElement('div');
-    canvas.className = 'cr-canvas';
+    canvas.className = 'cr-canvas' + (isSpreadStyle(edgeStyle) ? ' is-direct' : '');
     canvas.style.width = width + 'px';
     canvas.style.height = height + 'px';
 
@@ -325,44 +544,42 @@ function render(graph) {
     const hoverLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     hoverLayer.setAttribute('class', 'cr-edge-hover-layer');
     hoverLayer.setAttribute('pointer-events', 'none');
-    const setHoverPath = (pathD) => {
+    const setHoverPaths = (pathDs) => {
         while (hoverLayer.firstChild) {
             hoverLayer.removeChild(hoverLayer.firstChild);
         }
-        if (!pathD) {
-            return;
+        for (const pathD of pathDs) {
+            if (!pathD) {
+                continue;
+            }
+            const hoverPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            hoverPath.setAttribute('class', 'cr-edge cr-edge-hover');
+            hoverPath.setAttribute('d', pathD);
+            hoverPath.setAttribute('marker-end', 'url(#cr-arrow-hover)');
+            hoverLayer.appendChild(hoverPath);
         }
-        const hoverPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        hoverPath.setAttribute('class', 'cr-edge cr-edge-hover');
-        hoverPath.setAttribute('d', pathD);
-        hoverPath.setAttribute('marker-end', 'url(#cr-arrow-hover)');
-        hoverLayer.appendChild(hoverPath);
     };
+    const ports = isSpreadStyle(edgeStyle) ? edgePorts(graph, pos) : {};
+    /** @type {Map<string, string[]>} */
+    const edgesByNode = new Map();
     for (const edge of graph.edges) {
         const a = pos[edge.from];
         const b = pos[edge.to];
         if (!a || !b) {
             continue;
         }
-        const sameCol = Math.abs(a.x - b.x) < 1;
-        let d;
-        if (sameCol) {
-            const x = a.x + NODE_W / 2;
-            const down = a.y <= b.y;
-            const y1 = down ? a.y + a.h : a.y;
-            const y2 = down ? b.y : b.y + b.h;
-            d = `M ${x} ${y1} L ${x} ${y2}`;
-        } else {
-            const leftToRight = a.x <= b.x;
-            const x1 = leftToRight ? a.x + NODE_W : a.x;
-            const x2 = leftToRight ? b.x : b.x + NODE_W;
-            const y1 = a.y + a.h / 2;
-            const y2 = b.y + b.h / 2;
-            const hubId = edgeHubId(graph, edge);
-            const hubPos = pos[hubId] || a;
-            const childPos = hubId === edge.from ? b : a;
-            d = orthoPath(x1, y1, x2, y2, busXForHub(hubPos, childPos));
+        const d = edgePath(graph, edge, pos, ports);
+        if (!d) {
+            continue;
         }
+        if (!edgesByNode.has(edge.from)) {
+            edgesByNode.set(edge.from, []);
+        }
+        if (!edgesByNode.has(edge.to)) {
+            edgesByNode.set(edge.to, []);
+        }
+        edgesByNode.get(edge.from).push(d);
+        edgesByNode.get(edge.to).push(d);
         const live = !!(edge.sites && edge.sites.length) && edge.style !== 'anchor';
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.setAttribute('class', 'cr-edge-group' + (live ? ' is-live' : ''));
@@ -390,17 +607,16 @@ function render(graph) {
                 showSitePicker(canvas, pt.x, pt.y, edge);
             });
             g.addEventListener('pointerenter', () => {
-                setHoverPath(d);
+                setHoverPaths([d]);
             });
             g.addEventListener('pointerleave', () => {
-                setHoverPath('');
+                setHoverPaths([]);
             });
             g.appendChild(hit);
         }
         svg.appendChild(g);
     }
     svg.appendChild(hoverLayer);
-    canvas.appendChild(svg);
 
     for (const node of graph.nodes) {
         const p = pos[node.id];
@@ -430,6 +646,12 @@ function render(graph) {
         el.style.left = p.x + 'px';
         el.style.top = p.y + 'px';
         el.style.height = p.h + 'px';
+        el.addEventListener('pointerenter', () => {
+            setHoverPaths(edgesByNode.get(node.id) || []);
+        });
+        el.addEventListener('pointerleave', () => {
+            setHoverPaths([]);
+        });
         el.title = node.kind === 'more'
             ? 'Show more siblings'
             : node.kind === 'group'
@@ -522,6 +744,7 @@ function render(graph) {
         }
         canvas.appendChild(el);
     }
+    canvas.appendChild(svg);
     stage.appendChild(canvas);
 }
 
@@ -567,6 +790,12 @@ pinBtn?.addEventListener('click', () => {
     vscode.postMessage({ type: 'setPinned', value: next });
 });
 
+styleBtn?.addEventListener('click', () => {
+    const next = nextEdgeStyle(edgeStyle);
+    applyEdgeStyle(next);
+    vscode.postMessage({ type: 'setEdgeStyle', value: next });
+});
+
 refreshBtn?.addEventListener('click', () => {
     vscode.postMessage({ type: 'refresh' });
 });
@@ -578,9 +807,12 @@ window.addEventListener('message', ev => {
     }
     if (msg.type === 'graph') {
         render(msg.graph || { nodes: [], edges: [], empty: 'No call hierarchy at this position.' });
-    } else if (msg.type === 'state' && pinBtn) {
-        pinBtn.classList.toggle('is-on', !!msg.pinned);
-        pinBtn.textContent = msg.pinned ? 'Pinned' : 'Pin';
+    } else if (msg.type === 'state') {
+        if (pinBtn) {
+            pinBtn.classList.toggle('is-on', !!msg.pinned);
+            pinBtn.textContent = msg.pinned ? 'Pinned' : 'Pin';
+        }
+        applyEdgeStyle(normalizeEdgeStyle(msg.edgeStyle));
     } else if (msg.type === 'loading' && msg.value && titleEl) {
         titleEl.textContent = 'Call Relation — loading…';
     }
@@ -597,4 +829,5 @@ if (stage) {
     });
 }
 
+syncStyleBtn();
 vscode.postMessage({ type: 'ready' });

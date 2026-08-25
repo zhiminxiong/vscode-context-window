@@ -291,6 +291,21 @@
             "Find References. Click a symbol to list references in Context, then click one to open that location in the panel (not the main editor)."
           ],
           "description": "What a click in the Context Window jumps to. Change it from the pull-up at the right of the Context footer."
+        },
+        "contextView.callRelation.edgeStyle": {
+          "type": "string",
+          "default": "elbow",
+          "enum": [
+            "elbow",
+            "direct",
+            "arc"
+          ],
+          "enumDescriptions": [
+            "Orthogonal bus lines with arrows.",
+            "Straight single-arrow links from the right edge of the caller to the left edge of the callee.",
+            "Curved single-arrow links using the same attachment points as Direct."
+          ],
+          "description": "Call Relation connector style. Can be switched from the Call Relation toolbar."
         }
       }
     }
