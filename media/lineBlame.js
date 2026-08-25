@@ -106,7 +106,7 @@ export function createLineBlame(ctx) {
         }, 200);
     }
 
-    function makeOpenChangesButton(uri, previousSha, sha) {
+    function makeOpenChangesButton(uri, previousSha, sha, workingTree) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'cw-line-blame-hover-open-changes';
@@ -120,7 +120,8 @@ export function createLineBlame(ctx) {
                     type: 'openLineBlameChanges',
                     uri,
                     previousSha,
-                    sha
+                    sha,
+                    workingTree: !!workingTree
                 });
             }
             hideHover();
@@ -128,10 +129,10 @@ export function createLineBlame(ctx) {
         return btn;
     }
 
-    function makeShaButton(label, fullSha) {
+    function makeShaButton(label, fullSha, current) {
         const shaBtn = document.createElement('button');
         shaBtn.type = 'button';
-        shaBtn.className = 'cw-line-blame-hover-sha';
+        shaBtn.className = 'cw-line-blame-hover-sha' + (current ? ' cw-line-blame-hover-sha-current' : '');
         shaBtn.textContent = label || '';
         shaBtn.title = 'Copy commit hash';
         shaBtn.addEventListener('click', ev => {
@@ -312,8 +313,8 @@ export function createLineBlame(ctx) {
         foot.className = 'cw-line-blame-hover-foot';
         const actions = document.createElement('div');
         actions.className = 'cw-line-blame-hover-actions';
-        if (h.shortSha) {
-            actions.appendChild(makeShaButton(h.shortSha, h.sha));
+        if (h.shortSha && !h.workingTree) {
+            actions.appendChild(makeShaButton(h.shortSha, h.sha, true));
         }
         if (actions.childNodes.length) {
             foot.appendChild(actions);
@@ -321,7 +322,37 @@ export function createLineBlame(ctx) {
 
         const changes = document.createElement('div');
         changes.className = 'cw-line-blame-hover-changes';
-        if (h.previousShortSha && h.shortSha) {
+        if (h.workingTree) {
+            const leftLabel = h.previousShortSha;
+            const sameRef = !!(h.previousSha && h.sha && h.previousSha === h.sha);
+            const rightLabel = (!sameRef && h.shortSha) ? h.shortSha : 'Working Tree';
+            changes.appendChild(document.createTextNode('Changes '));
+            if (leftLabel) {
+                if (h.previousSha && h.previousSha !== 'working-tree') {
+                    changes.appendChild(makeShaButton(leftLabel, h.previousSha));
+                } else {
+                    changes.appendChild(document.createTextNode(leftLabel));
+                }
+                const sep = document.createElement('span');
+                sep.className = 'cw-line-blame-hover-sep';
+                sep.setAttribute('aria-hidden', 'true');
+                sep.textContent = '↔';
+                changes.appendChild(sep);
+            }
+            if (!sameRef && h.shortSha && h.sha && h.sha !== 'working-tree') {
+                changes.appendChild(makeShaButton(rightLabel, h.sha, true));
+            } else {
+                changes.appendChild(document.createTextNode(rightLabel));
+            }
+            if (lastShown.uri) {
+                changes.appendChild(makeOpenChangesButton(
+                    lastShown.uri,
+                    h.previousSha || '',
+                    h.sha || '',
+                    true
+                ));
+            }
+        } else if (h.previousShortSha && h.shortSha) {
             changes.appendChild(document.createTextNode('Changes '));
             changes.appendChild(makeShaButton(h.previousShortSha, h.previousSha || h.previousShortSha));
             const sep = document.createElement('span');
@@ -329,14 +360,14 @@ export function createLineBlame(ctx) {
             sep.setAttribute('aria-hidden', 'true');
             sep.textContent = '↔';
             changes.appendChild(sep);
-            changes.appendChild(document.createTextNode(h.shortSha));
+            changes.appendChild(makeShaButton(h.shortSha, h.sha, true));
             if (h.previousSha && h.sha && lastShown.uri) {
                 changes.appendChild(makeOpenChangesButton(lastShown.uri, h.previousSha, h.sha));
             }
         } else if (h.shortSha) {
             // 首提交没有 parent：GitLens 仍固定写 Changes added in <sha>，并可打开对空树的 diff。
             changes.appendChild(document.createTextNode('Changes added in '));
-            changes.appendChild(makeShaButton(h.shortSha, h.sha));
+            changes.appendChild(makeShaButton(h.shortSha, h.sha, true));
             if (h.sha && lastShown.uri) {
                 changes.appendChild(makeOpenChangesButton(lastShown.uri, '', h.sha));
             }

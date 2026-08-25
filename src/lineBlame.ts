@@ -56,6 +56,7 @@ type LineBlameCacheHit = {
     shortSha: string;
     previousSha?: string;
     previousShortSha?: string;
+    workingTree?: boolean;
 };
 
 type LineBlameCacheEntry = LineBlameCacheHit | { stamp: string; miss: true };
@@ -502,6 +503,9 @@ function materializeBlame(hit: LineBlameCacheHit): LineBlameInfo {
         hover.previousSha = hit.previousSha;
         hover.previousShortSha = hit.previousShortSha;
     }
+    if (hit.workingTree) {
+        hover.workingTree = true;
+    }
     let text = '';
     if (hit.uncommitted) {
         text = when
@@ -532,6 +536,9 @@ function parsePorcelain(stdout: string): PorcelainFields | null {
     let previous = '';
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
+        if (line.startsWith('\t')) {
+            break;
+        }
         if (line.startsWith('author ')) {
             author = line.slice(7);
         } else if (line.startsWith('author-mail ')) {
@@ -642,6 +649,7 @@ export interface LineBlameHoverInfo {
     shortSha: string;
     previousSha?: string;
     previousShortSha?: string;
+    workingTree?: boolean;
 }
 
 export interface LineBlameInfo {
@@ -746,6 +754,8 @@ async function storedFromParsed(
             ? 'You'
             : displayAuthor(parsed.author, parsed.email, user);
         const time = uncommittedMtime ?? Math.floor(Date.now() / 1000);
+        const head = await repoHead(cwd);
+        const left = parsed.previous || head;
         const stored: LineBlameCacheHit = {
             stamp,
             uncommitted: true,
@@ -757,12 +767,13 @@ async function storedFromParsed(
             date: formatAbsoluteDate(time),
             summary: 'Uncommitted changes',
             textSubject: 'Uncommitted changes',
-            sha: '',
-            shortSha: ''
+            sha: head || 'working-tree',
+            shortSha: head ? shortSha(head) : 'Working Tree',
+            workingTree: true
         };
-        if (parsed.previous) {
-            stored.previousSha = parsed.previous;
-            stored.previousShortSha = shortSha(parsed.previous);
+        if (left) {
+            stored.previousSha = left;
+            stored.previousShortSha = shortSha(left);
         }
         return stored;
     }
@@ -941,10 +952,19 @@ const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 /**
  * 在 VS Code 主编辑区打开该行 blame 对应的两次提交 diff（对齐 GitLens Open Changes）。
  * previousSha 为空时对空树 diff，展示该提交首次加入的内容。
+ * workingTree：右侧用磁盘文件，即未提交工作区。
  */
-export async function openBlameDiff(uriString: string, previousSha: string, sha: string): Promise<void> {
+export async function openBlameDiff(
+    uriString: string,
+    previousSha: string,
+    sha: string,
+    opts?: { workingTree?: boolean }
+): Promise<void> {
     const uri = toFileUri(uriString);
-    if (!uri || !sha) {
+    if (!uri) {
+        return;
+    }
+    if (!opts?.workingTree && !sha) {
         return;
     }
     try {
@@ -957,6 +977,19 @@ export async function openBlameDiff(uriString: string, previousSha: string, sha:
     }
     const name = path.basename(uri.fsPath);
     const leftRef = previousSha || EMPTY_TREE_SHA;
+    if (opts?.workingTree) {
+        const title = previousSha
+            ? `${name} (${shortSha(previousSha)}) ↔ ${name} (Working Tree)`
+            : `${name} ↔ ${name} (Working Tree)`;
+        await vscode.commands.executeCommand(
+            'vscode.diff',
+            toGitUri(uri, leftRef),
+            uri,
+            title,
+            { preview: true, preserveFocus: false, viewColumn: editorViewColumn() }
+        );
+        return;
+    }
     const title = previousSha
         ? `${name} (${shortSha(previousSha)}) ↔ ${name} (${shortSha(sha)})`
         : `${name} ↔ ${name} (${shortSha(sha)})`;

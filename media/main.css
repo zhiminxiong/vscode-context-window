@@ -277,6 +277,15 @@ body.has-jump-trail #container {
     background: var(--vscode-button-secondaryHoverBackground, #45494e);
 }
 
+.cw-line-blame-hover-sha-current {
+    color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+    background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #3fb950) 18%, transparent);
+}
+
+.cw-line-blame-hover-sha-current:hover {
+    background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #3fb950) 28%, transparent);
+}
+
 .cw-line-blame-hover-changes {
     display: flex;
     align-items: center;

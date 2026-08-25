@@ -428,11 +428,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const uri = String(message?.uri ?? '');
         const previousSha = String(message?.previousSha ?? '');
         const sha = String(message?.sha ?? '');
-        if (!uri || !sha) {
+        const workingTree = !!message?.workingTree;
+        if (!uri || (!sha && !workingTree)) {
             return;
         }
         try {
-            await openBlameDiff(uri, previousSha, sha);
+            await openBlameDiff(uri, previousSha, sha, { workingTree });
         } catch (err) {
             console.error('[context-window] openLineBlameChanges failed:', err);
             vscode.window.showErrorMessage('Failed to open git changes');
