@@ -27,7 +27,20 @@ html, body {
 .cr-actions {
     margin-left: auto;
     display: flex;
+    align-items: center;
     gap: 6px;
+}
+
+.cr-zoom-label {
+    min-width: 3.6em;
+    padding-left: 6px;
+    padding-right: 6px;
+    text-align: center;
+}
+
+.cr-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
 }
 
 .cr-btn {
@@ -71,10 +84,20 @@ html, body {
     color: var(--vscode-descriptionForeground);
 }
 
+.cr-zoom {
+    position: relative;
+}
+
 .cr-canvas {
     position: relative;
     min-width: 100%;
     min-height: 100%;
+    transform-origin: 0 0;
+}
+
+.cr-zoom .cr-canvas {
+    min-width: 0;
+    min-height: 0;
 }
 
 .cr-edges {
@@ -413,8 +436,8 @@ html, body {
 }
 
 .cr-site-menu {
-    position: absolute;
-    z-index: 5;
+    position: fixed;
+    z-index: 20;
     box-sizing: border-box;
     width: 300px;
     max-height: 280px;

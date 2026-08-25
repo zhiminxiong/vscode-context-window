@@ -27,6 +27,20 @@ const emptyEl = document.getElementById('cr-empty');
 const pinBtn = document.getElementById('cr-pin');
 const refreshBtn = document.getElementById('cr-refresh');
 const styleBtn = document.getElementById('cr-style');
+const zoomInBtn = document.getElementById('cr-zoom-in');
+const zoomOutBtn = document.getElementById('cr-zoom-out');
+const zoomLabel = document.getElementById('cr-zoom-label');
+
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 1.15;
+let zoom = 1;
+let layoutW = 0;
+let layoutH = 0;
+/** @type {HTMLElement | null} */
+let canvasEl = null;
+/** @type {HTMLElement | null} */
+let zoomWrap = null;
 
 /** @type {any} */
 let lastGraph = null;
@@ -43,6 +57,9 @@ try {
     }
     if (saved && Array.isArray(saved.nameOnlyIds)) {
         nameOnlyIds = new Set(saved.nameOnlyIds);
+    }
+    if (saved && typeof saved.zoom === 'number' && saved.zoom > 0) {
+        zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, saved.zoom));
     }
 } catch (_) { /* noop */ }
 
@@ -262,6 +279,7 @@ function persistViewState() {
         const saved = vscode.getState() || {};
         saved.edgeStyle = edgeStyle;
         saved.nameOnlyIds = [...nameOnlyIds];
+        saved.zoom = zoom;
         vscode.setState(saved);
     } catch (_) { /* noop */ }
 }
@@ -579,8 +597,8 @@ function snippetHtml(site) {
 function eventOnCanvas(ev, canvas) {
     const r = canvas.getBoundingClientRect();
     return {
-        x: ev.clientX - r.left,
-        y: ev.clientY - r.top
+        x: (ev.clientX - r.left) / zoom,
+        y: (ev.clientY - r.top) / zoom
     };
 }
 
@@ -625,19 +643,27 @@ function showSitePicker(canvas, x, y, edge) {
         menu.appendChild(item);
     });
     menu.addEventListener('click', ev => ev.stopPropagation());
-    canvas.appendChild(menu);
+    document.body.appendChild(menu);
     const pad = 8;
+    const cr = canvas.getBoundingClientRect();
+    const sr = (stage || document.body).getBoundingClientRect();
+    const maxH = Math.max(120, sr.height - pad * 2);
+    menu.style.maxHeight = maxH + 'px';
     const mw = menu.offsetWidth;
     const mh = menu.offsetHeight;
-    const cw = canvas.clientWidth;
-    const ch = canvas.clientHeight;
-    let left = x + 10;
-    let top = y + 10;
-    if (left + mw + pad > cw) {
-        left = Math.max(pad, x - mw - 10);
+    let left = cr.left + x * zoom + 10;
+    let top = cr.top + y * zoom + 10;
+    if (left + mw + pad > sr.right) {
+        left = Math.max(sr.left + pad, sr.right - mw - pad);
     }
-    if (top + mh + pad > ch) {
-        top = Math.max(pad, y - mh - 10);
+    if (left < sr.left + pad) {
+        left = sr.left + pad;
+    }
+    if (top + mh + pad > sr.bottom) {
+        top = Math.max(sr.top + pad, sr.bottom - mh - pad);
+    }
+    if (top < sr.top + pad) {
+        top = sr.top + pad;
     }
     menu.style.left = left + 'px';
     menu.style.top = top + 'px';
@@ -650,8 +676,8 @@ function captureView() {
     const root = lastPos[lastGraph.rootId];
     return {
         rootId: lastGraph.rootId,
-        ox: stage.scrollLeft - root.x,
-        oy: stage.scrollTop - root.y
+        ox: stage.scrollLeft / zoom - root.x,
+        oy: stage.scrollTop / zoom - root.y
     };
 }
 
@@ -661,14 +687,14 @@ function applyView(graph, pos) {
     }
     const root = pos[graph.rootId];
     if (savedView && savedView.rootId === graph.rootId) {
-        stage.scrollLeft = root.x + savedView.ox;
-        stage.scrollTop = root.y + savedView.oy;
+        stage.scrollLeft = (root.x + savedView.ox) * zoom;
+        stage.scrollTop = (root.y + savedView.oy) * zoom;
         return;
     }
     const vw = stage.clientWidth;
     const vh = stage.clientHeight;
-    stage.scrollLeft = root.x + nodeW(root) / 2 - vw / 2;
-    stage.scrollTop = root.y + root.h / 2 - vh / 2;
+    stage.scrollLeft = (root.x + nodeW(root) / 2) * zoom - vw / 2;
+    stage.scrollTop = (root.y + root.h / 2) * zoom - vh / 2;
 }
 
 function render(graph) {
@@ -685,6 +711,8 @@ function render(graph) {
     }
     if (!graph.nodes || !graph.nodes.length) {
         lastPos = null;
+        canvasEl = null;
+        zoomWrap = null;
         stage.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'cr-empty';
@@ -699,10 +727,18 @@ function render(graph) {
     lastPos = pos;
     hideSiteMenu();
     stage.innerHTML = '';
+    layoutW = width;
+    layoutH = height;
+    zoomWrap = document.createElement('div');
+    zoomWrap.className = 'cr-zoom';
     const canvas = document.createElement('div');
+    canvasEl = canvas;
     canvas.className = 'cr-canvas' + (isSpreadStyle(edgeStyle) ? ' is-direct' : '');
     canvas.style.width = width + 'px';
     canvas.style.height = height + 'px';
+    canvas.style.transform = `scale(${zoom})`;
+    zoomWrap.style.width = (width * zoom) + 'px';
+    zoomWrap.style.height = (height * zoom) + 'px';
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('class', 'cr-edges');
@@ -919,7 +955,9 @@ function render(graph) {
         canvas.appendChild(el);
     }
     canvas.appendChild(svg);
-    stage.appendChild(canvas);
+    zoomWrap.appendChild(canvas);
+    stage.appendChild(zoomWrap);
+    applyZoomChrome();
     applyView(graph, pos);
 }
 
@@ -975,6 +1013,84 @@ refreshBtn?.addEventListener('click', () => {
     vscode.postMessage({ type: 'refresh' });
 });
 
+function clampZoom(value) {
+    return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 100) / 100));
+}
+
+function applyZoomChrome() {
+    if (zoomOutBtn) {
+        zoomOutBtn.disabled = zoom <= ZOOM_MIN + 0.001;
+    }
+    if (zoomInBtn) {
+        zoomInBtn.disabled = zoom >= ZOOM_MAX - 0.001;
+    }
+    if (zoomLabel) {
+        zoomLabel.textContent = Math.round(zoom * 100) + '%';
+        zoomLabel.disabled = Math.abs(zoom - 1) < 0.001;
+    }
+}
+
+function applyZoomSize() {
+    if (zoomWrap && layoutW && layoutH) {
+        zoomWrap.style.width = (layoutW * zoom) + 'px';
+        zoomWrap.style.height = (layoutH * zoom) + 'px';
+    }
+    if (canvasEl) {
+        canvasEl.style.transform = `scale(${zoom})`;
+    }
+    applyZoomChrome();
+}
+
+function setZoom(next, origin) {
+    const old = zoom;
+    const value = clampZoom(next);
+    if (Math.abs(value - old) < 0.001) {
+        applyZoomChrome();
+        return;
+    }
+    if (!stage) {
+        zoom = value;
+        persistViewState();
+        applyZoomChrome();
+        return;
+    }
+    const rect = stage.getBoundingClientRect();
+    let focusX;
+    let focusY;
+    if (origin && typeof origin.clientX === 'number') {
+        focusX = stage.scrollLeft + (origin.clientX - rect.left);
+        focusY = stage.scrollTop + (origin.clientY - rect.top);
+    } else {
+        focusX = stage.scrollLeft + stage.clientWidth / 2;
+        focusY = stage.scrollTop + stage.clientHeight / 2;
+    }
+    const canvasX = old ? focusX / old : focusX;
+    const canvasY = old ? focusY / old : focusY;
+    hideSiteMenu();
+    zoom = value;
+    persistViewState();
+    applyZoomSize();
+    if (origin && typeof origin.clientX === 'number') {
+        stage.scrollLeft = canvasX * zoom - (origin.clientX - rect.left);
+        stage.scrollTop = canvasY * zoom - (origin.clientY - rect.top);
+    } else {
+        stage.scrollLeft = canvasX * zoom - stage.clientWidth / 2;
+        stage.scrollTop = canvasY * zoom - stage.clientHeight / 2;
+    }
+}
+
+zoomOutBtn?.addEventListener('click', () => {
+    setZoom(zoom / ZOOM_STEP);
+});
+
+zoomInBtn?.addEventListener('click', () => {
+    setZoom(zoom * ZOOM_STEP);
+});
+
+zoomLabel?.addEventListener('click', () => {
+    setZoom(1);
+});
+
 window.addEventListener('message', ev => {
     const msg = ev.data;
     if (!msg) {
@@ -995,6 +1111,14 @@ window.addEventListener('message', ev => {
 
 if (stage) {
     bindPan(stage);
+    stage.addEventListener('wheel', e => {
+        if (!e.ctrlKey && !e.metaKey) {
+            return;
+        }
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP;
+        setZoom(zoom * factor, e);
+    }, { passive: false });
     stage.addEventListener('click', e => {
         const hit = e.target;
         if (hit && hit.closest && hit.closest('.cr-edge-group, .cr-site-menu')) {
@@ -1005,4 +1129,5 @@ if (stage) {
 }
 
 syncStyleBtn();
+applyZoomChrome();
 vscode.postMessage({ type: 'ready' });
