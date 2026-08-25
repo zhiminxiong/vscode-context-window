@@ -108,9 +108,40 @@ function layout(graph) {
     };
 }
 
-function bezier(x1, y1, x2, y2) {
-    const mid = (x1 + x2) / 2;
-    return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
+function nodeById(graph, id) {
+    return graph.nodes.find(n => n.id === id);
+}
+
+function edgeHubId(graph, edge) {
+    const from = nodeById(graph, edge.from);
+    const to = nodeById(graph, edge.to);
+    return Math.abs(to?.hop || 0) > Math.abs(from?.hop || 0) ? edge.from : edge.to;
+}
+
+function busXForHub(hubPos, childPos) {
+    const gap = 28;
+    if (childPos.x >= hubPos.x) {
+        return hubPos.x + NODE_W + gap;
+    }
+    return hubPos.x - gap;
+}
+
+function orthoPath(x1, y1, x2, y2, busX) {
+    if (Math.abs(y1 - y2) < 0.5) {
+        return `M ${x1} ${y1} L ${x2} ${y2}`;
+    }
+    const r = Math.min(7, Math.abs(busX - x1), Math.abs(x2 - busX), Math.abs(y2 - y1) / 2);
+    if (r < 1.5) {
+        return `M ${x1} ${y1} L ${busX} ${y1} L ${busX} ${y2} L ${x2} ${y2}`;
+    }
+    const down = y2 > y1;
+    const toRight = x2 > busX;
+    const fromRight = x1 > busX;
+    const yCorner1 = down ? y1 + r : y1 - r;
+    const yCorner2 = down ? y2 - r : y2 + r;
+    const xEnter = fromRight ? busX + r : busX - r;
+    const xLeave = toRight ? busX + r : busX - r;
+    return `M ${x1} ${y1} L ${xEnter} ${y1} Q ${busX} ${y1} ${busX} ${yCorner1} L ${busX} ${yCorner2} Q ${busX} ${y2} ${xLeave} ${y2} L ${x2} ${y2}`;
 }
 
 function hideSiteMenu() {
@@ -185,11 +216,15 @@ function showSitePicker(canvas, x, y, edge) {
         item.appendChild(snip);
         item.addEventListener('click', e2 => {
             e2.stopPropagation();
-            hideSiteMenu();
+            menu.querySelectorAll('.cr-site-item.is-on').forEach(el => {
+                el.classList.remove('is-on');
+            });
+            item.classList.add('is-on');
             openCallSite(edge, index);
         });
         menu.appendChild(item);
     });
+    menu.addEventListener('click', ev => ev.stopPropagation());
     canvas.appendChild(menu);
     const pad = 8;
     const mw = menu.offsetWidth;
@@ -237,6 +272,21 @@ function render(graph) {
     svg.setAttribute('class', 'cr-edges');
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
+    const hoverLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    hoverLayer.setAttribute('class', 'cr-edge-hover-layer');
+    hoverLayer.setAttribute('pointer-events', 'none');
+    const setHoverPath = (pathD) => {
+        while (hoverLayer.firstChild) {
+            hoverLayer.removeChild(hoverLayer.firstChild);
+        }
+        if (!pathD) {
+            return;
+        }
+        const hoverPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hoverPath.setAttribute('class', 'cr-edge cr-edge-hover');
+        hoverPath.setAttribute('d', pathD);
+        hoverLayer.appendChild(hoverPath);
+    };
     for (const edge of graph.edges) {
         const a = pos[edge.from];
         const b = pos[edge.to];
@@ -248,7 +298,10 @@ function render(graph) {
         const x2 = fromRight ? b.x : b.x + NODE_W;
         const y1 = a.y + a.h / 2;
         const y2 = b.y + b.h / 2;
-        const d = bezier(x1, y1, x2, y2);
+        const hubId = edgeHubId(graph, edge);
+        const hubPos = pos[hubId] || a;
+        const childPos = hubId === edge.from ? b : a;
+        const d = orthoPath(x1, y1, x2, y2, busXForHub(hubPos, childPos));
         const live = !!(edge.sites && edge.sites.length);
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.setAttribute('class', 'cr-edge-group' + (live ? ' is-live' : ''));
@@ -274,10 +327,17 @@ function render(graph) {
                 }
                 showSitePicker(canvas, pt.x, pt.y, edge);
             });
+            g.addEventListener('pointerenter', () => {
+                setHoverPath(d);
+            });
+            g.addEventListener('pointerleave', () => {
+                setHoverPath('');
+            });
             g.appendChild(hit);
         }
         svg.appendChild(g);
     }
+    svg.appendChild(hoverLayer);
     canvas.appendChild(svg);
 
     for (const node of graph.nodes) {

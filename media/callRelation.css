@@ -97,6 +97,8 @@ html, body {
     fill: none;
     stroke: var(--vscode-editorWidget-border, #666);
     stroke-width: 1.6;
+    stroke-linejoin: round;
+    stroke-linecap: round;
     pointer-events: none;
 }
 
@@ -111,7 +113,11 @@ html, body {
     cursor: pointer;
 }
 
-.cr-edge-group.is-live:hover .cr-edge {
+.cr-edge-hover-layer {
+    pointer-events: none;
+}
+
+.cr-edge-hover {
     stroke: var(--vscode-focusBorder, #007fd4);
     stroke-width: 3;
 }
@@ -274,6 +280,10 @@ html, body {
 
 .cr-site-item:hover {
     background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.18));
+}
+
+.cr-site-item.is-on {
+    background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #3fb950) 18%, transparent);
 }
 
 .cr-site-loc {

@@ -230,13 +230,13 @@ export class CallRelationModel {
         if (seq !== this.seq) {
             return this.emptyGraph('Cancelled');
         }
-        return this.buildGraph();
+        return this.buildVisible(seq);
     }
 
     async expandMore(nodeId: string): Promise<RelationGraph> {
         const current = this.shown.get(nodeId) ?? CALL_PAGE;
         this.shown.set(nodeId, current + CALL_PAGE);
-        return this.buildGraph();
+        return this.buildVisible();
     }
 
     collapseHop(nodeId: string, nodes: RelationNode[]): RelationGraph {
@@ -275,7 +275,40 @@ export class CallRelationModel {
             await this.ensureOutgoing(item);
         }
         this.expanded.add(nodeId);
+        return this.buildVisible();
+    }
+
+    private async buildVisible(seq?: number): Promise<RelationGraph> {
+        const graph = this.buildGraph();
+        await this.prefetchNextHop(graph.nodes);
+        if (seq !== undefined && seq !== this.seq) {
+            return this.emptyGraph('Cancelled');
+        }
         return this.buildGraph();
+    }
+
+    private async prefetchNextHop(nodes: RelationNode[]): Promise<void> {
+        const pending: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
+        for (const node of nodes) {
+            if (node.kind !== 'symbol' || node.hop === 0 || Math.abs(node.hop) >= CALL_MAX_HOP) {
+                continue;
+            }
+            const item = this.items.get(node.itemKey);
+            if (!item) {
+                continue;
+            }
+            const dir = node.hop < 0 ? -1 : 1;
+            const peeked = dir < 0 ? this.incoming.has(node.itemKey) : this.outgoing.has(node.itemKey);
+            if (!peeked) {
+                pending.push({ item, dir });
+            }
+        }
+        const limit = 6;
+        for (let i = 0; i < pending.length; i += limit) {
+            await Promise.all(pending.slice(i, i + limit).map(job => (
+                job.dir < 0 ? this.ensureIncoming(job.item) : this.ensureOutgoing(job.item)
+            )));
+        }
     }
 
     buildGraph(): RelationGraph {
@@ -319,7 +352,7 @@ export class CallRelationModel {
             const childNode = toSymbolNode(child, hop, parent.id, false);
             const opened = this.expanded.has(childNode.id);
             childNode.expanded = opened;
-            childNode.expandable = Math.abs(hop) < CALL_MAX_HOP && (!opened || this.sideCount(child, dir) > 0);
+            childNode.expandable = Math.abs(hop) < CALL_MAX_HOP && this.canExpand(child, dir);
             nodes.push(childNode);
             const sites = this.callSites.get(`${parent.itemKey}\0${dir}\0${childNode.itemKey}`);
             if (dir < 0) {
@@ -422,6 +455,15 @@ export class CallRelationModel {
         const key = itemKey(item);
         const list = dir < 0 ? this.incoming.get(key) : this.outgoing.get(key);
         return list?.length ?? 0;
+    }
+
+    private canExpand(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {
+        const key = itemKey(item);
+        const peeked = dir < 0 ? this.incoming.has(key) : this.outgoing.has(key);
+        if (!peeked) {
+            return true;
+        }
+        return this.sideCount(item, dir) > 0;
     }
 
     private async rememberCallSite(
