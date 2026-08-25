@@ -123,6 +123,14 @@ html, body {
     border-style: dashed;
 }
 
+.cr-node.has-toggle-left {
+    padding-left: 16px;
+}
+
+.cr-node.has-toggle-right {
+    padding-right: 16px;
+}
+
 .cr-node-head {
     display: flex;
     align-items: center;

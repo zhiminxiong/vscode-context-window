@@ -227,6 +227,7 @@ function render(graph) {
                 vscode.postMessage({ type: 'openNode', nodeId: node.id });
             });
             if (node.expandable && node.id !== graph.rootId) {
+                el.classList.add(node.hop < 0 ? 'has-toggle-left' : 'has-toggle-right');
                 const exp = document.createElement('button');
                 exp.type = 'button';
                 const collapse = !!node.expanded;
