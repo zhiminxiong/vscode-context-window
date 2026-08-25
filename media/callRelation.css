@@ -213,6 +213,8 @@ html, body {
     font-size: 16px;
     font-weight: 700;
     line-height: 22px;
+    overflow: visible;
+    text-overflow: clip;
 }
 
 .cr-node.is-root .cr-node-meta {

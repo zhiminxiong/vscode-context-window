@@ -81,6 +81,23 @@ function isSpreadStyle(value) {
     return value === 'direct' || value === 'arc';
 }
 
+/** AAAA.bbbb / ns::foo / foo() → 只留最末一段标识符。 */
+function shortSymbolName(name) {
+    const ident = String(name || '').replace(/\(.*\)$/, '').trim();
+    if (!ident) {
+        return name || '';
+    }
+    const last = ident.split(/::|\./).filter(Boolean).pop();
+    return last || ident;
+}
+
+function nodeLabel(node) {
+    if (!node || node.kind !== 'symbol') {
+        return (node && node.name) || '';
+    }
+    return shortSymbolName(node.name);
+}
+
 function nodeHeight(node, rootId) {
     if (node.kind === 'more') {
         return node.compact ? 30 : MORE_H;
@@ -111,11 +128,18 @@ function measureNameWidth(text, fontSize, bold) {
 }
 
 function nodeWidth(node, rootId) {
-    if (node.id === rootId || !nameOnlyIds.has(node.id)) {
+    if (node.id === rootId) {
+        const textW = measureNameWidth(nodeLabel(node), 16, true);
+        const padX = 20;
+        const borderX = 2;
+        const slack = 8;
+        return Math.max(NODE_W, Math.ceil(textW + padX + borderX + slack));
+    }
+    if (!nameOnlyIds.has(node.id)) {
         return NODE_W;
     }
     const fontSize = 13;
-    const textW = measureNameWidth(node.name, fontSize, true);
+    const textW = measureNameWidth(nodeLabel(node), fontSize, true);
     const padX = 16;
     const borderX = 2;
     const thumb = 12;
@@ -153,6 +177,8 @@ function layout(graph, viewW, viewH) {
             orderedCenters.push(n);
         }
     }
+    const rootW = root ? nodeWidth(root, graph.rootId) : NODE_W;
+    const rootExtra = Math.max(0, rootW - NODE_W);
     let centerY = 0;
     for (const n of orderedCenters) {
         const h = nodeHeight(n, graph.rootId);
@@ -195,7 +221,7 @@ function layout(graph, viewW, viewH) {
             for (const kid of group.kids) {
                 const h = nodeHeight(kid, graph.rootId);
                 const w = nodeWidth(kid, graph.rootId);
-                const colX = hop * (NODE_W + COL_GAP);
+                const colX = hop * (NODE_W + COL_GAP) + (hop > 0 ? rootExtra : 0);
                 pos[kid.id] = {
                     x: colX,
                     y,
@@ -896,7 +922,7 @@ function render(graph) {
             head.className = 'cr-node-head';
             const name = document.createElement('div');
             name.className = 'cr-node-name';
-            name.textContent = node.name;
+            name.textContent = nodeLabel(node);
             head.appendChild(name);
             el.appendChild(head);
             const meta = document.createElement('div');
