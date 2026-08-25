@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 export const CALL_PAGE = 12;
 export const CALL_MAX_HOP = 8;
 
-export type RelationNodeKind = 'symbol' | 'more';
+export type RelationNodeKind = 'symbol' | 'more' | 'group';
 
 export interface RelationNode {
     id: string;
@@ -21,6 +21,7 @@ export interface RelationNode {
     expandable?: boolean;
     expanded?: boolean;
     expandKey?: string;
+    compact?: boolean;
 }
 
 export interface RelationEdge {
@@ -121,6 +122,11 @@ function visualId(key: string, hop: number, parentId: string): string {
 
 function fileLabel(uri: vscode.Uri): string {
     return path.basename(uri.fsPath);
+}
+
+function isLibPath(fsPath: string): boolean {
+    const p = fsPath.replace(/\\/g, '/').toLowerCase();
+    return p.endsWith('.d.ts') || p.includes('/node_modules/');
 }
 
 function toSymbolNode(
@@ -278,6 +284,15 @@ export class CallRelationModel {
         return this.buildVisible();
     }
 
+    async toggleGroup(nodeId: string): Promise<RelationGraph> {
+        if (this.expanded.has(nodeId)) {
+            this.expanded.delete(nodeId);
+            return this.buildGraph();
+        }
+        this.expanded.add(nodeId);
+        return this.buildVisible();
+    }
+
     private async buildVisible(seq?: number): Promise<RelationGraph> {
         const graph = this.buildGraph();
         await this.prefetchNextHop(graph.nodes);
@@ -348,11 +363,27 @@ export class CallRelationModel {
         const shownKey = `${parent.id}:${dir}`;
         const limit = this.shown.get(shownKey) ?? CALL_PAGE;
         const visible = kids.slice(0, limit);
+        const compact = kids.length >= 6;
+        const libByFile = new Map<string, vscode.CallHierarchyItem[]>();
         for (const child of visible) {
+            if (!isLibPath(child.uri.fsPath)) {
+                continue;
+            }
+            const file = fileLabel(child.uri);
+            const list = libByFile.get(file) || [];
+            list.push(child);
+            libByFile.set(file, list);
+        }
+        const groupedFiles = new Set(
+            [...libByFile.entries()].filter(([, list]) => list.length >= 2).map(([file]) => file)
+        );
+        const seenGroup = new Set<string>();
+        const emitChild = (child: vscode.CallHierarchyItem) => {
             const childNode = toSymbolNode(child, hop, parent.id, false);
             const opened = this.expanded.has(childNode.id);
             childNode.expanded = opened;
             childNode.expandable = Math.abs(hop) < CALL_MAX_HOP && this.canExpand(child, dir);
+            childNode.compact = compact;
             nodes.push(childNode);
             const sites = this.callSites.get(`${parent.itemKey}\0${dir}\0${childNode.itemKey}`);
             if (dir < 0) {
@@ -363,6 +394,49 @@ export class CallRelationModel {
             if (this.expanded.has(childNode.id)) {
                 this.addSide(nodes, edges, childNode, dir);
             }
+        };
+        for (const child of visible) {
+            const file = fileLabel(child.uri);
+            if (isLibPath(child.uri.fsPath) && groupedFiles.has(file)) {
+                if (seenGroup.has(file)) {
+                    continue;
+                }
+                seenGroup.add(file);
+                const bunch = libByFile.get(file) || [];
+                const groupId = `${parent.id}:lib:${dir}:${file}`;
+                const opened = this.expanded.has(groupId);
+                nodes.push({
+                    id: groupId,
+                    itemKey: '',
+                    name: file,
+                    detail: `${bunch.length} library symbols`,
+                    file,
+                    path: '',
+                    line: 0,
+                    hop,
+                    parentId: parent.id,
+                    kind: 'group',
+                    moreCount: bunch.length,
+                    expandable: true,
+                    expanded: opened,
+                    compact,
+                    expandKey: groupId
+                });
+                if (!opened) {
+                    if (dir < 0) {
+                        edges.push({ from: groupId, to: parent.id });
+                    } else {
+                        edges.push({ from: parent.id, to: groupId });
+                    }
+                }
+                if (opened) {
+                    for (const item of bunch) {
+                        emitChild(item);
+                    }
+                }
+                continue;
+            }
+            emitChild(child);
         }
         const hidden = kids.length - visible.length;
         if (hidden > 0) {
@@ -379,7 +453,8 @@ export class CallRelationModel {
                 parentId: parent.id,
                 kind: 'more',
                 moreCount: hidden,
-                expandKey: shownKey
+                expandKey: shownKey,
+                compact
             });
             if (dir < 0) {
                 edges.push({ from: moreId, to: parent.id });

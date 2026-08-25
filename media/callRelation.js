@@ -2,9 +2,11 @@
 
 const NODE_W = 168;
 const NODE_H = 52;
+const COMPACT_H = 38;
 const MORE_H = 36;
 const COL_GAP = 88;
 const ROW_GAP = 14;
+const COMPACT_GAP = 8;
 const PAD = 40;
 
 /** @type {{ postMessage: (msg: any) => void }} */
@@ -20,7 +22,14 @@ const refreshBtn = document.getElementById('cr-refresh');
 let lastGraph = null;
 
 function nodeHeight(node) {
-    return node.kind === 'more' ? MORE_H : NODE_H;
+    if (node.kind === 'more') {
+        return node.compact ? 30 : MORE_H;
+    }
+    return node.compact ? COMPACT_H : NODE_H;
+}
+
+function nodeGap(node) {
+    return node.compact ? COMPACT_GAP : ROW_GAP;
 }
 
 function layout(graph) {
@@ -55,7 +64,8 @@ function layout(graph) {
             groups.push({ parent: null, kids: col });
         }
         for (const group of groups) {
-            const block = group.kids.reduce((sum, n) => sum + nodeHeight(n) + ROW_GAP, 0) - ROW_GAP;
+            const block = group.kids.reduce((sum, n) => sum + nodeHeight(n) + nodeGap(n), 0)
+                - (group.kids.length ? nodeGap(group.kids[group.kids.length - 1]) : 0);
             const parentY = group.parent && pos[group.parent.id] ? pos[group.parent.id].y : 0;
             let y = parentY + NODE_H / 2 - block / 2;
             for (const kid of group.kids) {
@@ -64,14 +74,14 @@ function layout(graph) {
                     y,
                     h: nodeHeight(kid)
                 };
-                y += nodeHeight(kid) + ROW_GAP;
+                y += nodeHeight(kid) + nodeGap(kid);
             }
         }
         const ordered = col.filter(n => pos[n.id]).sort((a, b) => pos[a.id].y - pos[b.id].y);
         for (let i = 1; i < ordered.length; i++) {
             const prev = pos[ordered[i - 1].id];
             const cur = pos[ordered[i].id];
-            const minY = prev.y + prev.h + ROW_GAP;
+            const minY = prev.y + prev.h + nodeGap(ordered[i]);
             if (cur.y < minY) {
                 cur.y = minY;
             }
@@ -353,18 +363,44 @@ function render(graph) {
         if (node.kind === 'more') {
             el.classList.add('is-more');
         }
+        if (node.kind === 'group') {
+            el.classList.add('is-group');
+        }
+        if (node.compact) {
+            el.classList.add('is-compact');
+        }
         el.style.left = p.x + 'px';
         el.style.top = p.y + 'px';
         el.style.height = p.h + 'px';
         el.title = node.kind === 'more'
             ? 'Show more siblings'
-            : `${node.name}\n${node.path}:${node.line}`;
+            : node.kind === 'group'
+                ? `${node.name} — ${node.detail || 'library symbols'}`
+                : `${node.name}\n${node.path}:${node.line}`;
 
         if (node.kind === 'more') {
             el.textContent = node.name;
             el.addEventListener('click', ev => {
                 ev.stopPropagation();
                 vscode.postMessage({ type: 'expandMore', nodeId: node.expandKey || node.id });
+            });
+        } else if (node.kind === 'group') {
+            const head = document.createElement('div');
+            head.className = 'cr-node-head';
+            const name = document.createElement('div');
+            name.className = 'cr-node-name';
+            name.textContent = node.name;
+            head.appendChild(name);
+            el.appendChild(head);
+            const meta = document.createElement('div');
+            meta.className = 'cr-node-meta';
+            meta.textContent = node.expanded
+                ? 'Hide library symbols'
+                : `${node.moreCount || 0} library symbols`;
+            el.appendChild(meta);
+            el.addEventListener('click', ev => {
+                ev.stopPropagation();
+                vscode.postMessage({ type: 'toggleGroup', nodeId: node.id });
             });
         } else {
             const head = document.createElement('div');

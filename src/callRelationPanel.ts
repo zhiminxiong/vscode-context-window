@@ -121,6 +121,10 @@ export class CallRelationPanel {
                 this.graph = this.model.collapseHop(String(message.nodeId || ''), this.graph.nodes);
                 this.postGraph();
                 break;
+            case 'toggleGroup':
+                this.graph = await this.model.toggleGroup(String(message.nodeId || ''));
+                this.postGraph();
+                break;
             case 'openCallSite': {
                 const fromId = String(message.fromId || '');
                 const toId = String(message.toId || '');

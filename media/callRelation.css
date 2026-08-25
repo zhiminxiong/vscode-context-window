@@ -153,6 +153,25 @@ html, body {
     border-style: dashed;
 }
 
+.cr-node.is-group {
+    color: var(--vscode-descriptionForeground);
+    border-style: dashed;
+}
+
+.cr-node.is-compact {
+    min-height: 38px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.cr-node.is-compact.is-more {
+    min-height: 30px;
+}
+
+.cr-node.is-compact .cr-node-meta {
+    margin-top: 0;
+}
+
 .cr-node.has-toggle-left {
     padding-left: 16px;
 }
