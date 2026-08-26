@@ -27,6 +27,7 @@ export class CallRelationPanel {
     constructor(private readonly extensionUri: vscode.Uri) {
         this.edgeStyle = this.readEdgeStyle();
         this.updateMode = this.readUpdateMode();
+        this.model.setGraphListener((graph, seq) => this.applyGraph(graph, seq));
         this.disposables.push(
             vscode.workspace.onDidChangeConfiguration(e => {
                 if (e.affectsConfiguration('contextView.callRelation.edgeStyle')) {

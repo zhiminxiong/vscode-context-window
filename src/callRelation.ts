@@ -3,6 +3,8 @@ import * as vscode from 'vscode';
 
 export const CALL_PAGE = 12;
 export const CALL_MAX_HOP = 8;
+/** Stop remaining prefetch jobs after an incoming peek this large. */
+const CALL_HOT_PREFETCH = 200;
 
 export type RelationNodeKind = 'symbol' | 'more' | 'group';
 
@@ -204,8 +206,17 @@ export class CallRelationModel {
     private readonly keepGroups = new Set<string>();
     private root: vscode.CallHierarchyItem | undefined;
     private prevRoot: vscode.CallHierarchyItem | undefined;
+    /** Shown on the left until root incoming lands (focus from a callee). */
+    private incomingHint: vscode.CallHierarchyItem | undefined;
     private seq = 0;
     private cts = new vscode.CancellationTokenSource();
+    private readonly inflightIn = new Map<string, Promise<void>>();
+    private readonly inflightOut = new Map<string, Promise<void>>();
+    private graphListener: ((graph: RelationGraph, seq: number) => void) | undefined;
+
+    setGraphListener(listener: ((graph: RelationGraph, seq: number) => void) | undefined): void {
+        this.graphListener = listener;
+    }
 
     get generation(): number {
         return this.seq;
@@ -239,6 +250,7 @@ export class CallRelationModel {
         this.keepGroups.clear();
         this.root = undefined;
         this.prevRoot = undefined;
+        this.incomingHint = undefined;
     }
 
     remember(item: vscode.CallHierarchyItem): string {
@@ -268,40 +280,58 @@ export class CallRelationModel {
     }
 
     async loadRoot(uri: vscode.Uri, position: vscode.Position): Promise<{ graph: RelationGraph; seq: number } | undefined> {
-        this.cancel();
-        const seq = this.seq;
-        this.clearGraphState();
         const t0 = Date.now();
         const loc = `${fileLabel(uri)}:${position.line + 1}:${position.character + 1}`;
+        const maybeSame = !!(this.root
+            && this.root.uri.toString() === uri.toString()
+            && rangeContains(this.root.range, position));
+        if (!maybeSame) {
+            this.cancel();
+        }
+        const seqPrepare = this.seq;
         costLog('loadRoot begin', 0, loc);
 
         const prepared = await this.execLsp<vscode.CallHierarchyItem[]>(
-            seq,
+            seqPrepare,
             'vscode.prepareCallHierarchy',
             uri,
             position
         );
-        if (!this.isCurrent(seq)) {
+        if (!this.isCurrent(seqPrepare)) {
             costLog('loadRoot cancelled', Date.now() - t0, `${loc} after prepare`);
             return undefined;
         }
         if (!prepared?.length) {
             costLog('loadRoot empty', Date.now() - t0, loc);
-            return { graph: this.emptyGraph('No call hierarchy at this position. The language server may not support it.'), seq };
+            return { graph: this.emptyGraph('No call hierarchy at this position. The language server may not support it.'), seq: seqPrepare };
         }
 
-        const containing = prepared.find(item => rangeContains(item.range, position));
-        this.root = containing || prepared[0];
+        const next = prepared.find(item => rangeContains(item.range, position)) || prepared[0];
+        if (this.root && itemKey(this.root) === itemKey(next)) {
+            costLog('loadRoot same', Date.now() - t0, itemLabel(next));
+            return { graph: this.buildGraph(), seq: seqPrepare };
+        }
+
+        let seq = seqPrepare;
+        if (maybeSame) {
+            this.cancel();
+            seq = this.seq;
+        }
+        this.shown.clear();
+        this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.prevRoot = this.root && itemKey(this.root) !== itemKey(next) ? this.root : undefined;
+        this.incomingHint = undefined;
+        this.root = next;
         this.remember(this.root);
         const rootName = itemLabel(this.root);
         const tRoot = Date.now();
-        await Promise.all([
-            this.ensureIncoming(this.root, seq),
-            this.ensureOutgoing(this.root, seq)
-        ]);
-        costLog('root in+out', Date.now() - tRoot, rootName);
+        const incoming = this.ensureIncoming(this.root, seq);
+        await this.ensureOutgoing(this.root, seq);
+        costLog('root outgoing', Date.now() - tRoot, rootName);
         if (!this.isCurrent(seq)) {
-            costLog('loadRoot cancelled', Date.now() - t0, `${rootName} after root in+out`);
+            costLog('loadRoot cancelled', Date.now() - t0, `${rootName} after root outgoing`);
             return undefined;
         }
         const tVisible = Date.now();
@@ -310,6 +340,10 @@ export class CallRelationModel {
         if (!graph || !this.isCurrent(seq)) {
             costLog('loadRoot cancelled', Date.now() - t0, `${rootName} after buildVisible`);
             return undefined;
+        }
+        if (!this.incoming.has(itemKey(this.root))) {
+            costLog('incoming deferred', Date.now() - t0, rootName);
+            void this.paintWhenIncomingReady(seq, incoming);
         }
         costLog('loadRoot done', Date.now() - t0, rootName);
         return { graph, seq };
@@ -460,10 +494,9 @@ export class CallRelationModel {
         this.root = item;
         this.remember(item);
         this.shown.clear();
-        const warm: Promise<void>[] = [
-            this.ensureIncoming(item, seq),
-            this.ensureOutgoing(item, seq)
-        ];
+        this.incomingHint = focus.hop > 0 ? this.prevRoot : undefined;
+        const incoming = this.ensureIncoming(item, seq);
+        const warm: Promise<void>[] = [this.ensureOutgoing(item, seq)];
         for (const key of this.keepExpand) {
             const next = this.items.get(keepExpandItemKey(key));
             if (!next) {
@@ -482,6 +515,10 @@ export class CallRelationModel {
             return undefined;
         }
         const graph = await this.buildVisible(seq);
+        if (!this.incoming.has(itemKey(item))) {
+            costLog('incoming deferred', Date.now() - t0, itemLabel(item));
+            void this.paintWhenIncomingReady(seq, incoming);
+        }
         costLog('focusNode', Date.now() - t0, itemLabel(item));
         return graph;
     }
@@ -516,11 +553,30 @@ export class CallRelationModel {
         if (!this.isCurrent(seq)) {
             return undefined;
         }
-        await this.prefetchNextHop(seq, graph.nodes);
+        void this.prefetchInBackground(seq, graph.nodes);
+        return graph;
+    }
+
+    private async paintWhenIncomingReady(seq: number, incoming: Promise<void>): Promise<void> {
+        await incoming;
+        this.incomingHint = undefined;
         if (!this.isCurrent(seq)) {
-            return undefined;
+            return;
         }
-        return this.buildGraph();
+        const graph = await this.buildVisible(seq);
+        if (!graph || !this.isCurrent(seq)) {
+            return;
+        }
+        costLog('incoming ready', 0, this.root ? itemLabel(this.root) : '');
+        this.graphListener?.(graph, seq);
+    }
+
+    private async prefetchInBackground(seq: number, nodes: RelationNode[]): Promise<void> {
+        await this.prefetchNextHop(seq, nodes);
+        if (!this.isCurrent(seq)) {
+            return;
+        }
+        this.graphListener?.(this.buildGraph(), seq);
     }
 
     private async prefetchNextHop(seq: number, nodes: RelationNode[]): Promise<void> {
@@ -534,7 +590,7 @@ export class CallRelationModel {
                 continue;
             }
             const item = this.items.get(node.itemKey);
-            if (!item) {
+            if (!item || isLibPath(item.uri.fsPath)) {
                 continue;
             }
             const dir: -1 | 1 = node.hop < 0 ? -1 : 1;
@@ -567,6 +623,13 @@ export class CallRelationModel {
                 job.dir < 0 ? this.ensureIncoming(job.item, seq) : this.ensureOutgoing(job.item, seq)
             )));
             costLog('prefetch batch', Date.now() - tBatch, `${batch}/${batches} size=${Math.min(limit, pending.length - i)}`);
+            const hot = pending.slice(i, i + limit).some(job => (
+                job.dir < 0 && (this.incoming.get(itemKey(job.item))?.length ?? 0) >= CALL_HOT_PREFETCH
+            ));
+            if (hot) {
+                costLog('prefetch stop hot', Date.now() - t0, `done=${Math.min(i + limit, pending.length)}/${pending.length}`);
+                return;
+            }
         }
         costLog('prefetch total', Date.now() - t0, `jobs=${pending.length}`);
     }
@@ -636,7 +699,9 @@ export class CallRelationModel {
         if (!item) {
             return;
         }
-        const kids = dir < 0 ? this.incoming.get(parent.itemKey) : this.outgoing.get(parent.itemKey);
+        const kidsStored = dir < 0 ? this.incoming.get(parent.itemKey) : this.outgoing.get(parent.itemKey);
+        const kids = kidsStored
+            || (dir < 0 && parent.hop === 0 && this.incomingHint ? [this.incomingHint] : undefined);
         if (!kids) {
             return;
         }
@@ -797,13 +862,48 @@ export class CallRelationModel {
     }
 
     private async ensureIncoming(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
+        return this.ensureCached(this.incoming, this.inflightIn, item, seq, (key, fetchSeq) => (
+            this.fetchIncoming(item, key, fetchSeq)
+        ));
+    }
+
+    private async ensureOutgoing(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
+        return this.ensureCached(this.outgoing, this.inflightOut, item, seq, (key, fetchSeq) => (
+            this.fetchOutgoing(item, key, fetchSeq)
+        ));
+    }
+
+    private async ensureCached(
+        cache: Map<string, vscode.CallHierarchyItem[]>,
+        inflight: Map<string, Promise<void>>,
+        item: vscode.CallHierarchyItem,
+        seq: number,
+        fetch: (key: string, fetchSeq: number) => Promise<void>
+    ): Promise<void> {
         if (!this.isCurrent(seq)) {
             return;
         }
         const key = this.remember(item);
-        if (this.incoming.has(key)) {
+        if (cache.has(key)) {
             return;
         }
+        let pending = inflight.get(key);
+        if (!pending) {
+            pending = fetch(key, seq).finally(() => {
+                if (inflight.get(key) === pending) {
+                    inflight.delete(key);
+                }
+            });
+            inflight.set(key, pending);
+        }
+        await pending;
+        if (cache.has(key) || !this.isCurrent(seq)) {
+            return;
+        }
+        return this.ensureCached(cache, inflight, item, seq, fetch);
+    }
+
+    private async fetchIncoming(item: vscode.CallHierarchyItem, key: string, seq: number): Promise<void> {
         const t0 = Date.now();
         const calls = await this.execLsp<vscode.CallHierarchyIncomingCall[]>(
             seq,
@@ -832,14 +932,7 @@ export class CallRelationModel {
         costLog('incoming total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);
     }
 
-    private async ensureOutgoing(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
-        if (!this.isCurrent(seq)) {
-            return;
-        }
-        const key = this.remember(item);
-        if (this.outgoing.has(key)) {
-            return;
-        }
+    private async fetchOutgoing(item: vscode.CallHierarchyItem, key: string, seq: number): Promise<void> {
         const t0 = Date.now();
         const calls = await this.execLsp<vscode.CallHierarchyOutgoingCall[]>(
             seq,
@@ -920,31 +1013,35 @@ export class CallRelationModel {
     /** Open documents only for currently drawn edges. */
     private async fillVisibleSnippets(seq: number, graph: RelationGraph): Promise<void> {
         const t0 = Date.now();
+        const uris: string[] = [];
+        const seenUri = new Set<string>();
+        for (const edge of graph.edges) {
+            for (const site of edge.sites || []) {
+                if (site.snippet || !site.uri || seenUri.has(site.uri)) {
+                    continue;
+                }
+                seenUri.add(site.uri);
+                uris.push(site.uri);
+            }
+        }
         const docs = new Map<string, vscode.TextDocument | null>();
+        await Promise.all(uris.map(async uri => {
+            try {
+                docs.set(uri, await vscode.workspace.openTextDocument(vscode.Uri.parse(uri)));
+            } catch {
+                docs.set(uri, null);
+            }
+        }));
+        if (!this.isCurrent(seq)) {
+            return;
+        }
         let filled = 0;
         for (const edge of graph.edges) {
-            if (!this.isCurrent(seq)) {
-                return;
-            }
-            if (!edge.sites?.length) {
-                continue;
-            }
-            for (const site of edge.sites) {
+            for (const site of edge.sites || []) {
                 if (site.snippet || !site.uri) {
                     continue;
                 }
-                let doc = docs.get(site.uri);
-                if (doc === undefined) {
-                    try {
-                        doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(site.uri));
-                    } catch {
-                        doc = null;
-                    }
-                    if (!this.isCurrent(seq)) {
-                        return;
-                    }
-                    docs.set(site.uri, doc);
-                }
+                const doc = docs.get(site.uri);
                 if (doc && site.line >= 0 && site.line < doc.lineCount) {
                     site.snippet = doc.lineAt(site.line).text.replace(/\s+/g, ' ').trim();
                     filled++;
