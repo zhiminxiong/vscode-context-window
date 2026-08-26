@@ -514,11 +514,6 @@ export class CallRelationModel {
             }
             if (n.kind === 'symbol' && n.hop === 0 && n.itemKey) {
                 this.keepExpand.add(`self\0${n.itemKey}`);
-                for (const c of nodes) {
-                    if (c.parentId === n.id && c.kind === 'symbol' && c.itemKey) {
-                        this.keepExpand.add(branchKeepKey(n.itemKey, c.hop > 0 ? 1 : -1, c.itemKey));
-                    }
-                }
             }
             if (n.kind === 'group' && n.expanded && n.parentId) {
                 const parent = nodes.find(p => p.id === n.parentId);
