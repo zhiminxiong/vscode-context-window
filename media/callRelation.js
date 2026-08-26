@@ -199,6 +199,12 @@ function layout(graph, viewW, viewH) {
         if (orphans.length) {
             groups.push({ parent: null, kids: orphans });
         }
+        const prevAtHop = lastPos
+            ? Object.values(lastPos).filter(p => p.hop === hop).length
+            : 0;
+        // Keep first-child Y only when this column grew (expand / show more).
+        // On collapse the column shrinks; sticky Y would leave holes and stale arrows.
+        const columnGrew = col.length >= prevAtHop;
         let prevBottom = -Infinity;
         for (const group of groups) {
             const block = group.kids.reduce((sum, n) => sum + nodeHeight(n, graph.rootId) + nodeGap(n), 0)
@@ -207,7 +213,8 @@ function layout(graph, viewW, viewH) {
             const parentH = group.parent && pos[group.parent.id] ? pos[group.parent.id].h : NODE_H;
             const first = group.kids[0];
             const prevFirst = first && prevRoot && lastPos[first.id];
-            const sameSlot = !!(prevFirst
+            const sameSlot = !!(columnGrew
+                && prevFirst
                 && prevFirst.hop === first.hop
                 && prevFirst.parentId === first.parentId);
             let y = sameSlot

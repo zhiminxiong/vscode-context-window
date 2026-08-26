@@ -812,9 +812,10 @@ export class CallRelationModel {
             if (nodes.some(n => n.id === childNode.id)) {
                 return;
             }
-            const opened = this.expanded.has(childNode.id)
-                || this.keepExpand.has(branchKeepKey(parent.itemKey, dir, childKey))
-                || this.keepExpand.has(`self\0${childKey}`);
+            const opened = !this.collapseLock.has(childNode.id)
+                && (this.expanded.has(childNode.id)
+                    || this.keepExpand.has(branchKeepKey(parent.itemKey, dir, childKey))
+                    || this.keepExpand.has(`self\0${childKey}`));
             childNode.expanded = opened;
             childNode.expandable = Math.abs(hop) < CALL_MAX_HOP && this.canExpand(child, dir);
             childNode.compact = compact;
