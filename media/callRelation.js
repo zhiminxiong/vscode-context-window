@@ -25,6 +25,7 @@ const titleEl = document.getElementById('cr-title');
 const stage = document.getElementById('cr-stage');
 const emptyEl = document.getElementById('cr-empty');
 const pinBtn = document.getElementById('cr-pin');
+const updateBtn = document.getElementById('cr-update');
 const styleBtn = document.getElementById('cr-style');
 const zoomInBtn = document.getElementById('cr-zoom-in');
 const zoomOutBtn = document.getElementById('cr-zoom-out');
@@ -1029,6 +1030,26 @@ pinBtn?.addEventListener('click', () => {
     vscode.postMessage({ type: 'setPinned', value: next });
 });
 
+function applyUpdateMode(value) {
+    const sticky = value === 'sticky';
+    if (updateBtn) {
+        updateBtn.classList.toggle('is-on', sticky);
+        updateBtn.title = sticky
+            ? 'Update mode: Sticky — keep last graph until new results'
+            : 'Update mode: Live — empty graph when no call hierarchy';
+        updateBtn.innerHTML = (sticky
+            ? '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M10.2 1.5 9.5 2.2l.3 3.5L12 8.2V9H9v5H7V9H4V8.2l2.2-2.5.3-3.5-.7-.7L6.5 1h3.7z"/></svg>'
+            : '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 3C4.67 3 1.82 5.07 1 8c.82 2.93 3.67 5 7 5s6.18-2.07 7-5c-.82-2.93-3.67-5-7-5zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-1.5A1.5 1.5 0 1 0 8 6a1.5 1.5 0 0 0 0 3z"/></svg>')
+            + '<span>' + (sticky ? 'Sticky' : 'Live') + '</span>';
+    }
+}
+
+updateBtn?.addEventListener('click', () => {
+    const next = updateBtn.classList.contains('is-on') ? 'live' : 'sticky';
+    applyUpdateMode(next);
+    vscode.postMessage({ type: 'setUpdateMode', value: next });
+});
+
 let styleMenuDocDown = null;
 
 function closeStyleMenu() {
@@ -1166,6 +1187,14 @@ zoomLabel?.addEventListener('click', () => {
     setZoom(1);
 });
 
+function setProgress(on) {
+    const el = document.querySelector('.progress-container');
+    if (el) {
+        el.style.display = on ? 'block' : 'none';
+    }
+    document.body.classList.toggle('is-loading', !!on);
+}
+
 window.addEventListener('message', ev => {
     const msg = ev.data;
     if (!msg) {
@@ -1178,9 +1207,12 @@ window.addEventListener('message', ev => {
             pinBtn.classList.toggle('is-on', !!msg.pinned);
             pinBtn.textContent = msg.pinned ? 'Pinned' : 'Pin';
         }
+        applyUpdateMode(msg.updateMode);
         applyEdgeStyle(normalizeEdgeStyle(msg.edgeStyle));
-    } else if (msg.type === 'loading' && msg.value && titleEl) {
-        titleEl.textContent = 'Call Relation — loading…';
+    } else if (msg.type === 'beginProgress') {
+        setProgress(true);
+    } else if (msg.type === 'endProgress') {
+        setProgress(false);
     }
 });
 

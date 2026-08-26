@@ -448,6 +448,16 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    private async handleSetUpdateMode(message: any) {
+        try {
+            const mode = message?.value === 'sticky' ? 'sticky' : 'live';
+            const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+            await cfg.update('updateMode', mode, true);
+        } catch (err) {
+            console.error('[context-window] setUpdateMode failed:', err);
+        }
+    }
+
     // 持久化 Sticky Scroll 开关：右键菜单切换时由webview 发来，写入插件自身配置（覆盖跟随 VSCode 的默认行为）。
     // 写入后 onDidChangeConfiguration 回调会通过 updateContextEditorCfg 把最新有效值广播回 webview。
     private async handleSetStickyScroll(message: any) {
@@ -539,6 +549,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 lineBlameHover: contextWindowConfig.get('lineBlameHover', true),
                 // 点击符号时走哪一种 LSP 跳转。默认 Definition；底栏上拉列表可改。
                 jumpMode: normalizeJumpMode(contextWindowConfig.get('jumpMode', 'definition')),
+                updateMode: String(contextWindowConfig.get('updateMode') || 'live') === 'sticky' ? 'sticky' : 'live',
             }
         };
 
@@ -868,6 +879,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'setJumpMode':
                     await this.handleSetJumpMode(message);
+                    break;
+                case 'setUpdateMode':
+                    await this.handleSetUpdateMode(message);
                     break;
                 case 'setLineBlame':
                     await this.handleSetLineBlame(message);
@@ -1724,10 +1738,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 <button class="nav-button" id="nav-back" title="Go Back">  </button>
                 <button class="nav-button" id="nav-forward" title="Go Forward">  </button>
                 <button class="nav-jump" id="nav-jump" title="Jump to definition"></button>
-                <!-- 跳转模式：靠 margin-left:auto 停在底栏右侧、{ } 左侧。点击上拉选择。 -->
+                <div class="update-mode" id="update-mode" title="Update mode: Live">
+                    <span class="nav-mode-icon" id="update-mode-icon"></span>
+                    <span class="update-mode-label" id="update-mode-label">Live</span>
+                </div>
+                <!-- 跳转模式：停在底栏右侧、{ } 左侧。点击上拉选择。 -->
                 <div class="jump-mode" id="jump-mode" title="Jump mode: Go to Definition">
+                    <span class="nav-mode-icon" id="jump-mode-icon"></span>
                     <span class="jump-mode-label" id="jump-mode-label">Definition</span>
-                    <span class="jump-mode-caret" aria-hidden="true"></span>
                 </div>
                 <!-- 开关指示器：本会话曾开启过才显示，标识「双击选中整对括号/引号（含定界符）」是否开启，点击可切换 -->
                 <div class="si-indicator" id="si-indicator" title="Double-click selects the whole bracket/quote pair (including delimiters)">{ }</div>
@@ -1928,7 +1946,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     private updateConfiguration() {
         const config = vscode.workspace.getConfiguration('contextView');
-        this._updateMode = config.get<UpdateMode>('contextWindow.updateMode') || UpdateMode.Sticky;
+        this._updateMode = config.get<UpdateMode>('contextWindow.updateMode') === UpdateMode.Sticky
+            ? UpdateMode.Sticky
+            : UpdateMode.Live;
     }
 
     private async showDefinitionPicker(definitions: any[], editor: vscode.TextEditor, currentPosition?: vscode.Position): Promise<any> {

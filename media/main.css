@@ -721,47 +721,58 @@ body.has-jump-trail #container {
 .nav-jump:hover::before {
     opacity: 1;
 }
-/* 底栏右侧跳转模式：停在 { } 左侧，点击上拉选择。 */
+/* 底栏 Update Mode / Jump Mode：图标+文字，间距贴近 VS Code 状态栏。 */
+.update-mode,
 .jump-mode {
     display: flex;
     align-items: center;
-    gap: 5px;
-    margin-left: auto;  /* 推到导航栏右侧（{ } 之前） */
-    margin-right: 10px;
-    height: 18px;
-    padding: 0 6px;
+    gap: 3px;
+    height: 24px;
+    padding: 0 3px;
     cursor: pointer;
     user-select: none;
     flex-shrink: 0;
-    font-size: 12px;
-    font-family: var(--vscode-font-family, 'Segoe UI', system-ui, sans-serif);
-    font-weight: 400;
-    line-height: 18px;
+    font-size: 14px;
+    font-family: inherit;
+    font-weight: normal;
+    font-style: normal;
+    line-height: 24px;
     color: var(--vscode-descriptionForeground);
-    opacity: 0.72;
     white-space: nowrap;
     border-radius: 3px;
     box-sizing: border-box;
+}
+.update-mode {
+    margin-left: auto;
+    margin-right: 0;
+}
+.jump-mode {
+    margin-right: 4px;
     overflow: visible;
 }
+.update-mode:hover,
 .jump-mode:hover,
 .jump-mode.open {
-    opacity: 1;
     background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
 }
+.update-mode-label,
 .jump-mode-label {
     pointer-events: none;
-    line-height: 18px;
+    line-height: 24px;
     display: block;
 }
-.jump-mode-caret {
-    width: 0;
-    height: 0;
-    border-left: 3.5px solid transparent;
-    border-right: 3.5px solid transparent;
-    border-bottom: 4px solid currentColor; /* 向上，表示上拉 */
-    opacity: 0.7;
+.nav-mode-icon {
+    display: flex;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
     pointer-events: none;
+}
+.nav-mode-icon svg {
+    display: block;
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
 }
 .jump-mode-menu {
     position: fixed;
@@ -778,9 +789,20 @@ body.has-jump-trail #container {
     user-select: none;
 }
 .jump-mode-menu-item {
-    padding: 4px 24px 4px 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
     cursor: pointer;
     white-space: nowrap;
+}
+.jump-mode-menu-item .nav-mode-icon {
+    width: 14px;
+    height: 14px;
+}
+.jump-mode-menu-item .nav-mode-icon svg {
+    width: 14px;
+    height: 14px;
 }
 .jump-mode-menu-item:hover {
     background: var(--vscode-menu-selectionBackground, #1d8705);
@@ -839,8 +861,8 @@ body.has-jump-trail #container {
     /* 文件名固定紧贴上箭头（{ } 指示器已移到导航栏最右端，不再占用此处空间）。
        上箭头右缘约 108px，留出小间距。 */
     left: 114px;
-    /* 给右侧「跳转模式」让位，避免铺满的透明区挡住上拉按钮 */
-    right: 148px;
+    /* 给右侧「Update Mode + 跳转模式」让位，避免铺满的透明区挡住按钮 */
+    right: 232px;
     height: 24px;
     z-index: 1001;
     cursor: default;
@@ -855,7 +877,7 @@ body.has-jump-trail #container {
 }
 /* { } 指示器显示时：文件名区再让出 { } 宽度，避免挡住跳转模式和 { } */
 body.si-revealed .double-click-area {
-    right: 180px;
+    right: 264px;
 }
 body.si-revealed .jump-mode {
     margin-right: 4px;

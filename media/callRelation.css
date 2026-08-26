@@ -148,6 +148,17 @@ body.vscode-high-contrast {
     background: var(--cr-btn-on-hover);
 }
 
+#cr-update {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#cr-update svg {
+    display: block;
+    flex-shrink: 0;
+}
+
 .cr-hint {
     padding: 0 12px 8px;
     color: var(--vscode-descriptionForeground);
@@ -169,6 +180,42 @@ body.vscode-high-contrast {
 .cr-empty {
     padding: 24px 16px;
     color: var(--vscode-descriptionForeground);
+}
+
+body.is-loading .cr-empty {
+    display: none;
+}
+
+.progress-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: none;
+    height: 2px;
+    z-index: 1001;
+}
+
+.progress-bar {
+    position: relative;
+    height: 2px;
+    overflow: hidden;
+}
+
+.progress-bar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -120px;
+    width: 120px;
+    height: 100%;
+    background-color: var(--vscode-progressBar-background, #0e70c0);
+    animation: cr-progress 1.5s ease-in-out infinite;
+}
+
+@keyframes cr-progress {
+    0% { left: -120px; }
+    100% { left: 100%; }
 }
 
 .cr-zoom {

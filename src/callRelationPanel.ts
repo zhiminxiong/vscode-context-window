@@ -19,18 +19,24 @@ export class CallRelationPanel {
     private graph: RelationGraph = { rootId: '', title: '', nodes: [], edges: [] };
     private pinned = false;
     private edgeStyle: 'elbow' | 'direct' | 'arc' = 'arc';
+    private updateMode: 'live' | 'sticky' = 'live';
     private followTimer: ReturnType<typeof setTimeout> | undefined;
+    private progressDepth = 0;
     private readonly disposables: vscode.Disposable[] = [];
 
     constructor(private readonly extensionUri: vscode.Uri) {
         this.edgeStyle = this.readEdgeStyle();
+        this.updateMode = this.readUpdateMode();
         this.disposables.push(
             vscode.workspace.onDidChangeConfiguration(e => {
-                if (!e.affectsConfiguration('contextView.callRelation.edgeStyle')) {
-                    return;
+                if (e.affectsConfiguration('contextView.callRelation.edgeStyle')) {
+                    this.edgeStyle = this.readEdgeStyle();
+                    this.postState();
                 }
-                this.edgeStyle = this.readEdgeStyle();
-                this.postState();
+                if (e.affectsConfiguration('contextView.callRelation.updateMode')) {
+                    this.updateMode = this.readUpdateMode();
+                    this.postState();
+                }
             }),
             vscode.window.onDidChangeTextEditorSelection(e => {
                 if (this.pinned || !this.panel || e.selections.length === 0) {
@@ -88,6 +94,10 @@ export class CallRelationPanel {
         this.panel.iconPath = { light: iconPath, dark: iconPath };
         this.panel.webview.html = this.html(this.panel.webview);
         this.panel.onDidDispose(() => {
+            if (this.followTimer) {
+                clearTimeout(this.followTimer);
+                this.followTimer = undefined;
+            }
             this.panel = undefined;
             this.model.reset();
         });
@@ -131,12 +141,28 @@ export class CallRelationPanel {
         }
         switch (message?.type) {
             case 'ready':
-                this.postGraph();
+                this.postState();
+                if (this.progressDepth > 0) {
+                    this.panel.webview.postMessage({ type: 'beginProgress' });
+                }
+                if (this.graph.rootId || this.graph.empty) {
+                    this.postGraph();
+                }
                 break;
             case 'setPinned':
                 this.pinned = !!message.value;
                 this.postState();
                 break;
+            case 'setUpdateMode': {
+                this.updateMode = message.value === 'sticky' ? 'sticky' : 'live';
+                await vscode.workspace.getConfiguration('contextView.callRelation').update(
+                    'updateMode',
+                    this.updateMode,
+                    true
+                );
+                this.postState();
+                break;
+            }
             case 'setEdgeStyle': {
                 this.edgeStyle = this.normalizeEdgeStyle(message.value);
                 await vscode.workspace.getConfiguration('contextView.callRelation').update(
@@ -170,27 +196,40 @@ export class CallRelationPanel {
                 const nodeId = String(message.nodeId || '');
                 const current = this.graph.nodes.find(n => n.id === nodeId);
                 if (current && current.kind === 'symbol' && current.id !== this.graph.rootId) {
-                    this.graph = await this.model.focusNode(nodeId, this.graph.nodes);
-                    this.postGraph();
+                    const seq = this.model.generation;
+                    await this.withProgress(async () => {
+                        const graph = await this.model.focusNode(nodeId, this.graph.nodes);
+                        this.applyGraph(graph, seq);
+                    });
                 }
                 break;
             }
-            case 'expandMore':
-                this.graph = await this.model.expandMore(String(message.nodeId || ''));
-                this.postGraph();
+            case 'expandMore': {
+                const seq = this.model.generation;
+                const graph = await this.model.expandMore(String(message.nodeId || ''));
+                this.applyGraph(graph, seq);
                 break;
-            case 'expandHop':
-                this.graph = await this.model.expandHop(String(message.nodeId || ''), this.graph.nodes);
-                this.postGraph();
+            }
+            case 'expandHop': {
+                const seq = this.model.generation;
+                await this.withProgress(async () => {
+                    const graph = await this.model.expandHop(String(message.nodeId || ''), this.graph.nodes);
+                    this.applyGraph(graph, seq);
+                });
                 break;
+            }
             case 'collapseHop':
                 this.graph = this.model.collapseHop(String(message.nodeId || ''), this.graph.nodes);
                 this.postGraph();
                 break;
-            case 'toggleGroup':
-                this.graph = await this.model.toggleGroup(String(message.nodeId || ''), this.graph.nodes);
-                this.postGraph();
+            case 'toggleGroup': {
+                const seq = this.model.generation;
+                await this.withProgress(async () => {
+                    const graph = await this.model.toggleGroup(String(message.nodeId || ''), this.graph.nodes);
+                    this.applyGraph(graph, seq);
+                });
                 break;
+            }
             case 'openCallSite': {
                 const fromId = String(message.fromId || '');
                 const toId = String(message.toId || '');
@@ -214,11 +253,29 @@ export class CallRelationPanel {
         }
     }
 
+    private async withProgress<T>(operation: () => Promise<T>): Promise<T> {
+        if (this.progressDepth === 0) {
+            this.panel?.webview.postMessage({ type: 'beginProgress' });
+        }
+        this.progressDepth++;
+        try {
+            return await operation();
+        } finally {
+            this.progressDepth--;
+            if (this.progressDepth === 0) {
+                this.panel?.webview.postMessage({ type: 'endProgress' });
+            }
+        }
+    }
+
     private async reloadFromEditor(editor: vscode.TextEditor | undefined): Promise<void> {
         if (!this.panel) {
             return;
         }
         if (!editor || editor.document.uri.scheme !== 'file') {
+            if (this.updateMode === 'sticky' && this.graph.rootId) {
+                return;
+            }
             this.graph = {
                 rootId: '',
                 title: '',
@@ -229,13 +286,21 @@ export class CallRelationPanel {
             this.postGraph();
             return;
         }
-        this.panel.webview.postMessage({ type: 'loading', value: true });
-        this.graph = await this.model.loadRoot(editor.document.uri, editor.selection.active);
-        if (this.graph.title) {
-            this.panel.title = `Call Relation — ${this.graph.title}`;
-        } else {
-            this.panel.title = 'Call Relation';
+        await this.withProgress(async () => {
+            const loaded = await this.model.loadRoot(editor.document.uri, editor.selection.active);
+            this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+        });
+    }
+
+    private applyGraph(graph: RelationGraph | undefined, seq: number): void {
+        if (!this.panel || graph === undefined || !this.model.isCurrent(seq)) {
+            return;
         }
+        if (this.updateMode === 'sticky' && !graph.rootId && this.graph.rootId) {
+            return;
+        }
+        this.graph = graph;
+        this.panel.title = graph.title ? `Call Relation — ${graph.title}` : 'Call Relation';
         this.postGraph();
     }
 
@@ -254,11 +319,18 @@ export class CallRelationPanel {
         );
     }
 
+    private readUpdateMode(): 'live' | 'sticky' {
+        return vscode.workspace.getConfiguration('contextView.callRelation').get<string>('updateMode') === 'sticky'
+            ? 'sticky'
+            : 'live';
+    }
+
     private postState(): void {
         this.panel?.webview.postMessage({
             type: 'state',
             pinned: this.pinned,
-            edgeStyle: this.edgeStyle
+            edgeStyle: this.edgeStyle,
+            updateMode: this.updateMode
         });
     }
 
@@ -285,12 +357,16 @@ export class CallRelationPanel {
       <button type="button" id="cr-zoom-out" class="cr-btn" title="Zoom out (Ctrl+scroll)">−</button>
       <button type="button" id="cr-zoom-label" class="cr-btn cr-zoom-label" title="Reset zoom to 100%">100%</button>
       <button type="button" id="cr-zoom-in" class="cr-btn" title="Zoom in (Ctrl+scroll)">+</button>
+      <button type="button" id="cr-update" class="cr-btn" title="Update mode: Live — empty graph when no call hierarchy">Live</button>
       <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
     </div>
   </header>
   <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, thick link border = previous center, ring = selected. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
   <div class="cr-stage" id="cr-stage">
     <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
+  </div>
+  <div class="progress-container">
+    <div class="progress-bar"></div>
   </div>
   <script nonce="${n}" src="${script}"></script>
 </body>

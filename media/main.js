@@ -1012,6 +1012,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         if (typeof window.updateJumpMode === 'function') {
                                             window.updateJumpMode();
                                         }
+                                        if (typeof window.updateUpdateMode === 'function') {
+                                            window.updateUpdateMode();
+                                        }
 
                                         // 方案 B：用户自定义规则变化后，刷新可着色 scope 集合，
                                         // 使新配色的深层 scope 也能被 pickScope 选中（弹窗所见 === 编辑器所染）
