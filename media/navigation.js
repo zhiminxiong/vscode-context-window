@@ -185,6 +185,7 @@
             }
             setNavIcon(document.getElementById('update-mode-icon'), sticky ? 'sticky' : 'live');
             if (btn) {
+                btn.classList.toggle('is-sticky', sticky);
                 btn.title = sticky
                     ? 'Update mode: Sticky — keep last context until a new symbol is found'
                     : 'Update mode: Live — clear when no symbol is found at the cursor';

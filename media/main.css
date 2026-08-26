@@ -721,6 +721,16 @@ body.has-jump-trail #container {
 .nav-jump:hover::before {
     opacity: 1;
 }
+/* 右侧三个芯片共用同一 gap，避免各自 margin/padding 把两段空隙拉开、对不齐。 */
+.nav-mode-cluster {
+    margin-left: auto;
+    margin-right: 10px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 24px;
+    flex-shrink: 0;
+}
 /* 底栏 Update Mode / Jump Mode：图标+文字，间距贴近 VS Code 状态栏。 */
 .update-mode,
 .jump-mode {
@@ -728,38 +738,46 @@ body.has-jump-trail #container {
     align-items: center;
     gap: 3px;
     height: 24px;
-    padding: 0 3px;
+    padding: 0 4px;
     cursor: pointer;
     user-select: none;
     flex-shrink: 0;
-    font-size: 14px;
+    font-size: 12px;
     font-family: inherit;
     font-weight: normal;
     font-style: normal;
-    line-height: 24px;
+    line-height: 1;
     color: var(--vscode-descriptionForeground);
     white-space: nowrap;
     border-radius: 3px;
     box-sizing: border-box;
 }
 .update-mode {
-    margin-left: auto;
-    margin-right: 0;
+    margin: 0;
 }
 .jump-mode {
-    margin-right: 4px;
+    margin: 0;
     overflow: visible;
 }
 .update-mode:hover,
 .jump-mode:hover,
-.jump-mode.open {
+.jump-mode.open,
+.si-indicator:hover {
     background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
 }
 .update-mode-label,
 .jump-mode-label {
     pointer-events: none;
-    line-height: 24px;
-    display: block;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+}
+.jump-mode > .nav-mode-icon,
+.update-mode:not(.is-sticky) > .nav-mode-icon {
+    transform: none;
+}
+.update-mode.is-sticky > .nav-mode-icon {
+    transform: translateY(2px);
 }
 .nav-mode-icon {
     display: flex;
@@ -813,10 +831,13 @@ body.has-jump-trail #container {
 .si-indicator {
     display: none; /* 默认隐藏；仅当底部有文件名显示（body.ctx-has-file）时才显示 */
     position: relative; /* 供开启态右下角 ✓ 定位 */
-    margin-left: 0;
-    margin-right: 12px; /* 与窗口右边缘留出间距 */
+    margin: 0;
     align-items: center;
-    height: 100%;
+    justify-content: center;
+    height: 24px;
+    padding: 0 4px 4px;
+    border-radius: 3px;
+    box-sizing: border-box;
     cursor: pointer;
     user-select: none;
     font-size: 15px;
@@ -844,8 +865,8 @@ body.has-jump-trail #container {
 .si-indicator.enabled::after {
     content: '✓'; /* U+2713 文本型对勾，可被 color 染色，不会渲染成彩色表情方块 */
     position: absolute;
-    right: -5px;
-    bottom: 0;
+    right: 0;
+    bottom: 5px;
     font-size: 10px;
     font-weight: 900;
     line-height: 1;
@@ -862,7 +883,7 @@ body.has-jump-trail #container {
        上箭头右缘约 108px，留出小间距。 */
     left: 114px;
     /* 给右侧「Update Mode + 跳转模式」让位，避免铺满的透明区挡住按钮 */
-    right: 232px;
+    right: 210px;
     height: 24px;
     z-index: 1001;
     cursor: default;
@@ -877,10 +898,7 @@ body.has-jump-trail #container {
 }
 /* { } 指示器显示时：文件名区再让出 { } 宽度，避免挡住跳转模式和 { } */
 body.si-revealed .double-click-area {
-    right: 264px;
-}
-body.si-revealed .jump-mode {
-    margin-right: 4px;
+    right: 240px;
 }
 /* 添加文件名显示样式 */
 .filename-display {

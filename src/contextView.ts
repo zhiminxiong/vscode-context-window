@@ -1738,17 +1738,19 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 <button class="nav-button" id="nav-back" title="Go Back">  </button>
                 <button class="nav-button" id="nav-forward" title="Go Forward">  </button>
                 <button class="nav-jump" id="nav-jump" title="Jump to definition"></button>
-                <div class="update-mode" id="update-mode" title="Update mode: Live">
-                    <span class="nav-mode-icon" id="update-mode-icon"></span>
-                    <span class="update-mode-label" id="update-mode-label">Live</span>
+                <div class="nav-mode-cluster">
+                    <div class="update-mode" id="update-mode" title="Update mode: Live">
+                        <span class="nav-mode-icon" id="update-mode-icon"></span>
+                        <span class="update-mode-label" id="update-mode-label">Live</span>
+                    </div>
+                    <!-- 跳转模式：停在底栏右侧、{ } 左侧。点击上拉选择。 -->
+                    <div class="jump-mode" id="jump-mode" title="Jump mode: Go to Definition">
+                        <span class="nav-mode-icon" id="jump-mode-icon"></span>
+                        <span class="jump-mode-label" id="jump-mode-label">Definition</span>
+                    </div>
+                    <!-- 开关指示器：本会话曾开启过才显示，标识「双击选中整对括号/引号（含定界符）」是否开启，点击可切换 -->
+                    <div class="si-indicator" id="si-indicator" title="Double-click selects the whole bracket/quote pair (including delimiters)">{ }</div>
                 </div>
-                <!-- 跳转模式：停在底栏右侧、{ } 左侧。点击上拉选择。 -->
-                <div class="jump-mode" id="jump-mode" title="Jump mode: Go to Definition">
-                    <span class="nav-mode-icon" id="jump-mode-icon"></span>
-                    <span class="jump-mode-label" id="jump-mode-label">Definition</span>
-                </div>
-                <!-- 开关指示器：本会话曾开启过才显示，标识「双击选中整对括号/引号（含定界符）」是否开启，点击可切换 -->
-                <div class="si-indicator" id="si-indicator" title="Double-click selects the whole bracket/quote pair (including delimiters)">{ }</div>
             </div>
 
             <script nonce="${nonce}" src="${navigationScriptUri}">
