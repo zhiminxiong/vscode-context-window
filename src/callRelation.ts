@@ -748,24 +748,30 @@ export class CallRelationModel {
         }
         const shownKey = `${parent.id}:${dir}`;
         const limit = this.shown.get(shownKey) ?? CALL_PAGE;
-        const pinned: vscode.CallHierarchyItem[] = [];
-        const rest: vscode.CallHierarchyItem[] = [];
-        const seenPin = new Set<string>();
+        const seen = new Set<string>();
+        const unique: vscode.CallHierarchyItem[] = [];
         for (const child of kids) {
             const k = itemKey(child);
-            if (this.isPinnedChild(parent.itemKey, dir, k)) {
-                if (!seenPin.has(k)) {
-                    seenPin.add(k);
-                    pinned.push(child);
-                }
+            if (seen.has(k)) {
                 continue;
             }
-            rest.push(child);
+            seen.add(k);
+            unique.push(child);
         }
-        const page = rest.slice(0, limit);
+        const pageKeys = new Set(unique.slice(0, limit).map(child => itemKey(child)));
+        const visibleKeys = new Set(pageKeys);
+        for (const child of unique) {
+            const k = itemKey(child);
+            if (pageKeys.has(k) || !this.isPinnedChild(parent.itemKey, dir, k)) {
+                continue;
+            }
+            visibleKeys.add(k);
+        }
+        const visible = unique.filter(child => visibleKeys.has(itemKey(child)));
+        const hidden = unique.length - visible.length;
         const compact = kids.length >= 6;
         const libByFile = new Map<string, vscode.CallHierarchyItem[]>();
-        for (const child of page) {
+        for (const child of visible) {
             if (!isLibPath(child.uri.fsPath)) {
                 continue;
             }
@@ -816,10 +822,7 @@ export class CallRelationModel {
                 pendingExpand.push(childNode);
             }
         };
-        for (const child of pinned) {
-            emitChild(child);
-        }
-        for (const child of page) {
+        for (const child of visible) {
             const file = fileLabel(child.uri);
             if (isLibPath(child.uri.fsPath) && groupedFiles.has(file)) {
                 if (seenGroup.has(file)) {
@@ -876,7 +879,6 @@ export class CallRelationModel {
         for (const childNode of pendingExpand) {
             this.addSide(nodes, edges, childNode, dir);
         }
-        const hidden = rest.length - page.length;
         if (hidden > 0) {
             const moreId = `${parent.id}:more:${dir}`;
             nodes.push({
