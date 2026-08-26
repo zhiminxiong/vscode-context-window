@@ -351,6 +351,8 @@ export class CallRelationModel {
 
         const next = prepared.find(item => rangeContains(item.range, position)) || prepared[0];
         if (this.root && itemKey(this.root) === itemKey(next)) {
+            this.prevRoot = undefined;
+            this.incomingHint = undefined;
             costLog('loadRoot same', Date.now() - t0, itemLabel(next));
             return { graph: this.buildGraph(), seq: seqPrepare };
         }
@@ -365,7 +367,7 @@ export class CallRelationModel {
         this.keepExpand.clear();
         this.keepGroups.clear();
         this.collapseLock.clear();
-        this.prevRoot = this.root && itemKey(this.root) !== itemKey(next) ? this.root : undefined;
+        this.prevRoot = undefined;
         this.incomingHint = undefined;
         this.root = next;
         this.remember(this.root);
