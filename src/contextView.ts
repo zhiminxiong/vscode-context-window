@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { showPanelInNewWindow } from './auxiliaryWindow';
 import { Renderer, FileContentInfo } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent } from './grammarRegistry';
@@ -692,9 +693,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             // 如果面板已经存在，直接显示, 但会导致进入preview模式
             //this._currentPanel.reveal(vscode.ViewColumn.Beside, true);
         } else {
-            // 创建新的浮动Webview
-            this.createFloatingWebview();
+            this.createFloatingWebview(vscode.ViewColumn.Beside);
+            void this.lockPanelGroup(this._currentPanel);
         }
+    }
+
+    public async showFloatingWebviewIndependent(): Promise<void> {
+        await showPanelInNewWindow(this._currentPanel, column => this.createFloatingWebview(column));
     }
 
     private postMessageToWebview(message: any) {
@@ -819,6 +824,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'float':
                     this.showFloatingWebview();
+                    break;
+                case 'floatIndependent':
+                    void this.showFloatingWebviewIndependent();
                     break;
                 case 'revealInFileExplorer':
                     await this.handleRevealInFileExplorer(message);
@@ -1441,7 +1449,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         });
     }
 
-    private async createFloatingWebview() {
+    private createFloatingWebview(column: vscode.ViewColumn): vscode.WebviewPanel {
         let title = "Context Window";
         let curContext = this.getCurrentContent();
         if (curContext?.content && curContext.content.jmpUri) {
@@ -1458,7 +1466,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         this._currentPanel = vscode.window.createWebviewPanel(
             'FloatContextView',
             title,
-            vscode.ViewColumn.Beside,
+            column,
             {
                 enableScripts: true,
                 enableForms: true,
@@ -1468,11 +1476,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         this.resetWebviewPanel(this._currentPanel);
 
-        this._currentPanel?.webview.postMessage({
+        this._currentPanel.webview.postMessage({
             type: 'pinState',
             pinned: this._pinned
         });
-        void this.lockPanelGroup(this._currentPanel);
+        return this._currentPanel;
     }
 
     private async lockPanelGroup(panel: vscode.WebviewPanel | undefined): Promise<void> {

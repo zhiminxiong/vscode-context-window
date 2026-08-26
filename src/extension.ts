@@ -54,6 +54,11 @@ export function activate(context: vscode.ExtensionContext) {
         }));
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('vscode-context-window.floatIndependent', () => {
+            void provider.showFloatingWebviewIndependent();
+        }));
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('contextView.callRelation.show', () => {
             callRelation.show();
         }));

@@ -83,6 +83,10 @@
         "title": "Display the floating Context Window"
       },
       {
+        "command": "vscode-context-window.floatIndependent",
+        "title": "Display the floating Context Window (Independent Window)"
+      },
+      {
         "command": "vscode-context-window.navigateUri",
         "title": "Navigate to the uri and line",
         "category": "Context View"

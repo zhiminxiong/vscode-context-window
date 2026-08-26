@@ -311,6 +311,10 @@
                 action: () => window.vscode.postMessage({ type: 'float' })
             },
             {
+                label: 'Float (Independent Window)',
+                action: () => window.vscode.postMessage({ type: 'floatIndependent' })
+            },
+            {
                 label: 'Pick Token Style',
                 checked: window.pickTokenStyle,
                 action: () => window.postMessage({ type: 'PickTokenStyle' })

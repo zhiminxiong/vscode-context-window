@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { showPanelInNewWindow } from './auxiliaryWindow';
 import { callSiteIdentRange, CallRelationModel, RelationGraph } from './callRelation';
 
 export const CALL_RELATION_VIEW_TYPE = 'contextView.callRelation';
@@ -65,63 +66,8 @@ export class CallRelationPanel {
 
     async showInNewWindow(): Promise<void> {
         const editor = vscode.window.activeTextEditor;
-        if (!this.panel && this.isVisualStudioCode()) {
-            try {
-                await vscode.commands.executeCommand('workbench.action.newEmptyEditorWindow');
-                this.ensurePanel(vscode.ViewColumn.Active);
-                await this.lockIfPanelActive();
-                await this.reloadFromEditor(editor);
-                return;
-            } catch {
-                // Fall through to the move-out path.
-            }
-        }
-        const panel = this.ensurePanel(vscode.ViewColumn.Beside);
-        panel.reveal(undefined, false);
-        try {
-            await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
-        } catch {
-            // Older VS Code / Cursor builds may not have auxiliary windows.
-        }
-        await this.lockIfPanelActive();
+        await showPanelInNewWindow(this.panel, column => this.ensurePanel(column));
         await this.reloadFromEditor(editor);
-    }
-
-    private isVisualStudioCode(): boolean {
-        return /^visual studio code/i.test(vscode.env.appName || '');
-    }
-
-    private async lockIfPanelActive(): Promise<void> {
-        if (!this.panel) {
-            return;
-        }
-        this.panel.reveal(undefined, false);
-        if (!this.panel.active) {
-            await new Promise<void>(resolve => {
-                if (!this.panel) {
-                    resolve();
-                    return;
-                }
-                const sub = this.panel.onDidChangeViewState(() => {
-                    if (this.panel?.active) {
-                        sub.dispose();
-                        resolve();
-                    }
-                });
-                setTimeout(() => {
-                    sub.dispose();
-                    resolve();
-                }, 400);
-            });
-        }
-        if (!this.panel?.active) {
-            return;
-        }
-        try {
-            await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
-        } catch {
-            // Older builds may not have editor-group lock.
-        }
     }
 
     private ensurePanel(column: vscode.ViewColumn = vscode.ViewColumn.Beside): vscode.WebviewPanel {
