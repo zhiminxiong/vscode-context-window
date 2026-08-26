@@ -4,26 +4,38 @@ export function isVisualStudioCode(): boolean {
     return /^visual studio code/i.test(vscode.env.appName || '');
 }
 
-export async function lockIfPanelActive(panel: vscode.WebviewPanel | undefined): Promise<void> {
-    if (!panel) {
-        return;
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function waitForPanelActive(panel: vscode.WebviewPanel, timeoutMs: number): Promise<boolean> {
+    if (panel.active) {
+        return Promise.resolve(true);
     }
-    panel.reveal(undefined, false);
-    if (!panel.active) {
-        await new Promise<void>(resolve => {
-            const sub = panel.onDidChangeViewState(() => {
-                if (panel.active) {
-                    sub.dispose();
-                    resolve();
-                }
-            });
-            setTimeout(() => {
-                sub.dispose();
-                resolve();
-            }, 400);
+    return new Promise(resolve => {
+        const done = (ok: boolean) => {
+            sub.dispose();
+            clearTimeout(timer);
+            resolve(ok);
+        };
+        const sub = panel.onDidChangeViewState(() => {
+            if (panel.active) {
+                done(true);
+            }
         });
-    }
-    if (!panel.active) {
+        const timer = setTimeout(() => done(panel.active), timeoutMs);
+    });
+}
+
+function isActiveGroupLocked(): boolean {
+    const groups = (vscode.window as unknown as {
+        tabGroups?: { activeTabGroup?: { isLocked: boolean } };
+    }).tabGroups;
+    return !!groups?.activeTabGroup?.isLocked;
+}
+
+async function lockActiveGroupIfUnlocked(): Promise<void> {
+    if (isActiveGroupLocked()) {
         return;
     }
     try {
@@ -31,6 +43,21 @@ export async function lockIfPanelActive(panel: vscode.WebviewPanel | undefined):
     } catch {
         // Older builds may not have editor-group lock.
     }
+}
+
+export async function lockIfPanelActive(panel: vscode.WebviewPanel | undefined): Promise<void> {
+    if (!panel) {
+        return;
+    }
+    // reveal() after a move can steal focus back to the main window on Cursor.
+    if (!panel.active) {
+        panel.reveal(undefined, false);
+        await waitForPanelActive(panel, isVisualStudioCode() ? 400 : 1000);
+    }
+    if (!panel.active) {
+        return;
+    }
+    await lockActiveGroupIfUnlocked();
 }
 
 /**
@@ -54,10 +81,28 @@ export async function showPanelInNewWindow(
     }
     const existing = panel ?? create(vscode.ViewColumn.Beside);
     existing.reveal(undefined, false);
+    const columnBefore = existing.viewColumn;
     try {
         await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
     } catch {
         // Older VS Code / Cursor builds may not have auxiliary windows.
+    }
+    if (!isVisualStudioCode()) {
+        if (existing.viewColumn === columnBefore) {
+            await delay(300);
+        }
+        // Lock the new window while it still has focus. Calling reveal() first
+        // can send focus back to the main window on Cursor.
+        if (existing.active) {
+            await lockActiveGroupIfUnlocked();
+            return existing;
+        }
+        existing.reveal(undefined, false);
+        await waitForPanelActive(existing, 1000);
+        if (existing.active) {
+            await lockActiveGroupIfUnlocked();
+            return existing;
+        }
     }
     await lockIfPanelActive(existing);
     return existing;
