@@ -59,6 +59,11 @@ export function activate(context: vscode.ExtensionContext) {
         }));
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('contextView.callRelation.showIndependent', () => {
+            void callRelation.showInNewWindow();
+        }));
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('vscode-context-window.navigateUri', async (uri?: string, range?: { start: { line: number; character: number }; end: { line: number; character: number } }, token?: string, recordTrail: boolean = true) => {
             // 如果没有提供参数，则显示输入框
             if (!uri || !range) {

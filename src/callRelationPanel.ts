@@ -59,8 +59,63 @@ export class CallRelationPanel {
     }
 
     show(): void {
+        this.ensurePanel();
+        void this.afterOpen(vscode.window.activeTextEditor);
+    }
+
+    async showInNewWindow(): Promise<void> {
+        const editor = vscode.window.activeTextEditor;
+        this.ensurePanel();
+        if (!this.panel) {
+            return;
+        }
+        this.panel.reveal(this.panel.viewColumn ?? vscode.ViewColumn.Beside, false);
+        try {
+            await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+        } catch {
+            // Older VS Code / Cursor builds may not have auxiliary windows.
+        }
+        // Lock only if this panel is the active editor (the new window).
+        // afterOpen → lockPanelGroup uses reveal(Beside) and would lock the main window.
+        await this.lockIfPanelActive();
+        await this.reloadFromEditor(editor);
+    }
+
+    private async lockIfPanelActive(): Promise<void> {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.reveal(undefined, false);
+        if (!this.panel.active) {
+            await new Promise<void>(resolve => {
+                if (!this.panel) {
+                    resolve();
+                    return;
+                }
+                const sub = this.panel.onDidChangeViewState(() => {
+                    if (this.panel?.active) {
+                        sub.dispose();
+                        resolve();
+                    }
+                });
+                setTimeout(() => {
+                    sub.dispose();
+                    resolve();
+                }, 400);
+            });
+        }
+        if (!this.panel?.active) {
+            return;
+        }
+        try {
+            await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+        } catch {
+            // Older builds may not have editor-group lock.
+        }
+    }
+
+    private ensurePanel(): void {
         if (this.panel) {
-            void this.afterOpen(vscode.window.activeTextEditor);
             return;
         }
         this.panel = vscode.window.createWebviewPanel(
@@ -83,7 +138,6 @@ export class CallRelationPanel {
         this.panel.webview.onDidReceiveMessage(message => {
             void this.onMessage(message);
         });
-        void this.afterOpen(vscode.window.activeTextEditor);
     }
 
     private async afterOpen(editor: vscode.TextEditor | undefined): Promise<void> {
@@ -96,6 +150,9 @@ export class CallRelationPanel {
             return;
         }
         this.panel.reveal(this.panel.viewColumn ?? vscode.ViewColumn.Beside, false);
+        if (!this.panel.active) {
+            return;
+        }
         const groups = (vscode.window as unknown as {
             tabGroups?: { all: { viewColumn?: vscode.ViewColumn; isLocked: boolean }[] };
         }).tabGroups;
