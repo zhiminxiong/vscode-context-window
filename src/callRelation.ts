@@ -846,6 +846,8 @@ export class CallRelationModel {
                 pendingExpand.push(childNode);
             }
         };
+        type EmitSlot = { sort: string; child?: vscode.CallHierarchyItem; file?: string };
+        const slots: EmitSlot[] = [];
         for (const child of visible) {
             const file = fileLabel(child.uri);
             if (isLibPath(child.uri.fsPath) && groupedFiles.has(file)) {
@@ -853,52 +855,63 @@ export class CallRelationModel {
                     continue;
                 }
                 seenGroup.add(file);
-                const bunch = (libByFile.get(file) || []).filter(item => {
-                    const k = itemKey(item);
-                    return k !== rootKey;
-                }).sort(compareItems);
-                if (bunch.length < 2) {
-                    for (const item of bunch) {
-                        emitChild(item);
-                    }
-                    continue;
-                }
-                const groupId = `${parent.id}:lib:${dir}:${file}`;
-                const opened = this.expanded.has(groupId)
-                    || this.keepGroups.has(`${parent.itemKey}:${dir}:${file}`);
-                nodes.push({
-                    id: groupId,
-                    itemKey: '',
-                    name: file,
-                    detail: `${bunch.length} library symbols`,
-                    file,
-                    path: '',
-                    line: 0,
-                    hop,
-                    parentId: parent.id,
-                    kind: 'group',
-                    moreCount: bunch.length,
-                    expandable: true,
-                    expanded: opened,
-                    compact,
-                    expandKey: groupId
-                });
-                if (!opened) {
-                    if (dir < 0) {
-                        edges.push({ from: groupId, to: parent.id });
-                    } else {
-                        edges.push({ from: parent.id, to: groupId });
-                    }
-                }
-                if (opened) {
-                    this.expanded.add(groupId);
-                    for (const item of bunch) {
-                        emitChild(item);
-                    }
+                slots.push({ sort: file, file });
+                continue;
+            }
+            slots.push({ sort: sortName(child), child });
+        }
+        slots.sort((a, b) => a.sort.localeCompare(b.sort, undefined, { sensitivity: 'base' }));
+        for (const slot of slots) {
+            if (!slot.file) {
+                if (slot.child) {
+                    emitChild(slot.child);
                 }
                 continue;
             }
-            emitChild(child);
+            const file = slot.file;
+            const bunch = (libByFile.get(file) || []).filter(item => {
+                const k = itemKey(item);
+                return k !== rootKey;
+            }).sort(compareItems);
+            if (bunch.length < 2) {
+                for (const item of bunch) {
+                    emitChild(item);
+                }
+                continue;
+            }
+            const groupId = `${parent.id}:lib:${dir}:${file}`;
+            const opened = this.expanded.has(groupId)
+                || this.keepGroups.has(`${parent.itemKey}:${dir}:${file}`);
+            nodes.push({
+                id: groupId,
+                itemKey: '',
+                name: file,
+                detail: `${bunch.length} library symbols`,
+                file,
+                path: '',
+                line: 0,
+                hop,
+                parentId: parent.id,
+                kind: 'group',
+                moreCount: bunch.length,
+                expandable: true,
+                expanded: opened,
+                compact,
+                expandKey: groupId
+            });
+            if (!opened) {
+                if (dir < 0) {
+                    edges.push({ from: groupId, to: parent.id });
+                } else {
+                    edges.push({ from: parent.id, to: groupId });
+                }
+            }
+            if (opened) {
+                this.expanded.add(groupId);
+                for (const item of bunch) {
+                    emitChild(item);
+                }
+            }
         }
         for (const childNode of pendingExpand) {
             this.addSide(nodes, edges, childNode, dir);
