@@ -4,6 +4,16 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.0.9] 2026.08.26
+
+#### Added
+
+- Jump trail at the top of the Context Window: shows the definition hop chain, with a configurable item limit and a right-click **Copy Call Chain** command.
+- Git line blame: after clicking a line number or the empty end of a line, show a trailing git summary; hold Alt to open a hover card (author, time, message, and changes). Can be toggled from the right-click menu.
+- Jump mode pull-up in the Context footer: **Definition** (default), **Type Definition**, **Implementation**, and **References**. References open in the Context panel instead of the main editor.
+- Call Relation window: call hierarchy graph with expand/collapse, Elbow / Direct / Arc connectors (default Arc, chosen from a dropdown), zoom, pan, and Pin.
+- Open Context and Call Relation in an independent floating window.
+
 ## [1.0.8] 2026.08.13
 
 #### Added
