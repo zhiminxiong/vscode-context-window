@@ -283,6 +283,46 @@ function nodeById(graph, id) {
     return graph.nodes.find(n => n.id === id);
 }
 
+function drawGroupFrames(canvas, graph, pos) {
+    const pad = 10;
+    for (const group of graph.nodes) {
+        if (group.kind !== 'group' || !group.expanded) {
+            continue;
+        }
+        const boxed = graph.nodes.filter(n => (
+            n.id === group.id
+            || (n.kind === 'symbol'
+                && n.parentId === group.parentId
+                && n.hop === group.hop
+                && n.file === group.file)
+        ));
+        let left = Infinity;
+        let top = Infinity;
+        let right = -Infinity;
+        let bottom = -Infinity;
+        for (const n of boxed) {
+            const p = pos[n.id];
+            if (!p) {
+                continue;
+            }
+            left = Math.min(left, p.x);
+            top = Math.min(top, p.y);
+            right = Math.max(right, p.x + nodeW(p));
+            bottom = Math.max(bottom, p.y + p.h);
+        }
+        if (!isFinite(left) || boxed.length < 2) {
+            continue;
+        }
+        const frame = document.createElement('div');
+        frame.className = 'cr-group-frame';
+        frame.style.left = (left - pad) + 'px';
+        frame.style.top = (top - pad) + 'px';
+        frame.style.width = (right - left + pad * 2) + 'px';
+        frame.style.height = (bottom - top + pad * 2) + 'px';
+        canvas.appendChild(frame);
+    }
+}
+
 function edgeHubId(graph, edge) {
     const from = nodeById(graph, edge.from);
     const to = nodeById(graph, edge.to);
@@ -999,6 +1039,7 @@ function render(graph) {
         canvas.appendChild(el);
     }
     canvas.appendChild(svg);
+    drawGroupFrames(canvas, graph, pos);
     zoomWrap.appendChild(canvas);
     stage.appendChild(zoomWrap);
     applyZoomChrome();

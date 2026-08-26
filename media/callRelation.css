@@ -419,6 +419,16 @@ body.is-loading .cr-bar {
     border-style: dashed;
 }
 
+.cr-group-frame {
+    position: absolute;
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 1;
+    border: 1px dashed var(--vscode-textLink-foreground, #3794ff);
+    border-radius: 10px;
+    opacity: 0.65;
+}
+
 .cr-node.is-compact {
     min-height: 38px;
     padding: 4px 8px;
