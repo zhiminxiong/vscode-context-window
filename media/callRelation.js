@@ -13,7 +13,7 @@ const PAD = 40;
 
 /** @type {{ rootId: string, ox: number, oy: number } | null} */
 let savedView = null;
-/** @type {Record<string, { x: number, y: number, h: number, w: number }> | null} */
+/** @type {Record<string, { x: number, y: number, h: number, w: number, hop?: number, parentId?: string }> | null} */
 let lastPos = null;
 const ARROW_LEN = 8;
 const TIP_GAP = 6;
@@ -146,7 +146,7 @@ function nodeGap(node) {
 }
 
 function layout(graph, viewW, viewH) {
-    /** @type {Record<string, { x: number, y: number, h: number, w: number }>} */
+    /** @type {Record<string, { x: number, y: number, h: number, w: number, hop?: number, parentId?: string }>} */
     const pos = {};
     const byHop = new Map();
     for (const node of graph.nodes) {
@@ -169,11 +169,12 @@ function layout(graph, viewW, viewH) {
     }
     const rootW = root ? nodeWidth(root, graph.rootId) : NODE_W;
     const rootExtra = Math.max(0, rootW - NODE_W);
+    const prevRoot = lastPos && graph.rootId ? lastPos[graph.rootId] : null;
     let centerY = 0;
     for (const n of orderedCenters) {
         const h = nodeHeight(n, graph.rootId);
         const w = nodeWidth(n, graph.rootId);
-        pos[n.id] = { x: 0, y: centerY, h, w };
+        pos[n.id] = { x: 0, y: centerY, h, w, hop: n.hop, parentId: n.parentId };
         centerY += h + ROW_GAP;
     }
 
@@ -204,7 +205,14 @@ function layout(graph, viewW, viewH) {
                 - (group.kids.length ? nodeGap(group.kids[group.kids.length - 1]) : 0);
             const parentY = group.parent && pos[group.parent.id] ? pos[group.parent.id].y : 0;
             const parentH = group.parent && pos[group.parent.id] ? pos[group.parent.id].h : NODE_H;
-            let y = parentY + parentH / 2 - block / 2;
+            const first = group.kids[0];
+            const prevFirst = first && prevRoot && lastPos[first.id];
+            const sameSlot = !!(prevFirst
+                && prevFirst.hop === first.hop
+                && prevFirst.parentId === first.parentId);
+            let y = sameSlot
+                ? lastPos[first.id].y - prevRoot.y
+                : parentY + parentH / 2 - block / 2;
             if (prevBottom > -Infinity) {
                 y = Math.max(y, prevBottom + ROW_GAP);
             }
@@ -216,7 +224,9 @@ function layout(graph, viewW, viewH) {
                     x: colX,
                     y,
                     h,
-                    w
+                    w,
+                    hop: kid.hop,
+                    parentId: kid.parentId
                 };
                 y += h + nodeGap(kid);
             }

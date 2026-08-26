@@ -210,6 +210,8 @@ export class CallRelationModel {
     private readonly expanded = new Set<string>();
     private readonly keepExpand = new Set<string>();
     private readonly keepGroups = new Set<string>();
+    /** Node ids the user collapsed; in-flight expandHop must not reopen them. */
+    private readonly collapseLock = new Set<string>();
     private root: vscode.CallHierarchyItem | undefined;
     private prevRoot: vscode.CallHierarchyItem | undefined;
     /** Shown on the left until root incoming lands (focus from a callee). */
@@ -256,6 +258,7 @@ export class CallRelationModel {
         this.expanded.clear();
         this.keepExpand.clear();
         this.keepGroups.clear();
+        this.collapseLock.clear();
         this.root = undefined;
         this.prevRoot = undefined;
         this.incomingHint = undefined;
@@ -361,6 +364,7 @@ export class CallRelationModel {
         this.expanded.clear();
         this.keepExpand.clear();
         this.keepGroups.clear();
+        this.collapseLock.clear();
         this.prevRoot = this.root && itemKey(this.root) !== itemKey(next) ? this.root : undefined;
         this.incomingHint = undefined;
         this.root = next;
@@ -406,10 +410,14 @@ export class CallRelationModel {
         }
         for (const id of drop) {
             this.expanded.delete(id);
+            this.collapseLock.add(id);
             const n = nodes.find(x => x.id === id);
             const parent = n?.parentId ? nodes.find(x => x.id === n.parentId) : undefined;
-            if (n?.itemKey && parent?.itemKey) {
-                this.keepExpand.delete(branchKeepKey(parent.itemKey, n.hop < 0 ? -1 : 1, n.itemKey));
+            if (n?.itemKey) {
+                this.keepExpand.delete(`self\0${n.itemKey}`);
+                if (parent?.itemKey) {
+                    this.keepExpand.delete(branchKeepKey(parent.itemKey, n.hop < 0 ? -1 : 1, n.itemKey));
+                }
             }
         }
         return this.buildGraph();
@@ -429,6 +437,7 @@ export class CallRelationModel {
         if (!item) {
             return { graph: this.buildGraph(), seq };
         }
+        this.collapseLock.delete(nodeId);
         if (node.hop < 0) {
             await this.ensureIncoming(item, seq);
         } else if (node.hop > 0) {
@@ -440,11 +449,11 @@ export class CallRelationModel {
             costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
             return undefined;
         }
-        this.expanded.add(nodeId);
-        const parent = node.parentId ? nodes.find(n => n.id === node.parentId) : undefined;
-        if (parent?.itemKey && node.itemKey) {
-            this.keepExpand.add(branchKeepKey(parent.itemKey, node.hop < 0 ? -1 : 1, node.itemKey));
+        if (this.collapseLock.has(nodeId)) {
+            costLog('expandHop collapsed', Date.now() - t0, `${node.name} hop=${node.hop}`);
+            return { graph: this.buildGraph(), seq };
         }
+        this.expanded.add(nodeId);
         const graph = await this.buildVisible(seq, true);
         costLog('expandHop', Date.now() - t0, `${node.name} hop=${node.hop}`);
         return graph ? { graph, seq } : undefined;
@@ -492,6 +501,7 @@ export class CallRelationModel {
         this.keepExpand.clear();
         this.keepGroups.clear();
         this.expanded.clear();
+        this.collapseLock.clear();
         for (const n of nodes) {
             if (drop.has(n.id) || n.id === focus.id) {
                 continue;
