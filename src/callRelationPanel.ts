@@ -39,6 +39,19 @@ export class CallRelationPanel {
                     this.postState();
                 }
             }),
+            vscode.workspace.onDidChangeTextDocument(e => {
+                if (e.document.uri.scheme !== 'file' || !e.contentChanges.length) {
+                    return;
+                }
+                const rootUri = this.model.rootUri();
+                this.model.invalidateUri(e.document.uri);
+                if (this.pinned || !this.panel) {
+                    return;
+                }
+                if (rootUri === e.document.uri.toString()) {
+                    void this.reloadFromEditor(vscode.window.activeTextEditor);
+                }
+            }),
             vscode.window.onDidChangeTextEditorSelection(e => {
                 if (this.pinned || !this.panel || e.selections.length === 0) {
                     return;
@@ -197,25 +210,24 @@ export class CallRelationPanel {
                 const nodeId = String(message.nodeId || '');
                 const current = this.graph.nodes.find(n => n.id === nodeId);
                 if (current && current.kind === 'symbol' && current.id !== this.graph.rootId) {
-                    const seq = this.model.generation;
+                    const nodes = this.graph.nodes;
                     await this.withProgress(async () => {
-                        const graph = await this.model.focusNode(nodeId, this.graph.nodes);
-                        this.applyGraph(graph, seq);
+                        const loaded = await this.model.focusNode(nodeId, nodes);
+                        this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
                     });
                 }
                 break;
             }
             case 'expandMore': {
-                const seq = this.model.generation;
-                const graph = await this.model.expandMore(String(message.nodeId || ''));
-                this.applyGraph(graph, seq);
+                const loaded = await this.model.expandMore(String(message.nodeId || ''));
+                this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
                 break;
             }
             case 'expandHop': {
-                const seq = this.model.generation;
+                const nodes = this.graph.nodes;
                 await this.withProgress(async () => {
-                    const graph = await this.model.expandHop(String(message.nodeId || ''), this.graph.nodes);
-                    this.applyGraph(graph, seq);
+                    const loaded = await this.model.expandHop(String(message.nodeId || ''), nodes);
+                    this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
                 });
                 break;
             }
@@ -224,10 +236,10 @@ export class CallRelationPanel {
                 this.postGraph();
                 break;
             case 'toggleGroup': {
-                const seq = this.model.generation;
+                const nodes = this.graph.nodes;
                 await this.withProgress(async () => {
-                    const graph = await this.model.toggleGroup(String(message.nodeId || ''), this.graph.nodes);
-                    this.applyGraph(graph, seq);
+                    const loaded = await this.model.toggleGroup(String(message.nodeId || ''), nodes);
+                    this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
                 });
                 break;
             }
