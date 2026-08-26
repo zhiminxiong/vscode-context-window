@@ -122,6 +122,21 @@ function itemKey(item: vscode.CallHierarchyItem): string {
     return `${item.uri.toString()}\0${sel.line}\0${sel.character}\0${item.name}`;
 }
 
+/** Display sort key: last identifier, case-insensitive (AAAA.bbbb → bbbb). */
+function sortName(item: vscode.CallHierarchyItem): string {
+    const ident = (item.name || '').replace(/\(.*\)$/, '').trim();
+    const last = ident.split(/::|\./).filter(Boolean).pop();
+    return last || ident || item.name || '';
+}
+
+function compareItems(a: vscode.CallHierarchyItem, b: vscode.CallHierarchyItem): number {
+    const byName = sortName(a).localeCompare(sortName(b), undefined, { sensitivity: 'base' });
+    if (byName !== 0) {
+        return byName;
+    }
+    return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+}
+
 function visualId(key: string, hop: number, parentId: string): string {
     return `${key}@${hop}@${parentId}`;
 }
@@ -765,6 +780,7 @@ export class CallRelationModel {
             seen.add(k);
             unique.push(child);
         }
+        unique.sort(compareItems);
         const pageKeys = new Set(unique.slice(0, limit).map(child => itemKey(child)));
         const visibleKeys = new Set(pageKeys);
         for (const child of unique) {
@@ -840,7 +856,7 @@ export class CallRelationModel {
                 const bunch = (libByFile.get(file) || []).filter(item => {
                     const k = itemKey(item);
                     return k !== rootKey;
-                });
+                }).sort(compareItems);
                 if (bunch.length < 2) {
                     for (const item of bunch) {
                         emitChild(item);
