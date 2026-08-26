@@ -165,7 +165,11 @@ function resultCount(value: unknown): number {
     return value == null ? 0 : 1;
 }
 
+const RELATION_COST = false;
 function costLog(layer: string, ms: number, detail = ''): void {
+    if (!RELATION_COST) {
+        return;
+    }
     console.log(`[relation cost] ${layer} ${ms}ms${detail ? ` ${detail}` : ''}`);
 }
 
@@ -363,7 +367,6 @@ export class CallRelationModel {
         this.remember(this.root);
         const rootName = itemLabel(this.root);
         const tRoot = Date.now();
-        const incoming = this.ensureIncoming(this.root, seq);
         await this.ensureOutgoing(this.root, seq);
         costLog('root outgoing', Date.now() - tRoot, rootName);
         if (!this.isCurrent(seq)) {
@@ -371,15 +374,11 @@ export class CallRelationModel {
             return undefined;
         }
         const tVisible = Date.now();
-        const graph = await this.buildVisible(seq);
+        const graph = await this.completeRootSides(seq, t0, rootName);
         costLog('buildVisible', Date.now() - tVisible, rootName);
         if (!graph || !this.isCurrent(seq)) {
             costLog('loadRoot cancelled', Date.now() - t0, `${rootName} after buildVisible`);
             return undefined;
-        }
-        if (!this.incoming.has(itemKey(this.root))) {
-            costLog('incoming deferred', Date.now() - t0, rootName);
-            void this.paintWhenIncomingReady(seq, incoming, itemKey(this.root));
         }
         costLog('loadRoot done', Date.now() - t0, rootName);
         return { graph, seq };
@@ -389,7 +388,7 @@ export class CallRelationModel {
         const seq = this.seq;
         const current = this.shown.get(nodeId) ?? CALL_PAGE;
         this.shown.set(nodeId, current + CALL_PAGE);
-        const graph = await this.buildVisible(seq);
+        const graph = await this.buildVisible(seq, true);
         return graph ? { graph, seq } : undefined;
     }
 
@@ -446,7 +445,7 @@ export class CallRelationModel {
         if (parent?.itemKey && node.itemKey) {
             this.keepExpand.add(branchKeepKey(parent.itemKey, node.hop < 0 ? -1 : 1, node.itemKey));
         }
-        const graph = await this.buildVisible(seq);
+        const graph = await this.buildVisible(seq, true);
         costLog('expandHop', Date.now() - t0, `${node.name} hop=${node.hop}`);
         return graph ? { graph, seq } : undefined;
     }
@@ -533,30 +532,14 @@ export class CallRelationModel {
         this.remember(item);
         this.shown.clear();
         this.incomingHint = focus.hop > 0 ? this.prevRoot : undefined;
-        const incoming = this.ensureIncoming(item, seq);
-        const warm: Promise<void>[] = [this.ensureOutgoing(item, seq)];
-        for (const key of this.keepExpand) {
-            const next = this.items.get(keepExpandItemKey(key));
-            if (!next || itemKey(next) === itemKey(item)) {
-                continue;
-            }
-            const dir = keepExpandDir(key);
-            if (dir === undefined) {
-                continue;
-            }
-            warm.push(dir < 0 ? this.ensureIncoming(next, seq) : this.ensureOutgoing(next, seq));
-        }
-        await Promise.all(warm);
-        costLog('focusNode warm', Date.now() - t0, itemLabel(item));
+        const tWarm = Date.now();
+        await this.ensureOutgoing(item, seq);
+        costLog('focusNode warm', Date.now() - tWarm, itemLabel(item));
         if (!this.isCurrent(seq)) {
             costLog('focusNode cancelled', Date.now() - t0, itemLabel(item));
             return undefined;
         }
-        const graph = await this.buildVisible(seq);
-        if (!this.incoming.has(itemKey(item))) {
-            costLog('incoming deferred', Date.now() - t0, itemLabel(item));
-            void this.paintWhenIncomingReady(seq, incoming, itemKey(item));
-        }
+        const graph = await this.completeRootSides(seq, t0, itemLabel(item));
         costLog('focusNode', Date.now() - t0, itemLabel(item));
         return graph ? { graph, seq } : undefined;
     }
@@ -579,11 +562,32 @@ export class CallRelationModel {
         if (keepKey) {
             this.keepGroups.add(keepKey);
         }
-        const graph = await this.buildVisible(seq);
+        const graph = await this.buildVisible(seq, true);
         return graph ? { graph, seq } : undefined;
     }
 
-    private async buildVisible(seq: number): Promise<RelationGraph | undefined> {
+    private async completeRootSides(seq: number, t0: number, label: string): Promise<RelationGraph | undefined> {
+        if (!this.root) {
+            return undefined;
+        }
+        const rootKey = itemKey(this.root);
+        if (!this.incoming.has(rootKey)) {
+            const early = await this.buildVisible(seq, false);
+            if (early && this.isCurrent(seq)) {
+                this.graphListener?.(early, seq);
+            }
+            costLog('incoming deferred', Date.now() - t0, label);
+            await this.ensureIncoming(this.root, seq);
+            this.incomingHint = undefined;
+            if (!this.isCurrent(seq) || !this.root || itemKey(this.root) !== rootKey) {
+                return undefined;
+            }
+            costLog('incoming ready', Date.now() - t0, label);
+        }
+        return this.buildVisible(seq, true);
+    }
+
+    private async buildVisible(seq: number, waitPrefetch = false): Promise<RelationGraph | undefined> {
         if (!this.isCurrent(seq)) {
             return undefined;
         }
@@ -597,22 +601,15 @@ export class CallRelationModel {
         if (!this.isCurrent(seq)) {
             return undefined;
         }
+        if (waitPrefetch) {
+            await this.prefetchNextHop(seq, latest.nodes);
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            return this.buildGraph();
+        }
         void this.prefetchInBackground(seq, latest.nodes);
         return latest;
-    }
-
-    private async paintWhenIncomingReady(seq: number, incoming: Promise<void>, rootKey: string): Promise<void> {
-        await incoming;
-        if (!this.isCurrent(seq) || !this.root || itemKey(this.root) !== rootKey) {
-            return;
-        }
-        this.incomingHint = undefined;
-        const graph = await this.buildVisible(seq);
-        if (!graph || !this.isCurrent(seq) || !this.root || itemKey(this.root) !== rootKey) {
-            return;
-        }
-        costLog('incoming ready', 0, itemLabel(this.root));
-        this.graphListener?.(graph, seq);
     }
 
     private async prefetchInBackground(seq: number, nodes: RelationNode[]): Promise<void> {

@@ -219,8 +219,10 @@ export class CallRelationPanel {
                 break;
             }
             case 'expandMore': {
-                const loaded = await this.model.expandMore(String(message.nodeId || ''));
-                this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+                await this.withProgress(async () => {
+                    const loaded = await this.model.expandMore(String(message.nodeId || ''));
+                    this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+                });
                 break;
             }
             case 'expandHop': {

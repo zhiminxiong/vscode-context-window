@@ -182,8 +182,15 @@ body.vscode-high-contrast {
     color: var(--vscode-descriptionForeground);
 }
 
+body.is-loading {
+    cursor: progress;
+}
 body.is-loading .cr-empty {
     display: none;
+}
+body.is-loading .cr-stage,
+body.is-loading .cr-bar {
+    pointer-events: none;
 }
 
 .progress-container {
