@@ -134,8 +134,35 @@ function keepExpandItemKey(key: string): string {
     return sep >= 0 ? key.slice(sep + 1) : key;
 }
 
+/** Outward hop for a keepExpand branch key. `self` has no side. */
+function keepExpandDir(key: string): -1 | 1 | undefined {
+    if (key.startsWith('b:-1:')) {
+        return -1;
+    }
+    if (key.startsWith('b:1:')) {
+        return 1;
+    }
+    return undefined;
+}
+
 function fileLabel(uri: vscode.Uri): string {
     return path.basename(uri.fsPath);
+}
+
+function itemLabel(item: vscode.CallHierarchyItem): string {
+    const sel = item.selectionRange?.start ?? item.range.start;
+    return `${item.name} ${fileLabel(item.uri)}:${sel.line + 1}`;
+}
+
+function resultCount(value: unknown): number {
+    if (Array.isArray(value)) {
+        return value.length;
+    }
+    return value == null ? 0 : 1;
+}
+
+function costLog(layer: string, ms: number, detail = ''): void {
+    console.log(`[relation cost] ${layer} ${ms}ms${detail ? ` ${detail}` : ''}`);
 }
 
 function isLibPath(fsPath: string): boolean {
@@ -244,6 +271,9 @@ export class CallRelationModel {
         this.cancel();
         const seq = this.seq;
         this.clearGraphState();
+        const t0 = Date.now();
+        const loc = `${fileLabel(uri)}:${position.line + 1}:${position.character + 1}`;
+        costLog('loadRoot begin', 0, loc);
 
         const prepared = await this.execLsp<vscode.CallHierarchyItem[]>(
             seq,
@@ -252,26 +282,36 @@ export class CallRelationModel {
             position
         );
         if (!this.isCurrent(seq)) {
+            costLog('loadRoot cancelled', Date.now() - t0, `${loc} after prepare`);
             return undefined;
         }
         if (!prepared?.length) {
+            costLog('loadRoot empty', Date.now() - t0, loc);
             return { graph: this.emptyGraph('No call hierarchy at this position. The language server may not support it.'), seq };
         }
 
         const containing = prepared.find(item => rangeContains(item.range, position));
         this.root = containing || prepared[0];
         this.remember(this.root);
+        const rootName = itemLabel(this.root);
+        const tRoot = Date.now();
         await Promise.all([
             this.ensureIncoming(this.root, seq),
             this.ensureOutgoing(this.root, seq)
         ]);
+        costLog('root in+out', Date.now() - tRoot, rootName);
         if (!this.isCurrent(seq)) {
+            costLog('loadRoot cancelled', Date.now() - t0, `${rootName} after root in+out`);
             return undefined;
         }
+        const tVisible = Date.now();
         const graph = await this.buildVisible(seq);
+        costLog('buildVisible', Date.now() - tVisible, rootName);
         if (!graph || !this.isCurrent(seq)) {
+            costLog('loadRoot cancelled', Date.now() - t0, `${rootName} after buildVisible`);
             return undefined;
         }
+        costLog('loadRoot done', Date.now() - t0, rootName);
         return { graph, seq };
     }
 
@@ -307,6 +347,7 @@ export class CallRelationModel {
 
     async expandHop(nodeId: string, nodes: RelationNode[]): Promise<RelationGraph | undefined> {
         const seq = this.seq;
+        const t0 = Date.now();
         const node = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
         if (!node || !this.root) {
             return this.buildGraph();
@@ -326,6 +367,7 @@ export class CallRelationModel {
             await Promise.all([this.ensureIncoming(item, seq), this.ensureOutgoing(item, seq)]);
         }
         if (!this.isCurrent(seq)) {
+            costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
             return undefined;
         }
         this.expanded.add(nodeId);
@@ -333,11 +375,14 @@ export class CallRelationModel {
         if (parent?.itemKey && node.itemKey) {
             this.keepExpand.add(branchKeepKey(parent.itemKey, node.hop < 0 ? -1 : 1, node.itemKey));
         }
-        return this.buildVisible(seq);
+        const graph = await this.buildVisible(seq);
+        costLog('expandHop', Date.now() - t0, `${node.name} hop=${node.hop}`);
+        return graph;
     }
 
     async focusNode(nodeId: string, nodes: RelationNode[]): Promise<RelationGraph | undefined> {
         const seq = this.seq;
+        const t0 = Date.now();
         const focus = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
         if (!focus) {
             return this.buildGraph();
@@ -424,13 +469,21 @@ export class CallRelationModel {
             if (!next) {
                 continue;
             }
-            warm.push(this.ensureIncoming(next, seq), this.ensureOutgoing(next, seq));
+            const dir = keepExpandDir(key);
+            if (dir === undefined) {
+                continue;
+            }
+            warm.push(dir < 0 ? this.ensureIncoming(next, seq) : this.ensureOutgoing(next, seq));
         }
         await Promise.all(warm);
+        costLog('focusNode warm', Date.now() - t0, itemLabel(item));
         if (!this.isCurrent(seq)) {
+            costLog('focusNode cancelled', Date.now() - t0, itemLabel(item));
             return undefined;
         }
-        return this.buildVisible(seq);
+        const graph = await this.buildVisible(seq);
+        costLog('focusNode', Date.now() - t0, itemLabel(item));
+        return graph;
     }
 
     async toggleGroup(nodeId: string, nodes: RelationNode[]): Promise<RelationGraph | undefined> {
@@ -459,6 +512,10 @@ export class CallRelationModel {
             return undefined;
         }
         const graph = this.buildGraph();
+        await this.fillVisibleSnippets(seq, graph);
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
         await this.prefetchNextHop(seq, graph.nodes);
         if (!this.isCurrent(seq)) {
             return undefined;
@@ -480,28 +537,38 @@ export class CallRelationModel {
             if (!item) {
                 continue;
             }
-            for (const dir of [-1, 1] as const) {
-                const mark = `${node.itemKey}:${dir}`;
-                if (seen.has(mark)) {
-                    continue;
-                }
-                const peeked = dir < 0 ? this.incoming.has(node.itemKey) : this.outgoing.has(node.itemKey);
-                if (peeked) {
-                    continue;
-                }
-                seen.add(mark);
-                pending.push({ item, dir });
+            const dir: -1 | 1 = node.hop < 0 ? -1 : 1;
+            const mark = `${node.itemKey}:${dir}`;
+            if (seen.has(mark)) {
+                continue;
             }
+            const peeked = dir < 0 ? this.incoming.has(node.itemKey) : this.outgoing.has(node.itemKey);
+            if (peeked) {
+                continue;
+            }
+            seen.add(mark);
+            pending.push({ item, dir });
+        }
+        if (!pending.length) {
+            return;
         }
         const limit = 6;
+        const t0 = Date.now();
+        const batches = Math.ceil(pending.length / limit);
+        costLog('prefetch start', 0, `jobs=${pending.length} batches=${batches}`);
         for (let i = 0; i < pending.length; i += limit) {
             if (!this.isCurrent(seq)) {
+                costLog('prefetch cancelled', Date.now() - t0, `done=${i}/${pending.length}`);
                 return;
             }
+            const batch = Math.floor(i / limit) + 1;
+            const tBatch = Date.now();
             await Promise.all(pending.slice(i, i + limit).map(job => (
                 job.dir < 0 ? this.ensureIncoming(job.item, seq) : this.ensureOutgoing(job.item, seq)
             )));
+            costLog('prefetch batch', Date.now() - tBatch, `${batch}/${batches} size=${Math.min(limit, pending.length - i)}`);
         }
+        costLog('prefetch total', Date.now() - t0, `jobs=${pending.length}`);
     }
 
     buildGraph(): RelationGraph {
@@ -552,6 +619,14 @@ export class CallRelationModel {
         return { rootId: '', title: '', nodes: [], edges: [], empty };
     }
 
+    private isPinnedChild(parentKey: string, dir: -1 | 1, childKey: string): boolean {
+        if (this.prevRoot && itemKey(this.prevRoot) === childKey) {
+            return true;
+        }
+        return this.keepExpand.has(`self\0${childKey}`)
+            || this.keepExpand.has(branchKeepKey(parentKey, dir, childKey));
+    }
+
     private addSide(nodes: RelationNode[], edges: RelationEdge[], parent: RelationNode, dir: -1 | 1): void {
         const hop = parent.hop + dir;
         if (Math.abs(hop) > CALL_MAX_HOP) {
@@ -566,11 +641,25 @@ export class CallRelationModel {
             return;
         }
         const shownKey = `${parent.id}:${dir}`;
-        const limit = parent.hop === 0 ? kids.length : (this.shown.get(shownKey) ?? CALL_PAGE);
-        const visible = kids.slice(0, limit);
+        const limit = this.shown.get(shownKey) ?? CALL_PAGE;
+        const pinned: vscode.CallHierarchyItem[] = [];
+        const rest: vscode.CallHierarchyItem[] = [];
+        const seenPin = new Set<string>();
+        for (const child of kids) {
+            const k = itemKey(child);
+            if (this.isPinnedChild(parent.itemKey, dir, k)) {
+                if (!seenPin.has(k)) {
+                    seenPin.add(k);
+                    pinned.push(child);
+                }
+                continue;
+            }
+            rest.push(child);
+        }
+        const page = rest.slice(0, limit);
         const compact = kids.length >= 6;
         const libByFile = new Map<string, vscode.CallHierarchyItem[]>();
-        for (const child of visible) {
+        for (const child of page) {
             if (!isLibPath(child.uri.fsPath)) {
                 continue;
             }
@@ -621,7 +710,10 @@ export class CallRelationModel {
                 pendingExpand.push(childNode);
             }
         };
-        for (const child of visible) {
+        for (const child of pinned) {
+            emitChild(child);
+        }
+        for (const child of page) {
             const file = fileLabel(child.uri);
             if (isLibPath(child.uri.fsPath) && groupedFiles.has(file)) {
                 if (seenGroup.has(file)) {
@@ -678,7 +770,7 @@ export class CallRelationModel {
         for (const childNode of pendingExpand) {
             this.addSide(nodes, edges, childNode, dir);
         }
-        const hidden = kids.length - visible.length;
+        const hidden = rest.length - page.length;
         if (hidden > 0) {
             const moreId = `${parent.id}:more:${dir}`;
             nodes.push({
@@ -712,20 +804,19 @@ export class CallRelationModel {
         if (this.incoming.has(key)) {
             return;
         }
+        const t0 = Date.now();
         const calls = await this.execLsp<vscode.CallHierarchyIncomingCall[]>(
             seq,
             'vscode.provideIncomingCalls',
             item
         );
         if (!this.isCurrent(seq)) {
+            costLog('incoming cancelled', Date.now() - t0, itemLabel(item));
             return;
         }
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
         for (const call of calls || []) {
-            if (!this.isCurrent(seq)) {
-                return;
-            }
             if (!call?.from) {
                 continue;
             }
@@ -735,12 +826,10 @@ export class CallRelationModel {
             }
             seen.add(k);
             items.push(this.items.get(k)!);
-            await this.rememberCallSite(seq, key, -1, call.from, call.from.uri, call.fromRanges, item.name);
-        }
-        if (!this.isCurrent(seq)) {
-            return;
+            this.rememberCallSite(key, -1, call.from, call.from.uri, call.fromRanges, item.name);
         }
         this.incoming.set(key, items);
+        costLog('incoming total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);
     }
 
     private async ensureOutgoing(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
@@ -751,20 +840,19 @@ export class CallRelationModel {
         if (this.outgoing.has(key)) {
             return;
         }
+        const t0 = Date.now();
         const calls = await this.execLsp<vscode.CallHierarchyOutgoingCall[]>(
             seq,
             'vscode.provideOutgoingCalls',
             item
         );
         if (!this.isCurrent(seq)) {
+            costLog('outgoing cancelled', Date.now() - t0, itemLabel(item));
             return;
         }
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
         for (const call of calls || []) {
-            if (!this.isCurrent(seq)) {
-                return;
-            }
             if (!call?.to) {
                 continue;
             }
@@ -774,12 +862,10 @@ export class CallRelationModel {
             }
             seen.add(k);
             items.push(this.items.get(k)!);
-            await this.rememberCallSite(seq, key, 1, call.to, item.uri, call.fromRanges, call.to.name);
-        }
-        if (!this.isCurrent(seq)) {
-            return;
+            this.rememberCallSite(key, 1, call.to, item.uri, call.fromRanges, call.to.name);
         }
         this.outgoing.set(key, items);
+        costLog('outgoing total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);
     }
 
     private sideCount(item: vscode.CallHierarchyItem, dir: -1 | 1): number {
@@ -797,29 +883,16 @@ export class CallRelationModel {
         return this.sideCount(item, dir) > 0;
     }
 
-    private async rememberCallSite(
-        seq: number,
+    private rememberCallSite(
         parentKey: string,
         dir: -1 | 1,
         child: vscode.CallHierarchyItem,
         uri: vscode.Uri,
         ranges: vscode.Range[] | undefined,
         token: string
-    ): Promise<void> {
-        if (!this.isCurrent(seq)) {
-            return;
-        }
+    ): void {
         const sites: RelationOpenTarget[] = [];
         const seen = new Set<string>();
-        let doc: vscode.TextDocument | undefined;
-        try {
-            doc = await vscode.workspace.openTextDocument(uri);
-        } catch {
-            doc = undefined;
-        }
-        if (!this.isCurrent(seq)) {
-            return;
-        }
         const file = fileLabel(uri);
         for (const range of ranges || []) {
             const start = range?.start;
@@ -831,22 +904,54 @@ export class CallRelationModel {
                 continue;
             }
             seen.add(dedupe);
-            let snippet = '';
-            if (doc && start.line >= 0 && start.line < doc.lineCount) {
-                snippet = doc.lineAt(start.line).text.replace(/\s+/g, ' ').trim();
-            }
             sites.push({
                 uri: uri.toString(),
                 line: start.line,
                 character: start.character,
                 name: token,
-                file,
-                snippet
+                file
             });
         }
-        if (sites.length && this.isCurrent(seq)) {
+        if (sites.length) {
             this.callSites.set(`${parentKey}\0${dir}\0${itemKey(child)}`, sites);
         }
+    }
+
+    /** Open documents only for currently drawn edges. */
+    private async fillVisibleSnippets(seq: number, graph: RelationGraph): Promise<void> {
+        const t0 = Date.now();
+        const docs = new Map<string, vscode.TextDocument | null>();
+        let filled = 0;
+        for (const edge of graph.edges) {
+            if (!this.isCurrent(seq)) {
+                return;
+            }
+            if (!edge.sites?.length) {
+                continue;
+            }
+            for (const site of edge.sites) {
+                if (site.snippet || !site.uri) {
+                    continue;
+                }
+                let doc = docs.get(site.uri);
+                if (doc === undefined) {
+                    try {
+                        doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(site.uri));
+                    } catch {
+                        doc = null;
+                    }
+                    if (!this.isCurrent(seq)) {
+                        return;
+                    }
+                    docs.set(site.uri, doc);
+                }
+                if (doc && site.line >= 0 && site.line < doc.lineCount) {
+                    site.snippet = doc.lineAt(site.line).text.replace(/\s+/g, ' ').trim();
+                    filled++;
+                }
+            }
+        }
+        costLog('snippets visible', Date.now() - t0, `n=${filled} files=${docs.size}`);
     }
 
     /**
@@ -858,21 +963,39 @@ export class CallRelationModel {
         if (!this.isCurrent(seq)) {
             return Promise.resolve(undefined);
         }
+        const t0 = Date.now();
+        const short = command.replace(/^vscode\./, '');
+        const target = lspTarget(command, args);
         return new Promise(resolve => {
             let done = false;
-            const finish = (value: T | undefined) => {
+            const finish = (value: T | undefined, failed = false) => {
                 if (done) {
                     return;
                 }
                 done = true;
                 sub.dispose();
-                resolve(this.isCurrent(seq) ? value : undefined);
+                const current = this.isCurrent(seq);
+                const status = failed ? 'error' : (current ? `n=${resultCount(value)}` : 'cancelled');
+                costLog(`lsp ${short}`, Date.now() - t0, `${target} ${status}`);
+                resolve(current ? value : undefined);
             };
             const sub = this.cts.token.onCancellationRequested(() => finish(undefined));
             vscode.commands.executeCommand<T>(command, ...args).then(
                 value => finish(value),
-                () => finish(undefined)
+                () => finish(undefined, true)
             );
         });
     }
+}
+
+function lspTarget(command: string, args: unknown[]): string {
+    if (command === 'vscode.prepareCallHierarchy') {
+        const uri = args[0] as vscode.Uri | undefined;
+        const pos = args[1] as vscode.Position | undefined;
+        if (uri && pos) {
+            return `${fileLabel(uri)}:${pos.line + 1}:${pos.character + 1}`;
+        }
+    }
+    const item = args[0] as vscode.CallHierarchyItem | undefined;
+    return item?.name ? itemLabel(item) : '?';
 }
