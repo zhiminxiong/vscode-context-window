@@ -284,7 +284,8 @@ function nodeById(graph, id) {
 }
 
 function drawGroupFrames(canvas, graph, pos) {
-    const pad = 10;
+    const padX = 10;
+    const stroke = 2;
     for (const group of graph.nodes) {
         if (group.kind !== 'group' || !group.expanded) {
             continue;
@@ -296,29 +297,57 @@ function drawGroupFrames(canvas, graph, pos) {
                 && n.hop === group.hop
                 && n.file === group.file)
         ));
+        const boxedIds = new Set(boxed.map(n => n.id));
         let left = Infinity;
-        let top = Infinity;
+        let boxTop = Infinity;
         let right = -Infinity;
-        let bottom = -Infinity;
+        let boxBottom = -Infinity;
         for (const n of boxed) {
             const p = pos[n.id];
             if (!p) {
                 continue;
             }
             left = Math.min(left, p.x);
-            top = Math.min(top, p.y);
+            boxTop = Math.min(boxTop, p.y);
             right = Math.max(right, p.x + nodeW(p));
-            bottom = Math.max(bottom, p.y + p.h);
+            boxBottom = Math.max(boxBottom, p.y + p.h);
         }
         if (!isFinite(left) || boxed.length < 2) {
             continue;
         }
+        let aboveBottom = -Infinity;
+        let belowTop = Infinity;
+        for (const n of graph.nodes) {
+            if (boxedIds.has(n.id) || n.hop !== group.hop) {
+                continue;
+            }
+            const p = pos[n.id];
+            if (!p) {
+                continue;
+            }
+            const nBottom = p.y + p.h;
+            const nTop = p.y;
+            if (nBottom <= boxTop && nBottom > aboveBottom) {
+                aboveBottom = nBottom;
+            }
+            if (nTop >= boxBottom && nTop < belowTop) {
+                belowTop = nTop;
+            }
+        }
+        const midTop = aboveBottom > -Infinity
+            ? (aboveBottom + boxTop) / 2
+            : boxTop - ROW_GAP / 2;
+        const midBottom = belowTop < Infinity
+            ? (boxBottom + belowTop) / 2
+            : boxBottom + ROW_GAP / 2;
+        const top = midTop - stroke / 2;
+        const bottom = midBottom + stroke / 2;
         const frame = document.createElement('div');
         frame.className = 'cr-group-frame';
-        frame.style.left = (left - pad) + 'px';
-        frame.style.top = (top - pad) + 'px';
-        frame.style.width = (right - left + pad * 2) + 'px';
-        frame.style.height = (bottom - top + pad * 2) + 'px';
+        frame.style.left = (left - padX) + 'px';
+        frame.style.top = top + 'px';
+        frame.style.width = (right - left + padX * 2) + 'px';
+        frame.style.height = (bottom - top) + 'px';
         canvas.appendChild(frame);
     }
 }
