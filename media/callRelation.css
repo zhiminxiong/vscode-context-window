@@ -356,6 +356,7 @@ body.is-loading .cr-bar {
     line-height: 22px;
     overflow: visible;
     text-overflow: clip;
+    color: inherit;
 }
 
 .cr-node.is-root .cr-node-meta {
@@ -419,6 +420,11 @@ body.is-loading .cr-bar {
     border-style: dashed;
 }
 
+.cr-node.is-group .cr-node-name {
+    font-weight: 600;
+    color: inherit;
+}
+
 .cr-group-frame {
     position: absolute;
     box-sizing: border-box;
@@ -463,7 +469,7 @@ body.is-loading .cr-bar {
 }
 
 .cr-node-name {
-    font-weight: 600;
+    font-weight: 700;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -681,6 +687,7 @@ body.is-loading .cr-bar {
 }
 .cr-node-tip-name {
     font-weight: 700;
+    color: var(--vscode-foreground);
     white-space: pre-wrap;
     word-break: break-word;
 }
