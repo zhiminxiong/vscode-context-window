@@ -602,6 +602,39 @@ body.is-loading .cr-bar {
     right: -7px;
 }
 
+.cr-node-tip {
+    position: fixed;
+    z-index: 30;
+    box-sizing: border-box;
+    max-width: min(420px, calc(100vw - 16px));
+    padding: 8px 10px;
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-editorWidget-border, #555));
+    border-radius: 6px;
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, var(--vscode-editor-background)));
+    color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+    font-size: 13px;
+    line-height: 1.35;
+    pointer-events: none;
+}
+.cr-node-tip-name {
+    font-weight: 700;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.cr-node-tip-detail {
+    margin-top: 4px;
+    color: var(--vscode-descriptionForeground);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.cr-node-tip-path {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    word-break: break-all;
+}
+
 .cr-site-menu {
     position: fixed;
     z-index: 20;

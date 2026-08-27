@@ -682,6 +682,102 @@ function hideSiteMenu() {
     }
 }
 
+const TIP_INITIAL_MS = 400;
+const TIP_RESHOW_MS = 1000;
+let nodeTipEl = null;
+let nodeTipTimer = 0;
+let nodeTipArmedUntil = 0;
+let nodeTipAnchor = null;
+let lastTipNodeId = '';
+
+function hideNodeTip(keepArmed) {
+    if (nodeTipTimer) {
+        clearTimeout(nodeTipTimer);
+        nodeTipTimer = 0;
+    }
+    if (nodeTipEl && nodeTipEl.parentNode) {
+        nodeTipEl.parentNode.removeChild(nodeTipEl);
+    }
+    nodeTipEl = null;
+    nodeTipAnchor = null;
+    lastTipNodeId = '';
+    if (keepArmed) {
+        nodeTipArmedUntil = Date.now() + TIP_RESHOW_MS;
+    }
+}
+
+function fillNodeTip(tip, node) {
+    while (tip.firstChild) {
+        tip.removeChild(tip.firstChild);
+    }
+    const name = document.createElement('div');
+    name.className = 'cr-node-tip-name';
+    name.textContent = node.name || '';
+    tip.appendChild(name);
+    if (node.detail) {
+        const detail = document.createElement('div');
+        detail.className = 'cr-node-tip-detail';
+        detail.textContent = node.detail;
+        tip.appendChild(detail);
+    }
+    if (node.path) {
+        const loc = document.createElement('div');
+        loc.className = 'cr-node-tip-path';
+        loc.textContent = `${node.path}:${node.line}`;
+        tip.appendChild(loc);
+    }
+}
+
+function placeNodeTip(tip, anchorEl) {
+    const r = anchorEl.getBoundingClientRect();
+    const tw = tip.offsetWidth;
+    const th = tip.offsetHeight;
+    const pad = 8;
+    let left = r.right + 8;
+    if (left + tw > window.innerWidth - pad) {
+        left = Math.max(pad, r.left - tw - 8);
+    }
+    let top = r.top;
+    if (top + th > window.innerHeight - pad) {
+        top = Math.max(pad, window.innerHeight - th - pad);
+    }
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+}
+
+function showNodeTip(node, anchorEl) {
+    if (nodeTipTimer) {
+        clearTimeout(nodeTipTimer);
+        nodeTipTimer = 0;
+    }
+    nodeTipAnchor = anchorEl;
+    lastTipNodeId = node.id;
+    if (!nodeTipEl) {
+        nodeTipEl = document.createElement('div');
+        nodeTipEl.className = 'cr-node-tip';
+        document.body.appendChild(nodeTipEl);
+    }
+    fillNodeTip(nodeTipEl, node);
+    placeNodeTip(nodeTipEl, anchorEl);
+    nodeTipArmedUntil = Date.now() + TIP_RESHOW_MS;
+}
+
+function scheduleNodeTip(node, el) {
+    if (nodeTipTimer) {
+        clearTimeout(nodeTipTimer);
+        nodeTipTimer = 0;
+    }
+    const wait = (nodeTipEl || Date.now() < nodeTipArmedUntil) ? 0 : TIP_INITIAL_MS;
+    if (wait <= 0) {
+        showNodeTip(node, el);
+        return;
+    }
+    nodeTipTimer = setTimeout(() => {
+        nodeTipTimer = 0;
+        showNodeTip(node, el);
+    }, wait);
+}
+
 function escapeHtml(text) {
     return String(text)
         .replace(/&/g, '&amp;')
@@ -963,21 +1059,32 @@ function render(graph) {
         if (node.compact) {
             el.classList.add('is-compact');
         }
+        el.dataset.nodeId = node.id;
         el.style.left = p.x + 'px';
         el.style.top = p.y + 'px';
         el.style.width = nodeW(p) + 'px';
         el.style.height = p.h + 'px';
         el.addEventListener('pointerenter', () => {
             setHoverPaths(edgesByNode.get(node.id) || []);
+            if (node.kind === 'symbol') {
+                scheduleNodeTip(node, el);
+            }
         });
-        el.addEventListener('pointerleave', () => {
+        el.addEventListener('pointerleave', ev => {
             setHoverPaths([]);
+            if (node.kind === 'symbol') {
+                const next = ev.relatedTarget;
+                if (next && el.contains(next)) {
+                    return;
+                }
+                hideNodeTip(true);
+            }
         });
-        el.title = node.kind === 'more'
-            ? 'Show more siblings'
-            : node.kind === 'group'
-                ? `${node.name} — ${node.detail || 'library symbols'}`
-                : `${node.name}\n${node.path}:${node.line}`;
+        if (node.kind === 'more') {
+            el.title = 'Show more siblings';
+        } else if (node.kind === 'group') {
+            el.title = `${node.name} — ${node.detail || 'library symbols'}`;
+        }
 
         if (node.kind === 'more') {
             el.textContent = node.name;
@@ -1073,6 +1180,13 @@ function render(graph) {
     stage.appendChild(zoomWrap);
     applyZoomChrome();
     applyView(graph, pos);
+    if (lastTipNodeId && canvas) {
+        const n = graph.nodes.find(x => x.id === lastTipNodeId && x.kind === 'symbol');
+        const el = [...canvas.querySelectorAll('.cr-node')].find(e => e.dataset.nodeId === lastTipNodeId);
+        if (n && el) {
+            showNodeTip(n, el);
+        }
+    }
 }
 
 function bindPan(el) {
@@ -1089,6 +1203,7 @@ function bindPan(el) {
         if (hit && hit.closest && hit.closest('.cr-node, .cr-toggle, .cr-thumb, .cr-edge-group, .cr-site-menu')) {
             return;
         }
+        hideNodeTip(true);
         dragging = true;
         sx = e.clientX;
         sy = e.clientY;
@@ -1225,6 +1340,7 @@ function applyZoomSize() {
 }
 
 function setZoom(next, origin) {
+    hideNodeTip(true);
     const old = zoom;
     const value = clampZoom(next);
     if (Math.abs(value - old) < 0.001) {
