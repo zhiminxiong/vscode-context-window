@@ -518,17 +518,53 @@ export function createLineBlame(ctx) {
         }, 80);
     }
 
+    function isLeftClick(e) {
+        if (!e || !e.event) {
+            return false;
+        }
+        if (e.event.leftButton) {
+            return true;
+        }
+        const be = e.event.browserEvent;
+        return !!(be && be.button === 0);
+    }
+
+    function isLineNumberGutter(type) {
+        return type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
+            || type === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS;
+    }
+
+    function fullLineFromSelection() {
+        const sel = editor.getSelection();
+        const model = editor.getModel();
+        if (!sel || !model || sel.startColumn !== 1) {
+            return 0;
+        }
+        const line = sel.startLineNumber;
+        if (sel.endLineNumber === line + 1 && sel.endColumn === 1) {
+            return line;
+        }
+        if (sel.endLineNumber === line && sel.endColumn >= model.getLineMaxColumn(line)) {
+            return line;
+        }
+        if (sel.endLineNumber === line && sel.endColumn >= model.getLineLength(line) + 1) {
+            return line;
+        }
+        return 0;
+    }
+
     function clickLine(e) {
-        if (!enabled || !e || !e.target || !e.event || !e.event.leftButton) {
+        if (!enabled || !isLeftClick(e)) {
             return;
         }
-        const type = e.target.type;
-        const isStayClick = type === monaco.editor.MouseTargetType.CONTENT_EMPTY
-            || type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS;
-        if (!isStayClick) {
-            return;
+        const type = e.target && e.target.type;
+        let line = 0;
+        if (type === monaco.editor.MouseTargetType.CONTENT_EMPTY || isLineNumberGutter(type)) {
+            line = (e.target.position && e.target.position.lineNumber) || 0;
+        } else if (type !== monaco.editor.MouseTargetType.CONTENT_TEXT) {
+            // selectOnLineNumbers 时 mouseup 的 type 有时不是 gutter，用整行选区兜底
+            line = fullLineFromSelection();
         }
-        const line = (e.target.position && e.target.position.lineNumber) || 0;
         if (line >= 1) {
             schedule(line);
         }
@@ -569,6 +605,7 @@ export function createLineBlame(ctx) {
         }
     }
 
+    editor.onMouseDown(clickLine);
     editor.onMouseUp(clickLine);
 
     window.addEventListener('keydown', e => {

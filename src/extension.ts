@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ContextWindowProvider } from './contextView';
 import { CallRelationPanel, CALL_RELATION_VIEW_TYPE } from './callRelationPanel';
+import { isSingleFullLineSelection, registerLineNumberSymbolSelection } from './enclosingSymbol';
 
 export function activate(context: vscode.ExtensionContext) {
 
@@ -224,6 +225,7 @@ export function activate(context: vscode.ExtensionContext) {
     registerDirectiveDecorations(context);
     registerBracketPairSelectionOnDoubleClick(context);
     registerBracketPairSelectionToggle(context);
+    registerLineNumberSymbolSelection(context);
 }
 
 /**
@@ -399,6 +401,9 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
 
             // 非空选区：只有鼠标触发才可能是「双击选词」；键盘/程序化选择一律忽略（也天然防循环）。
             if (e.kind !== vscode.TextEditorSelectionChangeKind.Mouse) { return; }
+
+            // 行号栏单击/双击会产生整行选区，落点不在括号旁；放行走行号双击选符号，避免误用过期 lastCaret 命中括号。
+            if (isSingleFullLineSelection(doc, sel)) { return; }
 
             // 本手势已判定为拖拽 → 全部放行，让 VSCode 原生拖拽选择生效，不再干预。
             if (gesture.isDrag) { return; }

@@ -73,6 +73,9 @@ export function setupEditorMouseHandlers(ctx) {
         return ev.detail || (ev.browserEvent && ev.browserEvent.detail) || 1;
     };
 
+    // 行号栏双击选容器符号：用递增 reqId 丢掉过期回包。
+    let enclosingReqId = 0;
+
     // 性能优化：mouseleave 监听只在初始化时绑定一次，避免每次移动到新单词都堆叠 once 监听器（监听器泄漏）
     const editorDomForLeave = editor.getDomNode();
     if (editorDomForLeave) {
@@ -817,6 +820,26 @@ export function setupEditorMouseHandlers(ctx) {
                 editor.focus();
                 showCursor();
             } else if (e.event.leftButton && getClickCount(e) >= 2) {
+                // 行号栏双击：选中当前行所属的最小函数/类/命名空间。
+                // 无论开关开还是关，都不再走 bottomArea 跳到主编辑器——关时保留 Monaco 点行号选一行。
+                if (e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
+                    || e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS) {
+                    const cfg = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
+                    if (cfg && cfg.contextDoubleClickSelectsSymbol === false) {
+                        return true;
+                    }
+                    const line = (e.target.position && e.target.position.lineNumber) || 0;
+                    if (line >= 1 && state.uri) {
+                        const reqId = ++enclosingReqId;
+                        vscode.postMessage({
+                            type: 'selectEnclosingSymbol',
+                            reqId,
+                            uri: state.uri,
+                            line: line - 1
+                        });
+                    }
+                    return true;
+                }
                 // 在「空白处」（非文本：CONTENT_EMPTY 等）双击 → 让 VSCode 主编辑区定位到当前上下文行。
                 // 空白处没有单词，天然不会进入上面的 jumpDefinition 分支，故无需防抖即可与单击跳转共存。
                 // 走 Monaco 的 onMouseUp（点击计数可靠），替代此前失效的原生 DOM dblclick。
@@ -829,8 +852,36 @@ export function setupEditorMouseHandlers(ctx) {
         return true;
     }
 
+    function handleSelectEnclosingSymbolResult(message) {
+        if (!message || message.reqId !== enclosingReqId) {
+            return;
+        }
+        const range = message.range;
+        if (!range) {
+            return;
+        }
+        editor.setSelection(new monaco.Range(
+            range.startLineNumber,
+            range.startColumn,
+            range.endLineNumber,
+            range.endColumn
+        ));
+        const reveal = new monaco.Range(
+            range.startLineNumber,
+            range.startColumn,
+            range.endLineNumber,
+            range.endColumn
+        );
+        if (typeof editor.revealRangeInCenterIfOutsideViewport === 'function') {
+            editor.revealRangeInCenterIfOutsideViewport(reveal);
+        } else {
+            editor.revealRangeInCenter(reveal, monaco.editor.ScrollType.Immediate);
+        }
+        hideCursor();
+    }
+
     editor.onMouseMove(handleEditorMouseMove);
     editor.onMouseUp(handleEditorMouseUp);
 
-    return { handleEditorMouseMove, handleEditorMouseUp };
+    return { handleEditorMouseMove, handleEditorMouseUp, handleSelectEnclosingSymbolResult };
 }

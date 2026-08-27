@@ -4,6 +4,7 @@ import { Renderer, FileContentInfo } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent } from './grammarRegistry';
 import { blameLine, openBlameDiff } from './lineBlame';
+import { enclosingSymbolRange } from './enclosingSymbol';
 
 enum UpdateMode {
     Live = 'live',
@@ -530,6 +531,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 directiveColor: this._readDirectiveColor(),
                 // 「双击选中整对括号/引号（含定界符）」开关：下发给 webview，用于底部导航栏 {si} 指示器的开/关显示。
                 doubleClickSelectsBracketPair: contextWindowConfig.get('doubleClickSelectsBracketPair', false),
+                // Context Window 行号栏双击选中当前行所属的最小函数/类/命名空间。默认开。
+                contextDoubleClickSelectsSymbol: contextWindowConfig.get('contextDoubleClickSelectsSymbol', true),
                 // Monaco 内置「光标处同词高亮」开关，默认关。本面板的光标是程序设置的（跳转/返回定位），
                 // 而该高亮只认光标所在的词，差一列就框到旁边的无关标识符上。
                 occurrencesHighlight: contextWindowConfig.get('occurrencesHighlight', false),
@@ -896,6 +899,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'doubleClick':
                     await this.handleDoubleClick(message);
+                    break;
+                case 'selectEnclosingSymbol':
+                    await this.handleSelectEnclosingSymbol(message);
                     break;
                 case 'definitionItemSelected':
                     this.handleDefinitionItemSelected(message, editor);
@@ -1406,6 +1412,38 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
 
         this._currentCacheKey = createCacheKey(vscode.window.activeTextEditor);
+    }
+
+    // Context Window 行号栏双击：查出当前行所属的最小函数/类/命名空间，把 range 回给 webview 设选区。
+    private async handleSelectEnclosingSymbol(message: any) {
+        const reqId = message.reqId;
+        const reply = (range?: vscode.Range) => {
+            this.postMessageToWebview({
+                type: 'selectEnclosingSymbol.result',
+                reqId,
+                range: range ? {
+                    startLineNumber: range.start.line + 1,
+                    startColumn: range.start.character + 1,
+                    endLineNumber: range.end.line + 1,
+                    endColumn: range.end.character + 1
+                } : null
+            });
+        };
+
+        const uriStr = typeof message.uri === 'string' ? message.uri : '';
+        const line = message.line;
+        if (!uriStr || typeof line !== 'number' || !Number.isInteger(line) || line < 0) {
+            reply();
+            return;
+        }
+
+        try {
+            const range = await enclosingSymbolRange(vscode.Uri.parse(uriStr), line);
+            reply(range);
+        } catch (err) {
+            console.error('[context-window] selectEnclosingSymbol failed:', err);
+            reply();
+        }
     }
 
     // 定义列表项被选中：渲染对应定义

@@ -660,29 +660,6 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                     const editorDomNode = editor.getDomNode();
                     if (editorDomNode) {
-                        editorDomNode.addEventListener('dblclick', (e) => {
-                            if (e.target && (
-                                e.target.tagName === 'TEXTAREA' && e.target.className === 'input' ||
-                                e.target.getAttribute('aria-label') === 'Find' ||
-                                e.target.getAttribute('placeholder') === 'Find' ||
-                                e.target.getAttribute('title') === 'Find'
-                            )) {
-                                return true;
-                            }
-                            //e.preventDefault();
-                            //e.stopPropagation();
-                            //console.log('[definition] DOM 级别拦截到双击事件', e.target);
-                            
-                            if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) {
-                                vscode.postMessage({
-                                    type: 'doubleClick',
-                                    location: 'bottomArea'
-                                });
-                            }
-
-                            return true;
-                        }, true); // 使用捕获阶段，确保在事件到达 Monaco 之前拦截
-
                         editorDomNode.addEventListener('contextmenu', (e) => {
                             if (e.ctrlKey || e.shiftKey || e.metaKey) {
                                 // shift+右键，手动弹出 Monaco 菜单
@@ -782,7 +759,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                     // 鼠标交互逻辑（悬停高亮 + 点击跳转/取色）已抽离到 editorMouseHandlers.js
                     // （内部持有悬停高亮状态并完成 onMouseMove / onMouseUp / mouseleave 注册）
-                    setupEditorMouseHandlers({
+                    const mouseHandlers = setupEditorMouseHandlers({
                         editor,
                         state: editorState,
                         light,
@@ -1126,6 +1103,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     break;
                                 case 'lineBlameResult':
                                     lineBlame.handleResult(message);
+                                    break;
+                                case 'selectEnclosingSymbol.result':
+                                    mouseHandlers.handleSelectEnclosingSymbolResult(message);
                                     break;
                                 case 'updateHistory':
                                     jumpTrail.render(message);
