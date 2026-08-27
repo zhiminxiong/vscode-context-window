@@ -430,6 +430,33 @@ function toggleNameOnly(node) {
     }
 }
 
+function bindControlTip(node, nodeEl, btn, label) {
+    btn.addEventListener('pointerenter', ev => {
+        ev.stopPropagation();
+        tipMoveX = ev.clientX;
+        tipMoveY = ev.clientY;
+        hideNodeTip();
+        armLabelTip(label, btn, node.hop);
+    });
+    btn.addEventListener('pointermove', ev => {
+        ev.stopPropagation();
+        onTipMove(ev, { label, el: btn, hop: node.hop });
+    });
+    btn.addEventListener('pointerleave', ev => {
+        ev.stopPropagation();
+        tipHover = null;
+        hideNodeTip();
+        const next = ev.relatedTarget;
+        if (next && nodeEl.contains(next) && !(next.closest && next.closest('.cr-thumb, .cr-toggle'))) {
+            tipMoveX = ev.clientX;
+            tipMoveY = ev.clientY;
+            if (usesNodeTip(node)) {
+                armNodeTip(node, nodeEl);
+            }
+        }
+    });
+}
+
 function addThumb(el, head, node) {
     if (lastGraph && node.id === lastGraph.rootId) {
         return;
@@ -442,12 +469,14 @@ function addThumb(el, head, node) {
     btn.type = 'button';
     btn.className = 'cr-thumb' + (names ? ' is-on' : '');
     btn.textContent = names ? '>' : '<';
-    btn.title = names ? 'Restore file and line' : 'Show name only';
-    btn.setAttribute('aria-label', btn.title);
+    const label = names ? 'Restore file and line' : 'Show name only';
+    btn.setAttribute('aria-label', label);
     btn.addEventListener('pointerdown', ev => ev.stopPropagation());
+    bindControlTip(node, el, btn, label);
     btn.addEventListener('click', ev => {
         ev.preventDefault();
         ev.stopPropagation();
+        hideNodeTip();
         toggleNameOnly(node);
     });
     head.appendChild(btn);
@@ -683,14 +712,15 @@ function hideSiteMenu() {
 }
 
 const TIP_INITIAL_MS = 400;
-const TIP_RESHOW_MS = 1000;
 let nodeTipEl = null;
 let nodeTipTimer = 0;
-let nodeTipArmedUntil = 0;
 let nodeTipAnchor = null;
 let lastTipNodeId = '';
+let tipHover = null;
+let tipMoveX = 0;
+let tipMoveY = 0;
 
-function hideNodeTip(keepArmed) {
+function hideNodeTip() {
     if (nodeTipTimer) {
         clearTimeout(nodeTipTimer);
         nodeTipTimer = 0;
@@ -701,9 +731,47 @@ function hideNodeTip(keepArmed) {
     nodeTipEl = null;
     nodeTipAnchor = null;
     lastTipNodeId = '';
-    if (keepArmed) {
-        nodeTipArmedUntil = Date.now() + TIP_RESHOW_MS;
+}
+
+function armTip(spec) {
+    if (nodeTipTimer) {
+        clearTimeout(nodeTipTimer);
     }
+    tipHover = spec;
+    nodeTipTimer = setTimeout(() => {
+        nodeTipTimer = 0;
+        if (tipHover && tipHover.el === spec.el) {
+            showTip(spec);
+        }
+    }, TIP_INITIAL_MS);
+}
+
+function armNodeTip(node, el) {
+    armTip({ node, el });
+}
+
+function armLabelTip(label, el, hop) {
+    armTip({ label, el, hop });
+}
+
+function onTipMove(ev, spec) {
+    if (ev.clientX === tipMoveX && ev.clientY === tipMoveY) {
+        return;
+    }
+    tipMoveX = ev.clientX;
+    tipMoveY = ev.clientY;
+    if (nodeTipEl) {
+        hideNodeTip();
+    }
+    armTip(spec);
+}
+
+function onNodeTipMove(ev, node, el) {
+    onTipMove(ev, { node, el });
+}
+
+function usesNodeTip(node) {
+    return !!node && (node.kind === 'symbol' || node.kind === 'group' || node.kind === 'more');
 }
 
 function fillNodeTip(tip, node) {
@@ -714,68 +782,145 @@ function fillNodeTip(tip, node) {
     name.className = 'cr-node-tip-name';
     name.textContent = node.name || '';
     tip.appendChild(name);
+    if (node.kind === 'more') {
+        const detail = document.createElement('div');
+        detail.className = 'cr-node-tip-detail';
+        const n = node.moreCount || 0;
+        detail.textContent = n
+            ? `Show ${n} more sibling${n === 1 ? '' : 's'}`
+            : 'Show more siblings';
+        tip.appendChild(detail);
+        return;
+    }
+    if (node.kind === 'group') {
+        const detail = document.createElement('div');
+        detail.className = 'cr-node-tip-detail';
+        const n = node.moreCount || 0;
+        detail.textContent = node.expanded
+            ? `Hide ${n} library symbol${n === 1 ? '' : 's'}`
+            : (node.detail || `${n} library symbols`);
+        tip.appendChild(detail);
+        return;
+    }
     if (node.detail) {
         const detail = document.createElement('div');
         detail.className = 'cr-node-tip-detail';
         detail.textContent = node.detail;
         tip.appendChild(detail);
     }
-    if (node.path) {
-        const loc = document.createElement('div');
-        loc.className = 'cr-node-tip-path';
-        loc.textContent = `${node.path}:${node.line}`;
-        tip.appendChild(loc);
+    if (node.file || node.path) {
+        const sep = document.createElement('div');
+        sep.className = 'cr-node-tip-sep';
+        tip.appendChild(sep);
+        const file = document.createElement('div');
+        file.className = 'cr-node-tip-file';
+        file.textContent = node.file
+            ? `${node.file}:${node.line}`
+            : `${node.path}:${node.line}`;
+        tip.appendChild(file);
+        if (node.path) {
+            const loc = document.createElement('div');
+            loc.className = 'cr-node-tip-path';
+            loc.textContent = node.path;
+            tip.appendChild(loc);
+        }
     }
 }
 
-function placeNodeTip(tip, anchorEl) {
+function placeNodeTip(tip, anchorEl, hop) {
     const r = anchorEl.getBoundingClientRect();
     const tw = tip.offsetWidth;
     const th = tip.offsetHeight;
     const pad = 8;
-    let left = r.right + 8;
-    if (left + tw > window.innerWidth - pad) {
-        left = Math.max(pad, r.left - tw - 8);
+    const caret = 7;
+    const gap = 6;
+    const needV = th + gap + caret;
+    const needH = tw + gap + caret;
+    const spaceAbove = r.top - pad;
+    const spaceBelow = window.innerHeight - r.bottom - pad;
+    const spaceLeft = r.left - pad;
+    const spaceRight = window.innerWidth - r.right - pad;
+    /** @type {'above' | 'below' | 'left' | 'right'} */
+    let side = 'below';
+    if (spaceAbove >= needV) {
+        side = 'above';
+    } else if (spaceBelow >= needV) {
+        side = 'below';
+    } else if (hop < 0 && spaceLeft >= needH) {
+        side = 'left';
+    } else if (hop > 0 && spaceRight >= needH) {
+        side = 'right';
+    } else if (spaceLeft >= needH) {
+        side = 'left';
+    } else if (spaceRight >= needH) {
+        side = 'right';
+    } else {
+        side = spaceAbove >= spaceBelow ? 'above' : 'below';
     }
+    let left = r.left;
     let top = r.top;
-    if (top + th > window.innerHeight - pad) {
-        top = Math.max(pad, window.innerHeight - th - pad);
+    if (side === 'above') {
+        left = r.left + r.width / 2 - tw / 2;
+        top = r.top - gap - caret - th;
+    } else if (side === 'below') {
+        left = r.left + r.width / 2 - tw / 2;
+        top = r.bottom + gap + caret;
+    } else if (side === 'left') {
+        left = r.left - gap - caret - tw;
+        top = r.top + r.height / 2 - th / 2;
+    } else {
+        left = r.right + gap + caret;
+        top = r.top + r.height / 2 - th / 2;
     }
+    left = Math.min(Math.max(pad, left), window.innerWidth - tw - pad);
+    top = Math.min(Math.max(pad, top), window.innerHeight - th - pad);
     tip.style.left = left + 'px';
     tip.style.top = top + 'px';
+    tip.classList.remove('is-above', 'is-below', 'is-left', 'is-right');
+    tip.classList.add('is-' + side);
+    if (side === 'above' || side === 'below') {
+        const x = Math.min(Math.max(14, r.left + r.width / 2 - left), tw - 14);
+        tip.style.setProperty('--cr-tip-caret', x + 'px');
+    } else {
+        const y = Math.min(Math.max(14, r.top + r.height / 2 - top), th - 14);
+        tip.style.setProperty('--cr-tip-caret', y + 'px');
+    }
 }
 
-function showNodeTip(node, anchorEl) {
+function fillLabelTip(tip, text) {
+    while (tip.firstChild) {
+        tip.removeChild(tip.firstChild);
+    }
+    const name = document.createElement('div');
+    name.className = 'cr-node-tip-label';
+    name.textContent = text;
+    tip.appendChild(name);
+}
+
+function showTip(spec) {
     if (nodeTipTimer) {
         clearTimeout(nodeTipTimer);
         nodeTipTimer = 0;
     }
-    nodeTipAnchor = anchorEl;
-    lastTipNodeId = node.id;
+    nodeTipAnchor = spec.el;
+    lastTipNodeId = spec.node ? spec.node.id : '';
     if (!nodeTipEl) {
         nodeTipEl = document.createElement('div');
         nodeTipEl.className = 'cr-node-tip';
         document.body.appendChild(nodeTipEl);
     }
-    fillNodeTip(nodeTipEl, node);
-    placeNodeTip(nodeTipEl, anchorEl);
-    nodeTipArmedUntil = Date.now() + TIP_RESHOW_MS;
+    nodeTipEl.classList.toggle('is-label', !!spec.label);
+    if (spec.label) {
+        fillLabelTip(nodeTipEl, spec.label);
+        placeNodeTip(nodeTipEl, spec.el, spec.hop);
+    } else {
+        fillNodeTip(nodeTipEl, spec.node);
+        placeNodeTip(nodeTipEl, spec.el, spec.node.hop);
+    }
 }
 
-function scheduleNodeTip(node, el) {
-    if (nodeTipTimer) {
-        clearTimeout(nodeTipTimer);
-        nodeTipTimer = 0;
-    }
-    const wait = (nodeTipEl || Date.now() < nodeTipArmedUntil) ? 0 : TIP_INITIAL_MS;
-    if (wait <= 0) {
-        showNodeTip(node, el);
-        return;
-    }
-    nodeTipTimer = setTimeout(() => {
-        nodeTipTimer = 0;
-        showNodeTip(node, el);
-    }, wait);
+function showNodeTip(node, anchorEl) {
+    showTip({ node, el: anchorEl });
 }
 
 function escapeHtml(text) {
@@ -1064,27 +1209,30 @@ function render(graph) {
         el.style.top = p.y + 'px';
         el.style.width = nodeW(p) + 'px';
         el.style.height = p.h + 'px';
-        el.addEventListener('pointerenter', () => {
+        el.addEventListener('pointerenter', ev => {
             setHoverPaths(edgesByNode.get(node.id) || []);
-            if (node.kind === 'symbol') {
-                scheduleNodeTip(node, el);
+            if (usesNodeTip(node)) {
+                tipMoveX = ev.clientX;
+                tipMoveY = ev.clientY;
+                armNodeTip(node, el);
+            }
+        });
+        el.addEventListener('pointermove', ev => {
+            if (usesNodeTip(node)) {
+                onNodeTipMove(ev, node, el);
             }
         });
         el.addEventListener('pointerleave', ev => {
             setHoverPaths([]);
-            if (node.kind === 'symbol') {
+            if (usesNodeTip(node)) {
                 const next = ev.relatedTarget;
                 if (next && el.contains(next)) {
                     return;
                 }
-                hideNodeTip(true);
+                tipHover = null;
+                hideNodeTip();
             }
         });
-        if (node.kind === 'more') {
-            el.title = 'Show more siblings';
-        } else if (node.kind === 'group') {
-            el.title = `${node.name} — ${node.detail || 'library symbols'}`;
-        }
 
         if (node.kind === 'more') {
             el.textContent = node.name;
@@ -1155,12 +1303,14 @@ function render(graph) {
                 const exp = document.createElement('button');
                 exp.type = 'button';
                 exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
-                exp.setAttribute('aria-label', collapse ? 'Collapse' : 'Expand');
-                exp.title = collapse
+                const expLabel = collapse
                     ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
                     : (node.hop < 0 ? 'Expand callers' : 'Expand callees');
+                exp.setAttribute('aria-label', expLabel);
+                bindControlTip(node, el, exp, expLabel);
                 exp.addEventListener('click', ev => {
                     ev.stopPropagation();
+                    hideNodeTip();
                     exp.classList.toggle('is-collapse', !collapse);
                     exp.setAttribute('aria-label', collapse ? 'Expand' : 'Collapse');
                     vscode.postMessage({
@@ -1181,10 +1331,12 @@ function render(graph) {
     applyZoomChrome();
     applyView(graph, pos);
     if (lastTipNodeId && canvas) {
-        const n = graph.nodes.find(x => x.id === lastTipNodeId && x.kind === 'symbol');
+        const n = graph.nodes.find(x => x.id === lastTipNodeId);
         const el = [...canvas.querySelectorAll('.cr-node')].find(e => e.dataset.nodeId === lastTipNodeId);
-        if (n && el) {
+        if (usesNodeTip(n) && el) {
             showNodeTip(n, el);
+        } else {
+            hideNodeTip();
         }
     }
 }
@@ -1203,7 +1355,7 @@ function bindPan(el) {
         if (hit && hit.closest && hit.closest('.cr-node, .cr-toggle, .cr-thumb, .cr-edge-group, .cr-site-menu')) {
             return;
         }
-        hideNodeTip(true);
+        hideNodeTip();
         dragging = true;
         sx = e.clientX;
         sy = e.clientY;
@@ -1340,7 +1492,7 @@ function applyZoomSize() {
 }
 
 function setZoom(next, origin) {
-    hideNodeTip(true);
+    hideNodeTip();
     const old = zoom;
     const value = clampZoom(next);
     if (Math.abs(value - old) < 0.001) {
