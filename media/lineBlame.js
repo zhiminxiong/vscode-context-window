@@ -1,7 +1,8 @@
 //@ts-check
 
-// 仅在用户主动点某一行（行号 / 行尾空白）后显示行尾 git 摘要。
-// 点单词会走 jumpDefinition，跳转后光标回到 (0,0)，那种情况不显示。
+// 用户主动点某一行后显示行尾 git 摘要。
+// 手型光标（悬停在可跳转单词上）的点击走 jumpDefinition，不请求 blame。
+// 其余点击（行号、行尾空白、运算符/空白等非单词处）与点行尾空白一样请求 blame。
 // 浮窗挂在行尾摘要上：lineBlame 未显示时即使「允许 Alt」开着也不出现。
 // 配置 lineBlameHover 控制是否允许 Alt 打开浮窗。指针在摘要上且按住 Alt 才打开；
 // 松开 Alt 不关，移出摘要/浮窗才关。
@@ -529,9 +530,17 @@ export function createLineBlame(ctx) {
         return !!(be && be.button === 0);
     }
 
-    function isLineNumberGutter(type) {
-        return type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
-            || type === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS;
+    // 与 editorMouseHandlers 里「手型光标 / 左键跳定义」同一判定：正文里点在单词上。
+    function isHandCursorClick(e) {
+        if (!e || !e.target || e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) {
+            return false;
+        }
+        const model = editor.getModel();
+        const position = e.target.position;
+        if (!model || !position) {
+            return false;
+        }
+        return !!model.getWordAtPosition(position);
     }
 
     function fullLineFromSelection() {
@@ -557,14 +566,12 @@ export function createLineBlame(ctx) {
         if (!enabled || !isLeftClick(e)) {
             return;
         }
-        const type = e.target && e.target.type;
-        let line = 0;
-        if (type === monaco.editor.MouseTargetType.CONTENT_EMPTY || isLineNumberGutter(type)) {
-            line = (e.target.position && e.target.position.lineNumber) || 0;
-        } else if (type !== monaco.editor.MouseTargetType.CONTENT_TEXT) {
-            // selectOnLineNumbers 时 mouseup 的 type 有时不是 gutter，用整行选区兜底
-            line = fullLineFromSelection();
+        // 手型（点在可跳转单词上）走 jumpDefinition，不请求 blame
+        if (isHandCursorClick(e)) {
+            return;
         }
+        const line = (e.target && e.target.position && e.target.position.lineNumber)
+            || fullLineFromSelection();
         if (line >= 1) {
             schedule(line);
         }
