@@ -21,6 +21,8 @@ html, body {
     --cr-accent: var(--vscode-textLink-foreground, #3794ff);
     --cr-focus: var(--vscode-focusBorder, #007fd4);
     --cr-focus-glow: color-mix(in srgb, var(--cr-focus) 50%, transparent);
+    --cr-selected: var(--vscode-charts-orange, #cc6d1b);
+    --cr-selected-glow: color-mix(in srgb, var(--cr-selected) 50%, transparent);
     --cr-menu-bg: #f3f3f3;
     --cr-menu-fg: #1f1f1f;
     --cr-menu-border: #d0d0d0;
@@ -39,6 +41,8 @@ body.vscode-dark {
     --cr-accent: #6b9ec4;
     --cr-focus: #5a8bb0;
     --cr-focus-glow: color-mix(in srgb, var(--cr-focus) 32%, transparent);
+    --cr-selected: #d4982a;
+    --cr-selected-glow: color-mix(in srgb, var(--cr-selected) 40%, transparent);
     --cr-menu-bg: #2d2d2d;
     --cr-menu-fg: #e0e0e0;
     --cr-menu-border: #555555;
@@ -57,6 +61,8 @@ body.vscode-high-contrast {
     --cr-accent: var(--vscode-textLink-foreground, #3794ff);
     --cr-focus: var(--vscode-focusBorder, #007fd4);
     --cr-focus-glow: var(--cr-focus);
+    --cr-selected: var(--vscode-charts-orange, #cc6d1b);
+    --cr-selected-glow: var(--cr-selected);
     --cr-menu-bg: #2d2d2d;
     --cr-menu-fg: #e0e0e0;
     --cr-menu-border: #555555;
@@ -782,12 +788,27 @@ body.is-loading .cr-bar {
 .cr-canvas.is-direct .cr-node.is-twin {
     z-index: 4;
     background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--cr-focus) 16%, var(--vscode-editor-background)));
-    border-color: var(--cr-focus);
-    box-shadow: 0 0 0 2px var(--cr-focus-glow);
+    border-color: var(--cr-selected);
+    box-shadow: 0 0 0 2px var(--cr-selected-glow);
 }
 
 .cr-canvas.is-direct .cr-node.is-root:hover,
 .cr-canvas.is-direct .cr-node.is-root.is-twin {
+    background: var(--cr-root-bg);
+    border-color: var(--cr-selected);
+    box-shadow: 0 0 0 2px var(--cr-selected-glow);
+}
+
+.cr-canvas.is-direct .cr-node.is-selected,
+.cr-canvas.is-direct .cr-node.is-selected:hover,
+.cr-canvas.is-direct .cr-node.is-selected.is-twin {
+    border-color: var(--cr-focus);
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
+}
+
+.cr-canvas.is-direct .cr-node.is-root.is-selected,
+.cr-canvas.is-direct .cr-node.is-root.is-selected:hover,
+.cr-canvas.is-direct .cr-node.is-root.is-selected.is-twin {
     background: var(--cr-root-bg);
     border-color: var(--cr-focus);
     box-shadow: 0 0 0 2px var(--cr-focus-glow);
@@ -815,8 +836,8 @@ body.is-loading .cr-bar {
 .cr-node.is-twin {
     z-index: 4;
     background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--cr-focus) 12%, var(--vscode-editor-background)));
-    border-color: var(--cr-focus);
-    box-shadow: 0 0 0 2px var(--cr-focus-glow);
+    border-color: var(--cr-selected);
+    box-shadow: 0 0 0 2px var(--cr-selected-glow);
 }
 
 .cr-node.is-root {
@@ -846,19 +867,20 @@ body.is-loading .cr-bar {
 .cr-node.is-root:hover,
 .cr-node.is-root.is-twin {
     background: var(--cr-root-bg);
-    border-color: var(--cr-focus);
-    box-shadow: 0 0 0 2px var(--cr-focus-glow);
+    border-color: var(--cr-selected);
+    box-shadow: 0 0 0 2px var(--cr-selected-glow);
 }
 
 .cr-node.is-prev:hover,
 .cr-node.is-prev.is-twin {
     background: var(--vscode-list-hoverBackground);
     border-color: var(--cr-accent);
-    box-shadow: 0 0 0 2px var(--cr-focus-glow);
+    box-shadow: 0 0 0 2px var(--cr-selected-glow);
 }
 
 .cr-node.is-selected:hover,
 .cr-node.is-selected.is-twin {
+    border-color: var(--cr-focus);
     box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
@@ -884,6 +906,7 @@ body.is-loading .cr-bar {
 }
 
 .cr-node.is-root.is-selected {
+    border-color: var(--cr-focus);
     box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
