@@ -9,12 +9,13 @@ html, body {
     color: var(--vscode-foreground);
     background: var(--vscode-editor-background);
     /* 工具栏/强调色不跟各主题的 button token，只分 light / dark 两套。 */
-    --cr-btn-fg: #1f1f1f;
-    --cr-btn-bg: #b8b8b8;
-    --cr-btn-hover: #d4d4d4;
+    --cr-btn-fg: var(--vscode-foreground, #1f1f1f);
+    --cr-btn-bg: transparent;
+    --cr-btn-hover: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.12));
     --cr-btn-on-fg: #ffffff;
     --cr-btn-on-bg: #007acc;
     --cr-btn-on-hover: #3aa8ea;
+    --cr-chip-line: color-mix(in srgb, var(--cr-btn-fg) 18%, transparent);
     --cr-menu-bg: #f3f3f3;
     --cr-menu-fg: #1f1f1f;
     --cr-menu-border: #d0d0d0;
@@ -22,12 +23,13 @@ html, body {
 
 body.vscode-dark,
 body.vscode-high-contrast {
-    --cr-btn-fg: #e0e0e0;
-    --cr-btn-bg: #3a3a3a;
-    --cr-btn-hover: #4c4c4c;
+    --cr-btn-fg: var(--vscode-foreground, #e0e0e0);
+    --cr-btn-bg: transparent;
+    --cr-btn-hover: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.1));
     --cr-btn-on-fg: #ffffff;
     --cr-btn-on-bg: #0e639c;
     --cr-btn-on-hover: #1177bb;
+    --cr-chip-line: color-mix(in srgb, var(--cr-btn-fg) 22%, transparent);
     --cr-menu-bg: #2d2d2d;
     --cr-menu-fg: #e0e0e0;
     --cr-menu-border: #555555;
@@ -53,31 +55,60 @@ body.vscode-high-contrast {
     margin-left: auto;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
+}
+
+.cr-modes {
+    display: flex;
+    align-items: center;
+    gap: 2px;
 }
 
 .cr-style-wrap,
-.cr-slim-wrap {
+.cr-slim-wrap,
+.cr-zoom-chip {
     position: relative;
+    display: inline-flex;
+    align-items: stretch;
+    border-radius: 4px;
 }
 
-.cr-slim-wrap {
-    display: flex;
-    align-items: stretch;
+.cr-zoom-chip:hover,
+.cr-slim-wrap:hover,
+.cr-style-wrap:hover {
+    background: var(--cr-btn-hover);
+}
+
+.cr-zoom-chip .cr-btn,
+.cr-slim-wrap .cr-btn,
+.cr-style-wrap .cr-btn {
+    background: transparent;
+    border-radius: 0;
+}
+
+.cr-zoom-chip .cr-btn:hover:not(:disabled),
+.cr-slim-wrap .cr-btn:hover:not(:disabled),
+.cr-style-wrap .cr-btn:hover:not(:disabled) {
+    background: transparent;
+}
+
+.cr-style-wrap:has(.is-open) {
+    background: var(--cr-btn-hover);
+}
+
+.cr-zoom-chip .cr-btn + .cr-btn {
+    border-left: 1px solid var(--cr-chip-line);
 }
 
 .cr-slim-wrap #cr-slim {
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
+    padding-right: 7px;
 }
 
 .cr-slim-caret {
-    min-width: 22px;
-    padding-left: 5px;
-    padding-right: 5px;
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-    border-left: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+    min-width: 20px;
+    padding-left: 6px;
+    padding-right: 7px;
+    border-left: 1px solid var(--cr-chip-line);
 }
 
 .cr-slim-caret::after {
@@ -87,7 +118,24 @@ body.vscode-high-contrast {
     border-left: 3.5px solid transparent;
     border-right: 3.5px solid transparent;
     border-top: 4px solid currentColor;
-    opacity: 0.85;
+    opacity: 0.75;
+}
+
+.cr-slim-wrap.is-on {
+    background: var(--cr-btn-on-bg);
+    color: var(--cr-btn-on-fg);
+}
+
+.cr-slim-wrap.is-on .cr-btn {
+    color: inherit;
+}
+
+.cr-slim-wrap.is-on:hover {
+    background: var(--cr-btn-on-hover);
+}
+
+.cr-slim-wrap.is-on .cr-slim-caret {
+    border-left-color: color-mix(in srgb, var(--cr-btn-on-fg) 28%, transparent);
 }
 
 .cr-slim-menu {
@@ -223,6 +271,21 @@ body.vscode-high-contrast {
 
 .cr-btn.is-on:hover:not(:disabled) {
     background: var(--cr-btn-on-hover);
+}
+
+.cr-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.cr-icon-btn svg {
+    display: block;
+    width: 16px;
+    height: 16px;
 }
 
 #cr-update {

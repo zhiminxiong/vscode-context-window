@@ -28,6 +28,7 @@ const pinBtn = document.getElementById('cr-pin');
 const updateBtn = document.getElementById('cr-update');
 const slimBtn = document.getElementById('cr-slim');
 const slimKindsBtn = document.getElementById('cr-slim-kinds');
+const slimWrap = document.getElementById('cr-slim-wrap');
 const styleBtn = document.getElementById('cr-style');
 const zoomInBtn = document.getElementById('cr-zoom-in');
 const zoomOutBtn = document.getElementById('cr-zoom-out');
@@ -1524,7 +1525,6 @@ function syncStyleBtn() {
     if (!styleBtn) {
         return;
     }
-    styleBtn.classList.add('is-on');
     styleBtn.textContent = edgeStyleLabel(edgeStyle);
 }
 
@@ -2491,8 +2491,8 @@ helpBtn?.addEventListener('click', () => {
     hintEl.hidden = !open;
     helpBtn.classList.toggle('is-on', open);
     helpBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    helpBtn.setAttribute('aria-label', open ? 'Hide help' : 'Show help');
     helpBtn.title = open ? 'Hide help' : 'Show help';
-    helpBtn.textContent = open ? 'Hide help' : 'Show help';
 });
 
 function applyUpdateMode(value) {
@@ -2577,14 +2577,15 @@ function normalizeCompactKinds(value) {
 
 function applyCompactFilter(on) {
     const slim = !!on;
+    slimWrap?.classList.toggle('is-on', slim);
     if (slimBtn) {
-        slimBtn.classList.toggle('is-on', slim);
+        slimBtn.classList.remove('is-on');
         slimBtn.setAttribute('aria-pressed', slim ? 'true' : 'false');
         slimBtn.title = slim
             ? 'Slim filter on — keep the kinds checked in the list'
             : 'Slim filter off — show every symbol the language server returns';
     }
-    slimKindsBtn?.classList.toggle('is-on', slim);
+    slimKindsBtn?.classList.remove('is-on');
 }
 
 function applyCompactKinds(value, fromHost) {
@@ -2695,7 +2696,7 @@ function openSlimMenu() {
 }
 
 slimBtn?.addEventListener('click', () => {
-    const next = !slimBtn.classList.contains('is-on');
+    const next = !(slimWrap && slimWrap.classList.contains('is-on'));
     applyCompactFilter(next);
     vscode.postMessage({ type: 'setCompactFilter', value: next });
 });
@@ -2878,7 +2879,6 @@ window.addEventListener('message', ev => {
     } else if (msg.type === 'state') {
         if (pinBtn) {
             pinBtn.classList.toggle('is-on', !!msg.pinned);
-            pinBtn.textContent = msg.pinned ? 'Pinned' : 'Pin';
         }
         applyUpdateMode(msg.updateMode);
         applyCompactFilter(!!msg.compactFilter);

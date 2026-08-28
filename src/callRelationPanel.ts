@@ -505,18 +505,22 @@ export class CallRelationPanel {
     <div class="cr-title" id="cr-title">Call Relation</div>
     <div class="cr-actions">
       <div class="cr-style-wrap" id="cr-style-wrap">
-        <button type="button" id="cr-style" class="cr-btn is-on" title="Connector style">Arc</button>
+        <button type="button" id="cr-style" class="cr-btn" title="Connector style">Arc</button>
       </div>
-      <button type="button" id="cr-zoom-out" class="cr-btn" title="Zoom out (Ctrl+scroll)">−</button>
-      <button type="button" id="cr-zoom-label" class="cr-btn cr-zoom-label" title="Reset zoom to 100%">100%</button>
-      <button type="button" id="cr-zoom-in" class="cr-btn" title="Zoom in (Ctrl+scroll)">+</button>
-      <button type="button" id="cr-update" class="cr-btn" title="Update mode: Live — empty graph when no call hierarchy">Live</button>
-      <div class="cr-slim-wrap" id="cr-slim-wrap">
-        <button type="button" id="cr-slim" class="cr-btn" title="Slim filter off — show every symbol the language server returns" aria-pressed="false">Slim</button>
-        <button type="button" id="cr-slim-kinds" class="cr-btn cr-slim-caret" title="Kinds kept when Slim is on" aria-haspopup="true" aria-expanded="false"></button>
+      <div class="cr-zoom-chip" id="cr-zoom-chip">
+        <button type="button" id="cr-zoom-out" class="cr-btn" title="Zoom out (Ctrl+scroll)">−</button>
+        <button type="button" id="cr-zoom-label" class="cr-btn cr-zoom-label" title="Reset zoom to 100%">100%</button>
+        <button type="button" id="cr-zoom-in" class="cr-btn" title="Zoom in (Ctrl+scroll)">+</button>
       </div>
-      <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
-      <button type="button" id="cr-help" class="cr-btn" title="Show help" aria-expanded="false">Show help</button>
+      <div class="cr-modes">
+        <button type="button" id="cr-update" class="cr-btn" title="Update mode: Live — empty graph when no call hierarchy">Live</button>
+        <div class="cr-slim-wrap" id="cr-slim-wrap">
+          <button type="button" id="cr-slim" class="cr-btn" title="Slim filter off — show every symbol the language server returns" aria-pressed="false">Slim</button>
+          <button type="button" id="cr-slim-kinds" class="cr-btn cr-slim-caret" title="Kinds kept when Slim is on" aria-haspopup="true" aria-expanded="false"></button>
+        </div>
+        <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
+        <button type="button" id="cr-help" class="cr-btn cr-icon-btn" title="Show help" aria-expanded="false" aria-label="Show help"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0m-6 3.5a1 1 0 1 1-2 0a1 1 0 0 1 2 0M7.293 5.293a1 1 0 1 1 .99 1.667c-.459.134-1.033.566-1.033 1.29v.25a.75.75 0 1 0 1.5 0v-.115a2.5 2.5 0 1 0-2.518-4.153a.75.75 0 1 0 1.061 1.06"/></svg></button>
+      </div>
     </div>
   </header>
   <div class="cr-centers" id="cr-centers" hidden></div>
