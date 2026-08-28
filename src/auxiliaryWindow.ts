@@ -45,6 +45,17 @@ async function lockActiveGroupIfUnlocked(): Promise<void> {
     }
 }
 
+async function enableWindowAlwaysOnTop(): Promise<void> {
+    if (!vscode.workspace.getConfiguration('contextView').get<boolean>('independentWindowAlwaysOnTop', false)) {
+        return;
+    }
+    try {
+        await vscode.commands.executeCommand('workbench.action.enableWindowAlwaysOnTop');
+    } catch {
+        // Older builds or not an auxiliary window.
+    }
+}
+
 export async function lockIfPanelActive(panel: vscode.WebviewPanel | undefined): Promise<void> {
     if (!panel) {
         return;
@@ -74,6 +85,7 @@ export async function showPanelInNewWindow(
             await vscode.commands.executeCommand('workbench.action.newEmptyEditorWindow');
             const created = create(vscode.ViewColumn.Active);
             await lockIfPanelActive(created);
+            await enableWindowAlwaysOnTop();
             return created;
         } catch {
             // Fall through to the move-out path.
@@ -95,15 +107,18 @@ export async function showPanelInNewWindow(
         // can send focus back to the main window on Cursor.
         if (existing.active) {
             await lockActiveGroupIfUnlocked();
+            await enableWindowAlwaysOnTop();
             return existing;
         }
         existing.reveal(undefined, false);
         await waitForPanelActive(existing, 1000);
         if (existing.active) {
             await lockActiveGroupIfUnlocked();
+            await enableWindowAlwaysOnTop();
             return existing;
         }
     }
     await lockIfPanelActive(existing);
+    await enableWindowAlwaysOnTop();
     return existing;
 }

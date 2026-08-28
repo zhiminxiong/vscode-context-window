@@ -221,6 +221,11 @@
     "configuration": {
       "title": "Context View",
       "properties": {
+        "contextView.independentWindowAlwaysOnTop": {
+          "type": "boolean",
+          "default": false,
+          "description": "When opening Context or Call Relation in an independent window, turn on Always on Top. Off by default to match older versions."
+        },
         "contextView.contextWindow.updateMode": {
           "type": "string",
           "description": "Controls how the context view is updated when the cursor moves.",
