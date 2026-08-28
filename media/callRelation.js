@@ -26,6 +26,7 @@ const stage = document.getElementById('cr-stage');
 const emptyEl = document.getElementById('cr-empty');
 const pinBtn = document.getElementById('cr-pin');
 const updateBtn = document.getElementById('cr-update');
+const slimBtn = document.getElementById('cr-slim');
 const styleBtn = document.getElementById('cr-style');
 const zoomInBtn = document.getElementById('cr-zoom-in');
 const zoomOutBtn = document.getElementById('cr-zoom-out');
@@ -2513,6 +2514,23 @@ updateBtn?.addEventListener('click', () => {
     vscode.postMessage({ type: 'setUpdateMode', value: next });
 });
 
+function applyCompactFilter(on) {
+    const slim = !!on;
+    if (slimBtn) {
+        slimBtn.classList.toggle('is-on', slim);
+        slimBtn.setAttribute('aria-pressed', slim ? 'true' : 'false');
+        slimBtn.title = slim
+            ? 'Slim filter on — keep Function, Method, Constructor, Class, Struct, Variable, Constant, Property'
+            : 'Slim filter off — show every symbol the language server returns';
+    }
+}
+
+slimBtn?.addEventListener('click', () => {
+    const next = !slimBtn.classList.contains('is-on');
+    applyCompactFilter(next);
+    vscode.postMessage({ type: 'setCompactFilter', value: next });
+});
+
 let styleMenuDocDown = null;
 
 function closeStyleMenu() {
@@ -2687,6 +2705,7 @@ window.addEventListener('message', ev => {
             pinBtn.textContent = msg.pinned ? 'Pinned' : 'Pin';
         }
         applyUpdateMode(msg.updateMode);
+        applyCompactFilter(!!msg.compactFilter);
         applyEdgeStyle(normalizeEdgeStyle(msg.edgeStyle));
         if (typeof msg.hoverDelay === 'number' && Number.isFinite(msg.hoverDelay) && msg.hoverDelay >= 0) {
             tipDelayMs = msg.hoverDelay;

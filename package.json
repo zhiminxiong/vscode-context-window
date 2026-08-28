@@ -407,6 +407,11 @@
           "maximum": 32,
           "description": "Font size in pixels for Call Relation node names. Other node text scales in proportion. Change it from the Call Relation toolbar."
         },
+        "contextView.callRelation.compactFilter": {
+          "type": "boolean",
+          "default": false,
+          "description": "When on, Call Relation keeps Function, Method, Constructor, Class, Struct, Variable, Constant, and Property. Namespace, Interface, and other type-only symbols are hidden. Off by default. Toggle from the Call Relation toolbar (Slim)."
+        },
         "contextView.callRelation.updateMode": {
           "type": "string",
           "description": "Controls how Call Relation is updated when the cursor moves.",

@@ -218,6 +218,18 @@ function isLibPath(fsPath: string): boolean {
     return p.endsWith('.d.ts') || p.includes('/node_modules/');
 }
 
+/** Slim mode keeps call-like symbols; Namespace / Interface and other type-only kinds are dropped. */
+const COMPACT_KEEP_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
+    vscode.SymbolKind.Function,
+    vscode.SymbolKind.Method,
+    vscode.SymbolKind.Constructor,
+    vscode.SymbolKind.Class,
+    vscode.SymbolKind.Struct,
+    vscode.SymbolKind.Variable,
+    vscode.SymbolKind.Constant,
+    vscode.SymbolKind.Property
+]);
+
 function toSymbolNode(
     item: vscode.CallHierarchyItem,
     hop: number,
@@ -258,6 +270,8 @@ export class CallRelationModel {
     private centerIndex = -1;
     /** Shown on the left until root incoming lands (focus from a callee). */
     private incomingHint: vscode.CallHierarchyItem | undefined;
+    /** When true, keep call-like kinds including Class / Struct; drop Namespace / Interface and similar. */
+    private compactFilter = false;
     private seq = 0;
     private cacheEpoch = 0;
     private readonly fileGen = new Map<string, number>();
@@ -314,6 +328,22 @@ export class CallRelationModel {
 
     rootUri(): string | undefined {
         return this.root?.uri.toString();
+    }
+
+    setCompactFilter(on: boolean): void {
+        this.compactFilter = on;
+    }
+
+    private keepCallItem(item: vscode.CallHierarchyItem): boolean {
+        return !this.compactFilter || COMPACT_KEEP_KINDS.has(item.kind);
+    }
+
+    private sideList(item: vscode.CallHierarchyItem, dir: -1 | 1): vscode.CallHierarchyItem[] | undefined {
+        const raw = dir < 0 ? this.incoming.get(itemKey(item)) : this.outgoing.get(itemKey(item));
+        if (!raw) {
+            return undefined;
+        }
+        return raw.filter(child => this.keepCallItem(child));
     }
 
     invalidateUri(uri: vscode.Uri): void {
@@ -878,9 +908,11 @@ export class CallRelationModel {
         if (!item) {
             return;
         }
-        const kidsStored = dir < 0 ? this.incoming.get(parent.itemKey) : this.outgoing.get(parent.itemKey);
-        const kids = kidsStored
-            || (dir < 0 && parent.hop === 0 && this.incomingHint ? [this.incomingHint] : undefined);
+        const kidsStored = this.sideList(item, dir);
+        const hint = dir < 0 && parent.hop === 0 && this.incomingHint && this.keepCallItem(this.incomingHint)
+            ? [this.incomingHint]
+            : undefined;
+        const kids = kidsStored || hint;
         if (!kids) {
             return;
         }
@@ -1176,9 +1208,7 @@ export class CallRelationModel {
     }
 
     private sideCount(item: vscode.CallHierarchyItem, dir: -1 | 1): number {
-        const key = itemKey(item);
-        const list = dir < 0 ? this.incoming.get(key) : this.outgoing.get(key);
-        return list?.length ?? 0;
+        return this.sideList(item, dir)?.length ?? 0;
     }
 
     private canExpand(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {

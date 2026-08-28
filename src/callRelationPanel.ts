@@ -20,6 +20,7 @@ export class CallRelationPanel {
     private pinned = false;
     private edgeStyle: 'elbow' | 'direct' | 'arc' = 'arc';
     private updateMode: 'live' | 'sticky' = 'live';
+    private compactFilter = false;
     private followTimer: ReturnType<typeof setTimeout> | undefined;
     private progressDepth = 0;
     private readonly disposables: vscode.Disposable[] = [];
@@ -27,6 +28,8 @@ export class CallRelationPanel {
     constructor(private readonly extensionUri: vscode.Uri) {
         this.edgeStyle = this.readEdgeStyle();
         this.updateMode = this.readUpdateMode();
+        this.compactFilter = this.readCompactFilter();
+        this.model.setCompactFilter(this.compactFilter);
         this.model.setGraphListener((graph, seq) => this.applyGraph(graph, seq));
         this.disposables.push(
             vscode.workspace.onDidChangeConfiguration(e => {
@@ -37,6 +40,9 @@ export class CallRelationPanel {
                 if (e.affectsConfiguration('contextView.callRelation.updateMode')) {
                     this.updateMode = this.readUpdateMode();
                     this.postState();
+                }
+                if (e.affectsConfiguration('contextView.callRelation.compactFilter')) {
+                    this.applyCompactFilter(this.readCompactFilter());
                 }
                 if (e.affectsConfiguration('workbench.hover.delay')) {
                     this.postState();
@@ -227,6 +233,15 @@ export class CallRelationPanel {
                 this.postState();
                 break;
             }
+            case 'setCompactFilter': {
+                await vscode.workspace.getConfiguration('contextView.callRelation').update(
+                    'compactFilter',
+                    !!message.value,
+                    true
+                );
+                this.applyCompactFilter(!!message.value);
+                break;
+            }
             case 'openNode': {
                 const nodeId = String(message.nodeId || '');
                 const target = this.model.getOpenTarget(nodeId, this.graph.nodes);
@@ -392,6 +407,21 @@ export class CallRelationPanel {
             : 'live';
     }
 
+    private readCompactFilter(): boolean {
+        return vscode.workspace.getConfiguration('contextView.callRelation').get<boolean>('compactFilter') === true;
+    }
+
+    private applyCompactFilter(on: boolean): void {
+        this.compactFilter = on;
+        this.model.setCompactFilter(on);
+        if (this.graph.rootId) {
+            this.graph = this.model.buildGraph();
+            this.postGraph();
+            return;
+        }
+        this.postState();
+    }
+
     private readHoverDelay(): number {
         const n = vscode.workspace.getConfiguration('workbench').get<number>('hover.delay');
         if (typeof n === 'number' && Number.isFinite(n) && n >= 0) {
@@ -406,6 +436,7 @@ export class CallRelationPanel {
             pinned: this.pinned,
             edgeStyle: this.edgeStyle,
             updateMode: this.updateMode,
+            compactFilter: this.compactFilter,
             hoverDelay: this.readHoverDelay()
         });
     }
@@ -441,6 +472,7 @@ export class CallRelationPanel {
       <button type="button" id="cr-zoom-label" class="cr-btn cr-zoom-label" title="Reset zoom to 100%">100%</button>
       <button type="button" id="cr-zoom-in" class="cr-btn" title="Zoom in (Ctrl+scroll)">+</button>
       <button type="button" id="cr-update" class="cr-btn" title="Update mode: Live — empty graph when no call hierarchy">Live</button>
+      <button type="button" id="cr-slim" class="cr-btn" title="Slim filter off — show every symbol the language server returns" aria-pressed="false">Slim</button>
       <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
       <button type="button" id="cr-help" class="cr-btn" title="Show help" aria-expanded="false">Show help</button>
     </div>
@@ -450,7 +482,7 @@ export class CallRelationPanel {
     <p>Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click to copy the call chain.</p>
     <p>Keys: arrows move focus (↑↓ siblings, ←→ parent/child; outward expands if needed), Enter opens, Shift+Enter expands/collapses, Backspace steps back on the center trail.</p>
     <p>Esc: with Find open closes Find only; otherwise dismisses menu, pin, then selection. Find uses the editor Find shortcut.</p>
-    <p>Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</p>
+    <p>Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. Slim keeps Function, Method, Constructor, Class, Struct, Variable, Constant, and Property. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</p>
   </div>
   <div class="cr-main">
     <div class="cr-find" id="cr-find">
