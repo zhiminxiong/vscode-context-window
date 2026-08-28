@@ -186,6 +186,14 @@ export class CallRelationPanel {
                     !!message.open
                 );
                 break;
+            case 'copyToClipboard':
+                if (typeof message.text === 'string' && message.text.length > 0) {
+                    await vscode.env.clipboard.writeText(message.text);
+                    if (typeof message.notify === 'string' && message.notify) {
+                        vscode.window.setStatusBarMessage(message.notify, 2000);
+                    }
+                }
+                break;
             case 'ready':
                 this.postState();
                 if (this.progressDepth > 0) {
@@ -248,6 +256,18 @@ export class CallRelationPanel {
                         this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
                     });
                 }
+                break;
+            }
+            case 'focusTrail': {
+                const index = Number(message.index);
+                if (!Number.isInteger(index)) {
+                    break;
+                }
+                const nodes = this.graph.nodes;
+                await this.withProgress(async () => {
+                    const loaded = await this.model.focusTrail(index, nodes);
+                    this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+                });
                 break;
             }
             case 'expandMore': {
@@ -405,7 +425,7 @@ export class CallRelationPanel {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${n}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${n}'; img-src data: ${webview.cspSource};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${style}" rel="stylesheet">
   <title>Call Relation</title>
@@ -422,9 +442,16 @@ export class CallRelationPanel {
       <button type="button" id="cr-zoom-in" class="cr-btn" title="Zoom in (Ctrl+scroll)">+</button>
       <button type="button" id="cr-update" class="cr-btn" title="Update mode: Live — empty graph when no call hierarchy">Live</button>
       <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
+      <button type="button" id="cr-help" class="cr-btn" title="Show help" aria-expanded="false">Show help</button>
     </div>
   </header>
-  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. Keys: arrows move focus (↑↓ siblings, ←→ parent/child; outward expands if needed), Enter opens, Shift+Enter expands/collapses, Backspace returns to the previous center. Esc: with Find open closes Find only; otherwise dismisses menu, pin, then selection. Find uses the editor Find shortcut. Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
+  <div class="cr-centers" id="cr-centers" hidden></div>
+  <div class="cr-hint" id="cr-hint" hidden>
+    <p>Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click to copy the call chain.</p>
+    <p>Keys: arrows move focus (↑↓ siblings, ←→ parent/child; outward expands if needed), Enter opens, Shift+Enter expands/collapses, Backspace steps back on the center trail.</p>
+    <p>Esc: with Find open closes Find only; otherwise dismisses menu, pin, then selection. Find uses the editor Find shortcut.</p>
+    <p>Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</p>
+  </div>
   <div class="cr-main">
     <div class="cr-find" id="cr-find">
       <div class="cr-find-field">

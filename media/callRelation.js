@@ -38,6 +38,8 @@ const findWordBtn = document.getElementById('cr-find-word');
 const findPrevBtn = document.getElementById('cr-find-prev');
 const findNextBtn = document.getElementById('cr-find-next');
 const findCloseBtn = document.getElementById('cr-find-close');
+const helpBtn = document.getElementById('cr-help');
+const hintEl = document.getElementById('cr-hint');
 
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 3;
@@ -56,6 +58,8 @@ let lastGraph = null;
 let selectedKey = '';
 /** 键盘/点击当前节点 id；优先于 selectedKey。 */
 let selectedId = '';
+/** 换中心后不再沿用旧 itemKey 的选定框。 */
+let selectedRootId = '';
 /** Alt+click 钉住的节点 id；空串表示未钉路径。 */
 let pinnedNodeId = '';
 /** @type {'elbow' | 'direct' | 'arc'} */
@@ -781,12 +785,20 @@ function siblingNodes(node) {
 }
 
 function resolveSelection() {
+    const rootId = lastGraph && lastGraph.rootId ? lastGraph.rootId : '';
+    if (rootId && selectedRootId && selectedRootId !== rootId) {
+        selectedId = '';
+        selectedKey = '';
+        selectedRootId = rootId;
+    } else if (rootId && !selectedRootId) {
+        selectedRootId = rootId;
+    }
     if (selectedId && graphNode(selectedId)) {
         return;
     }
     selectedId = '';
     if (selectedKey && lastGraph) {
-        const hit = lastGraph.nodes.find(n => n.itemKey === selectedKey);
+        const hit = lastGraph.nodes.find(n => n.itemKey === selectedKey && n.id !== lastGraph.rootId);
         if (hit) {
             selectedId = hit.id;
         }
@@ -819,6 +831,9 @@ function selectNode(node, scroll) {
     }
     selectedId = node.id;
     selectedKey = node.itemKey || '';
+    if (lastGraph && lastGraph.rootId) {
+        selectedRootId = lastGraph.rootId;
+    }
     paintSelection();
     if (scroll) {
         scrollToNode(node.id);
@@ -993,8 +1008,344 @@ function openSelected() {
     vscode.postMessage({ type: 'openNode', nodeId: cur.id });
 }
 
+/** @type {{ items: any[], index: number } | null} */
+let lastCenterTrail = null;
+let centerTrailResize = 0;
+
+function hideCtxMenu() {
+    const old = document.getElementById('cr-ctx-menu');
+    if (old && old.parentNode) {
+        old.parentNode.removeChild(old);
+    }
+}
+
+function formatCallChain() {
+    const items = (lastCenterTrail && lastCenterTrail.items) || [];
+    if (!items.length) {
+        return '';
+    }
+    const current = Math.max(0, Math.min(lastCenterTrail.index, items.length - 1));
+    const lines = items.map((item, i) => {
+        const file = item.file || '';
+        const line = item.line > 0 ? item.line : 0;
+        let loc = '';
+        if (file && line) {
+            loc = ` — ${file}:${line}`;
+        } else if (file) {
+            loc = ` — ${file}`;
+        } else if (line) {
+            loc = `:${line}`;
+        }
+        const mark = i === current ? '  ← current' : '';
+        return `${i + 1}. ${item.name || '?'}${loc}${mark}`;
+    });
+    return `Call chain below:\n${lines.join('\n')}`;
+}
+
+function copyCallChain() {
+    const text = formatCallChain();
+    if (!text) {
+        return;
+    }
+    vscode.postMessage({ type: 'copyToClipboard', text, notify: 'Call chain copied' });
+}
+
+function showCallChainMenu(e) {
+    hideCtxMenu();
+    hideCenterOverflow();
+    hideSiteMenu();
+    closeStyleMenu();
+    const items = (lastCenterTrail && lastCenterTrail.items) || [];
+    if (items.length < 2) {
+        return;
+    }
+    const menu = document.createElement('div');
+    menu.id = 'cr-ctx-menu';
+    menu.className = 'cr-ctx-menu';
+    menu.style.visibility = 'hidden';
+    menu.addEventListener('mousedown', ev => ev.stopPropagation());
+    const item = document.createElement('div');
+    item.className = 'cr-ctx-menu-item';
+    item.textContent = 'Copy Call Chain';
+    item.addEventListener('click', () => {
+        copyCallChain();
+        hideCtxMenu();
+    });
+    menu.appendChild(item);
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    const pad = 4;
+    let left = e.clientX;
+    let top = e.clientY;
+    if (left + rect.width > window.innerWidth - pad) {
+        left = window.innerWidth - rect.width - pad;
+    }
+    if (top + rect.height > window.innerHeight - pad) {
+        top = window.innerHeight - rect.height - pad;
+    }
+    menu.style.left = Math.max(pad, left) + 'px';
+    menu.style.top = Math.max(pad, top) + 'px';
+    menu.style.visibility = 'visible';
+}
+
+function hideCenterOverflow() {
+    const old = document.querySelector('.cr-centers-drop');
+    if (old && old.parentNode) {
+        old.parentNode.removeChild(old);
+    }
+}
+
+function centerItemTitle(item) {
+    const name = (item && item.name) || '?';
+    const loc = item && item.file
+        ? `${item.file}${item.line ? ':' + item.line : ''}`
+        : '';
+    return loc ? `${name} — ${loc}` : name;
+}
+
+function makeCenterSep() {
+    const sep = document.createElement('span');
+    sep.className = 'cr-centers-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M10.072 8.024L5.715 3.667l.618-.62L11 7.716v.618L6.333 13l-.618-.619 4.357-4.357z"/></svg>';
+    return sep;
+}
+
+function centerContentWidth(el) {
+    const style = getComputedStyle(el);
+    const pl = parseFloat(style.paddingLeft) || 0;
+    const pr = parseFloat(style.paddingRight) || 0;
+    return Math.max(0, el.clientWidth - pl - pr);
+}
+
+function centerOverflows(el) {
+    const last = el.lastElementChild;
+    if (!last) {
+        return false;
+    }
+    const style = getComputedStyle(el);
+    const padR = parseFloat(style.paddingRight) || 0;
+    const limit = el.getBoundingClientRect().right - padR;
+    return last.getBoundingClientRect().right > limit + 0.5;
+}
+
+function dropFarthestCenter(visible, current) {
+    let drop = -1;
+    let bestDist = -1;
+    for (const i of visible) {
+        if (i === 0 || i === current) {
+            continue;
+        }
+        const dist = Math.abs(i - current);
+        if (dist > bestDist || (dist === bestDist && i < drop)) {
+            drop = i;
+            bestDist = dist;
+        }
+    }
+    if (drop < 0) {
+        return false;
+    }
+    visible.delete(drop);
+    return true;
+}
+
+function usedCenterWidth(visible, widths, n, sepW, overflowW) {
+    let w = 0;
+    let needSep = false;
+    let i = 0;
+    while (i < n) {
+        if (visible.has(i)) {
+            if (needSep) {
+                w += sepW;
+            }
+            w += widths[i];
+            needSep = true;
+            i++;
+        } else {
+            if (needSep) {
+                w += sepW;
+            }
+            w += overflowW;
+            needSep = true;
+            while (i < n && !visible.has(i)) {
+                i++;
+            }
+        }
+    }
+    return w;
+}
+
+function pickVisibleCenters(widths, current, avail, sepW, overflowW) {
+    const n = widths.length;
+    const cap = 8;
+    const all = new Set(Array.from({ length: n }, (_, i) => i));
+    if (n <= 2) {
+        return all;
+    }
+    const fits = set => usedCenterWidth(set, widths, n, sepW, overflowW) <= avail;
+    const underCap = set => set.size <= cap;
+    if (n <= cap && fits(all)) {
+        return all;
+    }
+    const visible = new Set([0, current]);
+    if (!fits(visible)) {
+        return visible;
+    }
+    for (let i = current - 1; i >= 1; i--) {
+        visible.add(i);
+        if (!fits(visible) || !underCap(visible)) {
+            visible.delete(i);
+            break;
+        }
+    }
+    for (let i = n - 1; i > current; i--) {
+        visible.add(i);
+        if (!fits(visible) || !underCap(visible)) {
+            visible.delete(i);
+            break;
+        }
+    }
+    return visible;
+}
+
+function measureCenterPieces(el, items, current) {
+    const box = document.createElement('div');
+    box.className = 'cr-centers-measure';
+    const sep = makeCenterSep();
+    const overflow = document.createElement('span');
+    overflow.className = 'cr-centers-overflow';
+    overflow.textContent = '…';
+    box.appendChild(sep);
+    box.appendChild(overflow);
+    const nodes = items.map((item, i) => {
+        const node = document.createElement('span');
+        node.className = 'cr-centers-item' + (i === current ? ' is-current' : '');
+        node.textContent = item.name || '?';
+        box.appendChild(node);
+        return node;
+    });
+    el.appendChild(box);
+    const sepW = Math.ceil(sep.getBoundingClientRect().width);
+    const overflowW = Math.ceil(overflow.getBoundingClientRect().width);
+    const widths = nodes.map(n => Math.ceil(n.getBoundingClientRect().width));
+    el.removeChild(box);
+    return { sepW, overflowW, widths };
+}
+
+function paintCenters(el, items, current, visible) {
+    el.innerHTML = '';
+    const n = items.length;
+    let i = 0;
+    let needSep = false;
+    while (i < n) {
+        if (visible.has(i)) {
+            if (needSep) {
+                el.appendChild(makeCenterSep());
+            }
+            const crumb = document.createElement('span');
+            crumb.className = 'cr-centers-item' + (i === current ? ' is-current' : '');
+            crumb.textContent = items[i].name || '?';
+            crumb.title = centerItemTitle(items[i]);
+            if (i !== current) {
+                const index = i;
+                crumb.addEventListener('click', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    hideCenterOverflow();
+                    clearPathPin();
+                    vscode.postMessage({ type: 'focusTrail', index });
+                });
+            }
+            el.appendChild(crumb);
+            needSep = true;
+            i++;
+        } else {
+            const hidden = [];
+            while (i < n && !visible.has(i)) {
+                hidden.push({ item: items[i], index: i });
+                i++;
+            }
+            if (needSep) {
+                el.appendChild(makeCenterSep());
+            }
+            const btn = document.createElement('span');
+            btn.className = 'cr-centers-overflow';
+            btn.textContent = '…';
+            btn.title = hidden.map(h => h.item.name || '?').join(' › ');
+            btn.addEventListener('click', e => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (document.querySelector('.cr-centers-drop')) {
+                    hideCenterOverflow();
+                    return;
+                }
+                hideCenterOverflow();
+                const menu = document.createElement('div');
+                menu.className = 'cr-centers-drop';
+                hidden.forEach(h => {
+                    const row = document.createElement('div');
+                    row.className = 'cr-centers-drop-item';
+                    row.textContent = h.item.name || '?';
+                    row.addEventListener('click', ev => {
+                        ev.stopPropagation();
+                        hideCenterOverflow();
+                        clearPathPin();
+                        vscode.postMessage({ type: 'focusTrail', index: h.index });
+                    });
+                    menu.appendChild(row);
+                });
+                document.body.appendChild(menu);
+                const r = btn.getBoundingClientRect();
+                let left = r.left;
+                const maxLeft = window.innerWidth - menu.offsetWidth - 8;
+                if (left > maxLeft) {
+                    left = Math.max(8, maxLeft);
+                }
+                const top = Math.max(4, r.bottom + 4);
+                menu.style.left = left + 'px';
+                menu.style.top = top + 'px';
+            });
+            el.appendChild(btn);
+            needSep = true;
+        }
+    }
+}
+
+function renderCenters(graph) {
+    const host = document.getElementById('cr-centers');
+    if (!host) {
+        return;
+    }
+    hideCenterOverflow();
+    const items = (graph && graph.centerTrail) || [];
+    const index = graph && typeof graph.centerIndex === 'number' ? graph.centerIndex : items.length - 1;
+    lastCenterTrail = { items, index };
+    const show = items.length > 1;
+    host.hidden = !show;
+    if (!show) {
+        host.innerHTML = '';
+        return;
+    }
+    const current = Math.max(0, Math.min(index, items.length - 1));
+    host.innerHTML = '';
+    const { sepW, overflowW, widths } = measureCenterPieces(host, items, current);
+    const avail = Math.max(0, centerContentWidth(host) - 8);
+    const visible = pickVisibleCenters(widths, current, avail, sepW, overflowW);
+    paintCenters(host, items, current, visible);
+    while (items.length > 2 && centerOverflows(host) && dropFarthestCenter(visible, current)) {
+        paintCenters(host, items, current, visible);
+    }
+}
+
 function focusPrevCenter() {
     if (!lastGraph) {
+        return;
+    }
+    const trail = lastGraph.centerTrail || [];
+    const idx = typeof lastGraph.centerIndex === 'number' ? lastGraph.centerIndex : trail.length - 1;
+    if (idx > 0) {
+        clearPathPin();
+        vscode.postMessage({ type: 'focusTrail', index: idx - 1 });
         return;
     }
     const prev = lastGraph.nodes.find(n => n.prevCenter);
@@ -1731,6 +2082,13 @@ function applyView(graph, pos) {
 function render(graph) {
     savedView = captureView();
     lastGraph = graph;
+    if (graph.rootId && selectedRootId && selectedRootId !== graph.rootId) {
+        selectedId = '';
+        selectedKey = '';
+        selectedRootId = graph.rootId;
+    } else if (graph.rootId && !selectedRootId) {
+        selectedRootId = graph.rootId;
+    }
     resolveSelection();
     if (graph.rootId && nameOnlyIds.delete(graph.rootId)) {
         persistViewState();
@@ -1741,6 +2099,7 @@ function render(graph) {
     if (titleEl) {
         titleEl.textContent = graph.title ? `Call Relation — ${graph.title}` : 'Call Relation';
     }
+    renderCenters(graph);
     if (!graph.nodes || !graph.nodes.length) {
         lastPos = null;
         canvasEl = null;
@@ -2122,6 +2481,18 @@ pinBtn?.addEventListener('click', () => {
     vscode.postMessage({ type: 'setPinned', value: next });
 });
 
+helpBtn?.addEventListener('click', () => {
+    if (!hintEl) {
+        return;
+    }
+    const open = hintEl.hidden;
+    hintEl.hidden = !open;
+    helpBtn.classList.toggle('is-on', open);
+    helpBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    helpBtn.title = open ? 'Hide help' : 'Show help';
+    helpBtn.textContent = open ? 'Hide help' : 'Show help';
+});
+
 function applyUpdateMode(value) {
     const sticky = value === 'sticky';
     if (updateBtn) {
@@ -2288,6 +2659,21 @@ function setProgress(on) {
     document.body.classList.toggle('is-loading', !!on);
 }
 
+window.addEventListener('resize', () => {
+    if (!lastCenterTrail || lastCenterTrail.items.length < 2) {
+        return;
+    }
+    if (centerTrailResize) {
+        clearTimeout(centerTrailResize);
+    }
+    centerTrailResize = setTimeout(() => {
+        centerTrailResize = 0;
+        renderCenters({
+            centerTrail: lastCenterTrail.items,
+            centerIndex: lastCenterTrail.index
+        });
+    }, 80);
+});
 window.addEventListener('message', ev => {
     const msg = ev.data;
     if (!msg) {
@@ -2382,6 +2768,21 @@ findNextBtn?.addEventListener('click', () => {
 findCloseBtn?.addEventListener('click', () => {
     closeFind();
 });
+document.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    showCallChainMenu(e);
+}, true);
+document.addEventListener('mousedown', e => {
+    const drop = document.querySelector('.cr-centers-drop');
+    if (drop && e.target && !drop.contains(e.target) && !(e.target.closest && e.target.closest('.cr-centers-overflow'))) {
+        hideCenterOverflow();
+    }
+    const ctx = document.getElementById('cr-ctx-menu');
+    if (ctx && e.target && !ctx.contains(e.target)) {
+        hideCtxMenu();
+    }
+});
 document.addEventListener('keydown', e => {
     if (isTypingTarget(e.target)) {
         return;
@@ -2398,6 +2799,14 @@ document.addEventListener('keydown', e => {
         }
         if (document.getElementById('cr-style-menu')) {
             closeStyleMenu();
+            return;
+        }
+        if (document.getElementById('cr-ctx-menu')) {
+            hideCtxMenu();
+            return;
+        }
+        if (document.querySelector('.cr-centers-drop')) {
+            hideCenterOverflow();
             return;
         }
         if (pinnedNodeId) {

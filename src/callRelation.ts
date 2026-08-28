@@ -37,12 +37,21 @@ export interface RelationEdge {
     style?: 'anchor';
 }
 
+export interface RelationCenter {
+    itemKey: string;
+    name: string;
+    file: string;
+    line: number;
+}
+
 export interface RelationGraph {
     rootId: string;
     title: string;
     nodes: RelationNode[];
     edges: RelationEdge[];
     empty?: string;
+    centerTrail?: RelationCenter[];
+    centerIndex?: number;
 }
 
 export interface RelationOpenTarget {
@@ -245,6 +254,8 @@ export class CallRelationModel {
     private readonly collapseLock = new Set<string>();
     private root: vscode.CallHierarchyItem | undefined;
     private prevRoot: vscode.CallHierarchyItem | undefined;
+    private centerTrail: vscode.CallHierarchyItem[] = [];
+    private centerIndex = -1;
     /** Shown on the left until root incoming lands (focus from a callee). */
     private incomingHint: vscode.CallHierarchyItem | undefined;
     private seq = 0;
@@ -292,6 +303,8 @@ export class CallRelationModel {
         this.collapseLock.clear();
         this.root = undefined;
         this.prevRoot = undefined;
+        this.centerTrail = [];
+        this.centerIndex = -1;
         this.incomingHint = undefined;
         this.cacheEpoch++;
         this.fileGen.clear();
@@ -333,6 +346,55 @@ export class CallRelationModel {
             this.items.set(key, item);
         }
         return key;
+    }
+
+    private resetCenter(item: vscode.CallHierarchyItem): void {
+        this.centerTrail = [item];
+        this.centerIndex = 0;
+    }
+
+    private recordCenter(item: vscode.CallHierarchyItem): void {
+        const key = itemKey(item);
+        const cur = this.centerIndex >= 0 ? this.centerTrail[this.centerIndex] : undefined;
+        if (cur && itemKey(cur) === key) {
+            return;
+        }
+        const found = this.centerTrail.findIndex(it => itemKey(it) === key);
+        if (found >= 0) {
+            this.centerIndex = found;
+            return;
+        }
+        this.centerTrail = this.centerTrail.slice(0, this.centerIndex + 1);
+        this.centerTrail.push(item);
+        this.centerIndex = this.centerTrail.length - 1;
+        if (this.centerTrail.length > 24) {
+            const drop = this.centerTrail.length - 24;
+            this.centerTrail = this.centerTrail.slice(drop);
+            this.centerIndex -= drop;
+        }
+    }
+
+    private centerSnapshot(): RelationCenter[] {
+        return this.centerTrail.map(item => {
+            const sel = item.selectionRange?.start ?? item.range.start;
+            return {
+                itemKey: itemKey(item),
+                name: item.name,
+                file: fileLabel(item.uri),
+                line: sel.line + 1
+            };
+        });
+    }
+
+    private attachCenterTrail(graph: RelationGraph): RelationGraph {
+        graph.centerTrail = this.centerSnapshot();
+        graph.centerIndex = Math.max(0, this.centerIndex);
+        return graph;
+    }
+
+    /** 旧中心是调用链左边那一截，出现在图左侧 callers；右边是之后才走进去的中心。 */
+    private syncPrevFromTrail(): void {
+        this.prevRoot = this.centerIndex > 0 ? this.centerTrail[this.centerIndex - 1] : undefined;
     }
 
     getOpenTarget(nodeId: string, nodes: RelationNode[]): RelationOpenTarget | undefined {
@@ -402,6 +464,7 @@ export class CallRelationModel {
         this.incomingHint = undefined;
         this.root = next;
         this.remember(this.root);
+        this.resetCenter(this.root);
         const rootName = itemLabel(this.root);
         const tRoot = Date.now();
         await this.ensureOutgoing(this.root, seq);
@@ -564,10 +627,10 @@ export class CallRelationModel {
             ancestor = ancestor.parentId ? nodes.find(n => n.id === ancestor?.parentId) : undefined;
         }
 
-        const oldRoot = this.root;
-        this.prevRoot = oldRoot && itemKey(oldRoot) !== focus.itemKey ? oldRoot : undefined;
         this.root = item;
         this.remember(item);
+        this.recordCenter(item);
+        this.syncPrevFromTrail();
         this.shown.clear();
         this.incomingHint = focus.hop > 0 ? this.prevRoot : undefined;
         const tWarm = Date.now();
@@ -579,6 +642,43 @@ export class CallRelationModel {
         }
         const graph = await this.completeRootSides(seq, t0, itemLabel(item));
         costLog('focusNode', Date.now() - t0, itemLabel(item));
+        return graph ? { graph, seq } : undefined;
+    }
+
+    async focusTrail(index: number, nodes: RelationNode[]): Promise<RelationLoad | undefined> {
+        if (index < 0 || index >= this.centerTrail.length) {
+            return { graph: this.buildGraph(), seq: this.seq };
+        }
+        const item = this.centerTrail[index];
+        const key = itemKey(item);
+        if (this.root && itemKey(this.root) === key) {
+            this.centerIndex = index;
+            this.syncPrevFromTrail();
+            return { graph: this.buildGraph(), seq: this.seq };
+        }
+        const node = nodes.find(n => n.kind === 'symbol' && n.itemKey === key);
+        if (node) {
+            return this.focusNode(node.id, nodes);
+        }
+        this.cancel();
+        const seq = this.seq;
+        const t0 = Date.now();
+        this.centerIndex = index;
+        this.syncPrevFromTrail();
+        this.root = item;
+        this.remember(item);
+        this.shown.clear();
+        this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.collapseLock.clear();
+        this.keepExpand.add(`self\0${key}`);
+        this.incomingHint = this.prevRoot;
+        await this.ensureOutgoing(item, seq);
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
+        const graph = await this.completeRootSides(seq, t0, itemLabel(item));
         return graph ? { graph, seq } : undefined;
     }
 
@@ -730,12 +830,12 @@ export class CallRelationModel {
             }
         }
         this.syncToggleState(nodes);
-        return {
+        return this.attachCenterTrail({
             rootId: rootNode.id,
             title: this.root.name,
             nodes,
             edges
-        };
+        });
     }
 
     private syncToggleState(nodes: RelationNode[]): void {
@@ -758,7 +858,7 @@ export class CallRelationModel {
     }
 
     private emptyGraph(empty: string): RelationGraph {
-        return { rootId: '', title: '', nodes: [], edges: [], empty };
+        return this.attachCenterTrail({ rootId: '', title: '', nodes: [], edges: [], empty });
     }
 
     private isPinnedChild(parentKey: string, dir: -1 | 1, childKey: string): boolean {
