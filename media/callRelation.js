@@ -42,6 +42,7 @@ const findPrevBtn = document.getElementById('cr-find-prev');
 const findNextBtn = document.getElementById('cr-find-next');
 const findCloseBtn = document.getElementById('cr-find-close');
 const helpBtn = document.getElementById('cr-help');
+const tipsBtn = document.getElementById('cr-tips');
 const hintEl = document.getElementById('cr-hint');
 
 const ZOOM_MIN = 0.25;
@@ -69,6 +70,9 @@ let pinnedNodeId = '';
 let edgeStyle = 'arc';
 /** @type {Set<string>} */
 let nameOnlyIds = new Set();
+/** Hover tips on by default; off = hold Alt to show. */
+let tipsAuto = true;
+let altHeld = false;
 try {
     const saved = vscode.getState();
     if (saved && (saved.edgeStyle === 'direct' || saved.edgeStyle === 'arc' || saved.edgeStyle === 'elbow')) {
@@ -79,6 +83,9 @@ try {
     }
     if (saved && typeof saved.zoom === 'number' && saved.zoom > 0) {
         zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, saved.zoom));
+    }
+    if (saved && typeof saved.tipsAuto === 'boolean') {
+        tipsAuto = saved.tipsAuto;
     }
 } catch (_) { /* noop */ }
 
@@ -413,6 +420,7 @@ function persistViewState() {
         saved.edgeStyle = edgeStyle;
         saved.nameOnlyIds = [...nameOnlyIds];
         saved.zoom = zoom;
+        saved.tipsAuto = tipsAuto;
         vscode.setState(saved);
     } catch (_) { /* noop */ }
 }
@@ -472,7 +480,7 @@ function bindControlTip(node, nodeEl, btn, label) {
         } else {
             hideNodeTip();
         }
-        armLabelTip(label, btn, node.hop);
+        armLabelTip(label, btn, node.hop, ev);
     });
     btn.addEventListener('pointermove', ev => {
         ev.stopPropagation();
@@ -487,7 +495,7 @@ function bindControlTip(node, nodeEl, btn, label) {
             tipMoveX = ev.clientX;
             tipMoveY = ev.clientY;
             if (usesNodeTip(node)) {
-                armNodeTip(node, nodeEl);
+                armNodeTip(node, nodeEl, ev);
             }
         }
     });
@@ -1215,6 +1223,14 @@ function showCallChainMenu(e) {
     showCtxMenu(e, [{ label: 'Copy Call Chain', run: copyCallChain }]);
 }
 
+function resetView() {
+    if (!lastGraph || !lastGraph.rootId) {
+        return;
+    }
+    savedView = null;
+    scrollToNode(lastGraph.rootId);
+}
+
 function showCanvasMenu(e) {
     if (!lastGraph || !lastGraph.rootId) {
         return;
@@ -1222,7 +1238,8 @@ function showCanvasMenu(e) {
     /** @type {{ label: string, run: () => void }[]} */
     const items = [
         { label: 'Expand All', run: () => vscode.postMessage({ type: 'expandAll' }) },
-        { label: 'Collapse All', run: () => vscode.postMessage({ type: 'collapseAll' }) }
+        { label: 'Collapse All', run: () => vscode.postMessage({ type: 'collapseAll' }) },
+        { label: 'Reset View', run: resetView }
     ];
     const trail = (lastCenterTrail && lastCenterTrail.items) || [];
     if (trail.length >= 2) {
@@ -1939,31 +1956,52 @@ function hideNodeTip() {
     lastTipNodeId = '';
 }
 
-function armTip(spec) {
+function noteAlt(ev) {
+    if (ev && typeof ev.altKey === 'boolean') {
+        altHeld = ev.altKey;
+    }
+}
+
+function tipsEnabled() {
+    return tipsAuto || altHeld;
+}
+
+function armTip(spec, ev) {
+    if (ev) {
+        noteAlt(ev);
+    }
     if (tipVisitBlocked(spec.el)) {
+        return;
+    }
+    tipHover = spec;
+    if (!tipsEnabled()) {
+        if (nodeTipTimer) {
+            clearTimeout(nodeTipTimer);
+            nodeTipTimer = 0;
+        }
         return;
     }
     if (nodeTipTimer) {
         clearTimeout(nodeTipTimer);
     }
-    tipHover = spec;
     nodeTipTimer = setTimeout(() => {
         nodeTipTimer = 0;
-        if (tipHover && tipHover.el === spec.el && !tipVisitBlocked(spec.el)) {
+        if (tipHover && tipHover.el === spec.el && !tipVisitBlocked(spec.el) && tipsEnabled()) {
             showTip(spec);
         }
     }, tipDelayMs);
 }
 
-function armNodeTip(node, el) {
-    armTip({ node, el });
+function armNodeTip(node, el, ev) {
+    armTip({ node, el }, ev);
 }
 
-function armLabelTip(label, el, hop) {
-    armTip({ label, el, hop });
+function armLabelTip(label, el, hop, ev) {
+    armTip({ label, el, hop }, ev);
 }
 
 function onTipMove(ev, spec) {
+    noteAlt(ev);
     if (ev.clientX === tipMoveX && ev.clientY === tipMoveY) {
         return;
     }
@@ -1975,7 +2013,7 @@ function onTipMove(ev, spec) {
         tipHover = null;
         return;
     }
-    armTip(spec);
+    armTip(spec, ev);
 }
 
 function onNodeTipMove(ev, node, el) {
@@ -2504,7 +2542,7 @@ function render(graph) {
             if (usesNodeTip(node)) {
                 tipMoveX = ev.clientX;
                 tipMoveY = ev.clientY;
-                armNodeTip(node, el);
+                armNodeTip(node, el, ev);
             }
         });
         el.addEventListener('pointermove', ev => {
@@ -2636,7 +2674,7 @@ function render(graph) {
                         tipMoveX = ev.clientX;
                         tipMoveY = ev.clientY;
                         if (usesNodeTip(node)) {
-                            armNodeTip(node, el);
+                            armNodeTip(node, el, ev);
                         }
                     }
                 });
@@ -2726,6 +2764,59 @@ function bindPan(el) {
 pinBtn?.addEventListener('click', () => {
     const next = !pinBtn.classList.contains('is-on');
     vscode.postMessage({ type: 'setPinned', value: next });
+});
+
+function syncTipsBtn() {
+    if (!tipsBtn) {
+        return;
+    }
+    tipsBtn.classList.toggle('is-on', tipsAuto);
+    tipsBtn.setAttribute('aria-pressed', tipsAuto ? 'true' : 'false');
+    tipsBtn.setAttribute('aria-label', tipsAuto ? 'Node tips on' : 'Node tips off, hold Alt to show');
+    tipsBtn.title = tipsAuto
+        ? 'Tips on — hover to show. Click to show only while holding Alt.'
+        : 'Tips off — hold Alt to show. Click to show on hover.';
+}
+
+function applyTipsAuto(next) {
+    tipsAuto = !!next;
+    persistViewState();
+    syncTipsBtn();
+    if (!tipsEnabled()) {
+        hideNodeTip();
+    } else if (tipHover) {
+        armTip(tipHover);
+    }
+}
+
+syncTipsBtn();
+tipsBtn?.addEventListener('click', () => {
+    applyTipsAuto(!tipsAuto);
+});
+
+window.addEventListener('keydown', e => {
+    if (e.key !== 'Alt' || e.repeat) {
+        return;
+    }
+    altHeld = true;
+    if (!tipsAuto && tipHover && !isTypingTarget(e.target)) {
+        armTip(tipHover);
+    }
+});
+window.addEventListener('keyup', e => {
+    if (e.key !== 'Alt') {
+        return;
+    }
+    altHeld = false;
+    if (!tipsAuto) {
+        hideNodeTip();
+    }
+});
+window.addEventListener('blur', () => {
+    altHeld = false;
+    if (!tipsAuto) {
+        hideNodeTip();
+    }
 });
 
 helpBtn?.addEventListener('click', () => {
