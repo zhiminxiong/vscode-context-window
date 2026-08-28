@@ -410,7 +410,53 @@
         "contextView.callRelation.compactFilter": {
           "type": "boolean",
           "default": false,
-          "description": "When on, Call Relation keeps Function, Method, Constructor, Class, Struct, Variable, Constant, and Property. Namespace, Interface, and other type-only symbols are hidden. Off by default. Toggle from the Call Relation toolbar (Slim)."
+          "description": "When on, Call Relation keeps only the symbol kinds checked in contextView.callRelation.compactKinds. Off by default. Toggle from the Call Relation toolbar (Slim)."
+        },
+        "contextView.callRelation.compactKinds": {
+          "type": "array",
+          "default": [
+            "function",
+            "method",
+            "constructor",
+            "class",
+            "struct",
+            "variable",
+            "constant",
+            "property"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+              "file",
+              "module",
+              "namespace",
+              "package",
+              "class",
+              "method",
+              "property",
+              "field",
+              "constructor",
+              "enum",
+              "interface",
+              "function",
+              "variable",
+              "constant",
+              "string",
+              "number",
+              "boolean",
+              "array",
+              "object",
+              "key",
+              "null",
+              "enumMember",
+              "struct",
+              "event",
+              "operator",
+              "typeParameter"
+            ]
+          },
+          "uniqueItems": true,
+          "description": "Symbol kinds kept when Slim is on. Change them from the list beside the Slim button."
         },
         "contextView.callRelation.updateMode": {
           "type": "string",

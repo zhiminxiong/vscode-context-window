@@ -218,17 +218,74 @@ function isLibPath(fsPath: string): boolean {
     return p.endsWith('.d.ts') || p.includes('/node_modules/');
 }
 
-/** Slim mode keeps call-like symbols; Namespace / Interface and other type-only kinds are dropped. */
-const COMPACT_KEEP_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
-    vscode.SymbolKind.Function,
-    vscode.SymbolKind.Method,
-    vscode.SymbolKind.Constructor,
-    vscode.SymbolKind.Class,
-    vscode.SymbolKind.Struct,
-    vscode.SymbolKind.Variable,
-    vscode.SymbolKind.Constant,
-    vscode.SymbolKind.Property
-]);
+export const SLIM_KIND_OPTIONS: readonly { id: string; kind: vscode.SymbolKind; label: string }[] = [
+    { id: 'function', kind: vscode.SymbolKind.Function, label: 'Function' },
+    { id: 'method', kind: vscode.SymbolKind.Method, label: 'Method' },
+    { id: 'constructor', kind: vscode.SymbolKind.Constructor, label: 'Constructor' },
+    { id: 'class', kind: vscode.SymbolKind.Class, label: 'Class' },
+    { id: 'struct', kind: vscode.SymbolKind.Struct, label: 'Struct' },
+    { id: 'variable', kind: vscode.SymbolKind.Variable, label: 'Variable' },
+    { id: 'constant', kind: vscode.SymbolKind.Constant, label: 'Constant' },
+    { id: 'property', kind: vscode.SymbolKind.Property, label: 'Property' },
+    { id: 'file', kind: vscode.SymbolKind.File, label: 'File' },
+    { id: 'module', kind: vscode.SymbolKind.Module, label: 'Module' },
+    { id: 'namespace', kind: vscode.SymbolKind.Namespace, label: 'Namespace' },
+    { id: 'package', kind: vscode.SymbolKind.Package, label: 'Package' },
+    { id: 'field', kind: vscode.SymbolKind.Field, label: 'Field' },
+    { id: 'enum', kind: vscode.SymbolKind.Enum, label: 'Enum' },
+    { id: 'interface', kind: vscode.SymbolKind.Interface, label: 'Interface' },
+    { id: 'string', kind: vscode.SymbolKind.String, label: 'String' },
+    { id: 'number', kind: vscode.SymbolKind.Number, label: 'Number' },
+    { id: 'boolean', kind: vscode.SymbolKind.Boolean, label: 'Boolean' },
+    { id: 'array', kind: vscode.SymbolKind.Array, label: 'Array' },
+    { id: 'object', kind: vscode.SymbolKind.Object, label: 'Object' },
+    { id: 'key', kind: vscode.SymbolKind.Key, label: 'Key' },
+    { id: 'null', kind: vscode.SymbolKind.Null, label: 'Null' },
+    { id: 'enumMember', kind: vscode.SymbolKind.EnumMember, label: 'EnumMember' },
+    { id: 'event', kind: vscode.SymbolKind.Event, label: 'Event' },
+    { id: 'operator', kind: vscode.SymbolKind.Operator, label: 'Operator' },
+    { id: 'typeParameter', kind: vscode.SymbolKind.TypeParameter, label: 'TypeParameter' }
+];
+
+export const DEFAULT_SLIM_KIND_IDS: readonly string[] = [
+    'function',
+    'method',
+    'constructor',
+    'class',
+    'struct',
+    'variable',
+    'constant',
+    'property'
+];
+
+const SLIM_KIND_BY_ID = new Map(SLIM_KIND_OPTIONS.map(item => [item.id, item.kind]));
+
+export function parseSlimKindIds(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+        return [...DEFAULT_SLIM_KIND_IDS];
+    }
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const entry of value) {
+        if (typeof entry !== 'string' || !SLIM_KIND_BY_ID.has(entry) || seen.has(entry)) {
+            continue;
+        }
+        seen.add(entry);
+        ids.push(entry);
+    }
+    return ids;
+}
+
+function kindsFromIds(ids: readonly string[]): Set<vscode.SymbolKind> {
+    const kinds = new Set<vscode.SymbolKind>();
+    for (const id of ids) {
+        const kind = SLIM_KIND_BY_ID.get(id);
+        if (kind !== undefined) {
+            kinds.add(kind);
+        }
+    }
+    return kinds;
+}
 
 function toSymbolNode(
     item: vscode.CallHierarchyItem,
@@ -270,8 +327,9 @@ export class CallRelationModel {
     private centerIndex = -1;
     /** Shown on the left until root incoming lands (focus from a callee). */
     private incomingHint: vscode.CallHierarchyItem | undefined;
-    /** When true, keep call-like kinds including Class / Struct; drop Namespace / Interface and similar. */
+    /** When true, keep only compactKinds from incoming and outgoing. */
     private compactFilter = false;
+    private compactKinds = kindsFromIds(DEFAULT_SLIM_KIND_IDS);
     private seq = 0;
     private cacheEpoch = 0;
     private readonly fileGen = new Map<string, number>();
@@ -334,8 +392,12 @@ export class CallRelationModel {
         this.compactFilter = on;
     }
 
+    setCompactKinds(ids: readonly string[]): void {
+        this.compactKinds = kindsFromIds(ids);
+    }
+
     private keepCallItem(item: vscode.CallHierarchyItem): boolean {
-        return !this.compactFilter || COMPACT_KEEP_KINDS.has(item.kind);
+        return !this.compactFilter || this.compactKinds.has(item.kind);
     }
 
     private sideList(item: vscode.CallHierarchyItem, dir: -1 | 1): vscode.CallHierarchyItem[] | undefined {

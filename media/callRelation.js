@@ -27,6 +27,7 @@ const emptyEl = document.getElementById('cr-empty');
 const pinBtn = document.getElementById('cr-pin');
 const updateBtn = document.getElementById('cr-update');
 const slimBtn = document.getElementById('cr-slim');
+const slimKindsBtn = document.getElementById('cr-slim-kinds');
 const styleBtn = document.getElementById('cr-style');
 const zoomInBtn = document.getElementById('cr-zoom-in');
 const zoomOutBtn = document.getElementById('cr-zoom-out');
@@ -2514,21 +2515,195 @@ updateBtn?.addEventListener('click', () => {
     vscode.postMessage({ type: 'setUpdateMode', value: next });
 });
 
+const SLIM_KIND_ITEMS = [
+    { id: 'function', label: 'Function' },
+    { id: 'method', label: 'Method' },
+    { id: 'constructor', label: 'Constructor' },
+    { id: 'class', label: 'Class' },
+    { id: 'struct', label: 'Struct' },
+    { id: 'variable', label: 'Variable' },
+    { id: 'constant', label: 'Constant' },
+    { id: 'property', label: 'Property' },
+    { id: 'file', label: 'File' },
+    { id: 'module', label: 'Module' },
+    { id: 'namespace', label: 'Namespace' },
+    { id: 'package', label: 'Package' },
+    { id: 'field', label: 'Field' },
+    { id: 'enum', label: 'Enum' },
+    { id: 'interface', label: 'Interface' },
+    { id: 'string', label: 'String' },
+    { id: 'number', label: 'Number' },
+    { id: 'boolean', label: 'Boolean' },
+    { id: 'array', label: 'Array' },
+    { id: 'object', label: 'Object' },
+    { id: 'key', label: 'Key' },
+    { id: 'null', label: 'Null' },
+    { id: 'enumMember', label: 'EnumMember' },
+    { id: 'event', label: 'Event' },
+    { id: 'operator', label: 'Operator' },
+    { id: 'typeParameter', label: 'TypeParameter' }
+];
+
+const DEFAULT_SLIM_KIND_IDS = [
+    'function',
+    'method',
+    'constructor',
+    'class',
+    'struct',
+    'variable',
+    'constant',
+    'property'
+];
+
+/** @type {string[]} */
+let compactKinds = DEFAULT_SLIM_KIND_IDS.slice();
+
+function normalizeCompactKinds(value) {
+    if (!Array.isArray(value)) {
+        return DEFAULT_SLIM_KIND_IDS.slice();
+    }
+    const allowed = new Set(SLIM_KIND_ITEMS.map(item => item.id));
+    const ids = [];
+    const seen = new Set();
+    for (const entry of value) {
+        if (typeof entry !== 'string' || !allowed.has(entry) || seen.has(entry)) {
+            continue;
+        }
+        seen.add(entry);
+        ids.push(entry);
+    }
+    return ids;
+}
+
 function applyCompactFilter(on) {
     const slim = !!on;
     if (slimBtn) {
         slimBtn.classList.toggle('is-on', slim);
         slimBtn.setAttribute('aria-pressed', slim ? 'true' : 'false');
         slimBtn.title = slim
-            ? 'Slim filter on — keep Function, Method, Constructor, Class, Struct, Variable, Constant, Property'
+            ? 'Slim filter on — keep the kinds checked in the list'
             : 'Slim filter off — show every symbol the language server returns';
     }
+    slimKindsBtn?.classList.toggle('is-on', slim);
+}
+
+function applyCompactKinds(value, fromHost) {
+    if (fromHost && document.getElementById('cr-slim-menu')) {
+        return;
+    }
+    compactKinds = normalizeCompactKinds(value);
+    syncSlimKindMenu();
+}
+
+function slimKindChecked(id) {
+    return compactKinds.indexOf(id) >= 0;
+}
+
+function toggleSlimKind(id) {
+    const next = compactKinds.slice();
+    const index = next.indexOf(id);
+    if (index >= 0) {
+        next.splice(index, 1);
+    } else {
+        const order = SLIM_KIND_ITEMS.map(item => item.id);
+        next.push(id);
+        next.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    }
+    applyCompactKinds(next);
+    vscode.postMessage({ type: 'setCompactKinds', value: next });
+}
+
+function syncSlimKindMenu() {
+    const menu = document.getElementById('cr-slim-menu');
+    if (!menu) {
+        return;
+    }
+    menu.querySelectorAll('[data-kind]').forEach(el => {
+        const id = el.getAttribute('data-kind');
+        const on = slimKindChecked(id);
+        el.classList.toggle('is-checked', on);
+        el.setAttribute('aria-checked', on ? 'true' : 'false');
+        const box = el.querySelector('input[type="checkbox"]');
+        if (box) {
+            box.checked = on;
+        }
+    });
+}
+
+let slimMenuClose = null;
+
+function closeSlimMenu() {
+    const menu = document.getElementById('cr-slim-menu');
+    if (menu) {
+        menu.remove();
+    }
+    slimKindsBtn?.classList.remove('is-open');
+    slimKindsBtn?.setAttribute('aria-expanded', 'false');
+    if (slimMenuClose) {
+        document.removeEventListener('mousedown', slimMenuClose, true);
+        slimMenuClose = null;
+    }
+}
+
+function openSlimMenu() {
+    if (!slimKindsBtn) {
+        return;
+    }
+    if (document.getElementById('cr-slim-menu')) {
+        closeSlimMenu();
+        return;
+    }
+    closeStyleMenu();
+    const menu = document.createElement('div');
+    menu.id = 'cr-slim-menu';
+    menu.className = 'cr-style-menu cr-slim-menu';
+    SLIM_KIND_ITEMS.forEach(item => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'cr-slim-menu-item' + (slimKindChecked(item.id) ? ' is-checked' : '');
+        el.setAttribute('data-kind', item.id);
+        el.setAttribute('role', 'menuitemcheckbox');
+        el.setAttribute('aria-checked', slimKindChecked(item.id) ? 'true' : 'false');
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.tabIndex = -1;
+        box.checked = slimKindChecked(item.id);
+        const label = document.createElement('span');
+        label.textContent = item.label;
+        el.appendChild(box);
+        el.appendChild(label);
+        el.addEventListener('click', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleSlimKind(item.id);
+        });
+        menu.appendChild(el);
+    });
+    const wrap = document.getElementById('cr-slim-wrap') || slimKindsBtn.parentElement;
+    (wrap || document.body).appendChild(menu);
+    slimKindsBtn.classList.add('is-open');
+    slimKindsBtn.setAttribute('aria-expanded', 'true');
+    slimMenuClose = e => {
+        if ((slimBtn && slimBtn.contains(e.target))
+            || slimKindsBtn.contains(e.target)
+            || menu.contains(e.target)) {
+            return;
+        }
+        closeSlimMenu();
+    };
+    document.addEventListener('mousedown', slimMenuClose, true);
 }
 
 slimBtn?.addEventListener('click', () => {
     const next = !slimBtn.classList.contains('is-on');
     applyCompactFilter(next);
     vscode.postMessage({ type: 'setCompactFilter', value: next });
+});
+
+slimKindsBtn?.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    openSlimMenu();
 });
 
 let styleMenuDocDown = null;
@@ -2553,6 +2728,7 @@ function openStyleMenu() {
         closeStyleMenu();
         return;
     }
+    closeSlimMenu();
     const menu = document.createElement('div');
     menu.id = 'cr-style-menu';
     menu.className = 'cr-style-menu';
@@ -2706,6 +2882,7 @@ window.addEventListener('message', ev => {
         }
         applyUpdateMode(msg.updateMode);
         applyCompactFilter(!!msg.compactFilter);
+        applyCompactKinds(msg.compactKinds, true);
         applyEdgeStyle(normalizeEdgeStyle(msg.edgeStyle));
         if (typeof msg.hoverDelay === 'number' && Number.isFinite(msg.hoverDelay) && msg.hoverDelay >= 0) {
             tipDelayMs = msg.hoverDelay;
@@ -2818,6 +2995,10 @@ document.addEventListener('keydown', e => {
         }
         if (document.getElementById('cr-style-menu')) {
             closeStyleMenu();
+            return;
+        }
+        if (document.getElementById('cr-slim-menu')) {
+            closeSlimMenu();
             return;
         }
         if (document.getElementById('cr-ctx-menu')) {
