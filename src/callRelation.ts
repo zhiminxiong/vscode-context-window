@@ -27,6 +27,7 @@ export interface RelationNode {
     expandKey?: string;
     compact?: boolean;
     prevCenter?: boolean;
+    cyclic?: boolean;
 }
 
 export interface RelationEdge {
@@ -139,6 +140,21 @@ function compareItems(a: vscode.CallHierarchyItem, b: vscode.CallHierarchyItem):
 
 function visualId(key: string, hop: number, parentId: string): string {
     return `${key}@${hop}@${parentId}`;
+}
+
+function ancestorHasItemKey(nodes: RelationNode[], parentId: string | undefined, key: string): boolean {
+    if (!parentId || !key) {
+        return false;
+    }
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    let cur = byId.get(parentId);
+    while (cur) {
+        if (cur.itemKey === key) {
+            return true;
+        }
+        cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return false;
 }
 
 function branchKeepKey(parentKey: string, dir: -1 | 1, childKey: string): string {
@@ -807,7 +823,6 @@ export class CallRelationModel {
             [...libByFile.entries()].filter(([, list]) => list.length >= 2).map(([file]) => file)
         );
         const seenGroup = new Set<string>();
-        const rootKey = this.root ? itemKey(this.root) : '';
         const pendingExpand: RelationNode[] = [];
         const link = (fromId: string, toId: string, childKey: string) => {
             if (edges.some(e => e.from === fromId && e.to === toId)) {
@@ -821,19 +836,19 @@ export class CallRelationModel {
         };
         const emitChild = (child: vscode.CallHierarchyItem) => {
             const childKey = itemKey(child);
-            if (childKey === rootKey) {
-                return;
-            }
+            const cyclic = ancestorHasItemKey(nodes, parent.id, childKey);
             const childNode = toSymbolNode(child, hop, parent.id, false);
             if (nodes.some(n => n.id === childNode.id)) {
                 return;
             }
-            const opened = !this.collapseLock.has(childNode.id)
+            const opened = !cyclic
+                && !this.collapseLock.has(childNode.id)
                 && (this.expanded.has(childNode.id)
                     || this.keepExpand.has(branchKeepKey(parent.itemKey, dir, childKey))
                     || this.keepExpand.has(`self\0${childKey}`));
+            childNode.cyclic = cyclic;
             childNode.expanded = opened;
-            childNode.expandable = Math.abs(hop) < CALL_MAX_HOP && this.canExpand(child, dir);
+            childNode.expandable = !cyclic && Math.abs(hop) < CALL_MAX_HOP && this.canExpand(child, dir);
             childNode.compact = compact;
             nodes.push(childNode);
             if (dir < 0) {
@@ -869,10 +884,7 @@ export class CallRelationModel {
                 continue;
             }
             const file = slot.file;
-            const bunch = (libByFile.get(file) || []).filter(item => {
-                const k = itemKey(item);
-                return k !== rootKey;
-            }).sort(compareItems);
+            const bunch = (libByFile.get(file) || []).slice().sort(compareItems);
             if (bunch.length < 2) {
                 for (const item of bunch) {
                     emitChild(item);

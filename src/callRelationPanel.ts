@@ -424,7 +424,7 @@ export class CallRelationPanel {
       <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
     </div>
   </header>
-  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. Find uses the editor Find shortcut. Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
+  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. Find uses the editor Find shortcut. Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
   <div class="cr-main">
     <div class="cr-find" id="cr-find">
       <div class="cr-find-field">

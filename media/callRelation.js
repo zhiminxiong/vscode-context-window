@@ -531,6 +531,82 @@ function pathFocusIds(graph, nodeId) {
     return ids;
 }
 
+function isCyclicNode(graph, node) {
+    if (!node || node.kind !== 'symbol' || !node.itemKey) {
+        return false;
+    }
+    if (node.cyclic) {
+        return true;
+    }
+    if (!node.parentId) {
+        return false;
+    }
+    const byId = new Map(graph.nodes.map(n => [n.id, n]));
+    let cur = byId.get(node.parentId);
+    while (cur) {
+        if (cur.itemKey === node.itemKey) {
+            return true;
+        }
+        cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    return false;
+}
+
+function createCycleBadge() {
+    const badge = document.createElement('span');
+    badge.className = 'cr-cycle';
+    badge.setAttribute('aria-hidden', 'true');
+    badge.title = 'Repeats an ancestor on this path';
+    badge.textContent = '↻';
+    return badge;
+}
+
+function addSiteCountLabel(g, pathEl, count, nearTail, nodePos) {
+    if (count <= 1) {
+        return;
+    }
+    const text = String(count);
+    const rx = Math.max(7, 3.6 + text.length * 3.4);
+    const ry = 6.5;
+    const gap = 4;
+    let x = 0;
+    let y = 0;
+    try {
+        const len = pathEl.getTotalLength();
+        if (!(len > 0)) {
+            return;
+        }
+        const pt = pathEl.getPointAtLength(nearTail ? 0 : len);
+        y = pt.y - (ry + 4);
+        if (nodePos) {
+            const w = nodeW(nodePos);
+            x = nearTail
+                ? nodePos.x + w + gap + rx
+                : nodePos.x - gap - rx;
+        } else {
+            x = nearTail ? pt.x + gap + rx : pt.x - gap - rx;
+        }
+    } catch (_) {
+        return;
+    }
+    const wrap = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    wrap.setAttribute('class', 'cr-edge-count');
+    wrap.setAttribute('transform', `translate(${x} ${y})`);
+    wrap.setAttribute('pointer-events', 'none');
+    const oval = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    oval.setAttribute('cx', '0');
+    oval.setAttribute('cy', '0');
+    oval.setAttribute('rx', String(rx));
+    oval.setAttribute('ry', String(ry));
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', '0');
+    label.setAttribute('y', '0');
+    label.textContent = text;
+    wrap.appendChild(oval);
+    wrap.appendChild(label);
+    g.appendChild(wrap);
+}
+
 function createPathPinBadge() {
     const badge = document.createElement('span');
     badge.className = 'cr-path-pin';
@@ -1116,6 +1192,12 @@ function fillNodeTip(tip, node) {
         detail.textContent = node.detail;
         tip.appendChild(detail);
     }
+    if (lastGraph && isCyclicNode(lastGraph, node)) {
+        const cycle = document.createElement('div');
+        cycle.className = 'cr-node-tip-detail';
+        cycle.textContent = 'Repeats an ancestor on this path';
+        tip.appendChild(cycle);
+    }
     if (node.file || node.path) {
         const sep = document.createElement('div');
         sep.className = 'cr-node-tip-sep';
@@ -1432,6 +1514,7 @@ function render(graph) {
     const ports = isSpreadStyle(edgeStyle) ? edgePorts(graph, pos) : {};
     /** @type {Map<string, string[]>} */
     const edgesByNode = new Map();
+    const nodeById = new Map(graph.nodes.map(n => [n.id, n]));
     for (const edge of graph.edges) {
         const a = pos[edge.from];
         const b = pos[edge.to];
@@ -1487,6 +1570,11 @@ function render(graph) {
             g.appendChild(hit);
         }
         svg.appendChild(g);
+        if (live && edge.sites.length > 1) {
+            const from = nodeById.get(edge.from);
+            const nearTail = !!(from && from.parentId === edge.to);
+            addSiteCountLabel(g, path, edge.sites.length, nearTail, pos[nearTail ? edge.from : edge.to]);
+        }
     }
     svg.appendChild(hoverLayer);
 
@@ -1514,6 +1602,9 @@ function render(graph) {
         }
         if (node.compact) {
             el.classList.add('is-compact');
+        }
+        if (isCyclicNode(graph, node)) {
+            el.classList.add('is-cycle');
         }
         el.dataset.nodeId = node.id;
         el.style.left = p.x + 'px';
@@ -1651,6 +1742,9 @@ function render(graph) {
                 el.appendChild(exp);
             }
             addThumb(el, head, node);
+        }
+        if (el.classList.contains('is-cycle')) {
+            el.appendChild(createCycleBadge());
         }
         canvas.appendChild(el);
     }
