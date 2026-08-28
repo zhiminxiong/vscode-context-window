@@ -16,12 +16,34 @@ html, body {
     --cr-btn-on-bg: #007acc;
     --cr-btn-on-hover: #3aa8ea;
     --cr-chip-line: color-mix(in srgb, var(--cr-btn-fg) 18%, transparent);
+    --cr-root-bg: var(--vscode-button-background, #007acc);
+    --cr-root-fg: var(--vscode-button-foreground, #ffffff);
+    --cr-accent: var(--vscode-textLink-foreground, #3794ff);
+    --cr-focus: var(--vscode-focusBorder, #007fd4);
+    --cr-focus-glow: color-mix(in srgb, var(--cr-focus) 50%, transparent);
     --cr-menu-bg: #f3f3f3;
     --cr-menu-fg: #1f1f1f;
     --cr-menu-border: #d0d0d0;
 }
 
-body.vscode-dark,
+body.vscode-dark {
+    --cr-btn-fg: var(--vscode-foreground, #e0e0e0);
+    --cr-btn-bg: transparent;
+    --cr-btn-hover: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+    --cr-btn-on-fg: #e8eef5;
+    --cr-btn-on-bg: #2c5270;
+    --cr-btn-on-hover: #386584;
+    --cr-chip-line: color-mix(in srgb, var(--cr-btn-fg) 22%, transparent);
+    --cr-root-bg: #2c5270;
+    --cr-root-fg: #e8eef5;
+    --cr-accent: #6b9ec4;
+    --cr-focus: #5a8bb0;
+    --cr-focus-glow: color-mix(in srgb, var(--cr-focus) 32%, transparent);
+    --cr-menu-bg: #2d2d2d;
+    --cr-menu-fg: #e0e0e0;
+    --cr-menu-border: #555555;
+}
+
 body.vscode-high-contrast {
     --cr-btn-fg: var(--vscode-foreground, #e0e0e0);
     --cr-btn-bg: transparent;
@@ -30,6 +52,11 @@ body.vscode-high-contrast {
     --cr-btn-on-bg: #0e639c;
     --cr-btn-on-hover: #1177bb;
     --cr-chip-line: color-mix(in srgb, var(--cr-btn-fg) 22%, transparent);
+    --cr-root-bg: var(--vscode-button-background, #0e639c);
+    --cr-root-fg: var(--vscode-button-foreground, #ffffff);
+    --cr-accent: var(--vscode-textLink-foreground, #3794ff);
+    --cr-focus: var(--vscode-focusBorder, #007fd4);
+    --cr-focus-glow: var(--cr-focus);
     --cr-menu-bg: #2d2d2d;
     --cr-menu-fg: #e0e0e0;
     --cr-menu-border: #555555;
@@ -617,7 +644,7 @@ body.is-loading .cr-bar {
     left: -120px;
     width: 120px;
     height: 100%;
-    background-color: var(--vscode-progressBar-background, #0e70c0);
+    background-color: var(--cr-accent, var(--vscode-progressBar-background, #0e70c0));
     animation: cr-progress 1.5s ease-in-out infinite;
 }
 
@@ -663,7 +690,7 @@ body.is-loading .cr-bar {
 
 .cr-edge {
     fill: none;
-    stroke: var(--vscode-textLink-foreground, #3794ff);
+    stroke: var(--cr-accent, #3794ff);
     stroke-width: 1.2;
     stroke-linejoin: round;
     stroke-linecap: round;
@@ -715,7 +742,7 @@ body.is-loading .cr-bar {
 }
 
 .cr-arrow {
-    fill: var(--vscode-textLink-foreground, #3794ff);
+    fill: var(--cr-accent, #3794ff);
     fill-opacity: 1;
     stroke: none;
 }
@@ -726,15 +753,15 @@ body.is-loading .cr-bar {
 
 .cr-canvas.is-direct .cr-node:hover {
     z-index: 4;
-    background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 16%, var(--vscode-editor-background)));
-    border-color: var(--vscode-focusBorder, #007fd4);
-    box-shadow: 0 0 0 2px var(--vscode-focusBorder, #007fd4);
+    background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--cr-focus) 16%, var(--vscode-editor-background)));
+    border-color: var(--cr-focus);
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
 .cr-canvas.is-direct .cr-node.is-root:hover {
-    background: var(--vscode-button-background);
-    border-color: var(--vscode-focusBorder, #007fd4);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 50%, transparent);
+    background: var(--cr-root-bg);
+    border-color: var(--cr-focus);
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
 .cr-node {
@@ -757,17 +784,17 @@ body.is-loading .cr-bar {
 
 .cr-node:hover {
     z-index: 4;
-    background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 12%, var(--vscode-editor-background)));
-    border-color: var(--vscode-focusBorder, #007fd4);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 50%, transparent);
+    background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--cr-focus) 12%, var(--vscode-editor-background)));
+    border-color: var(--cr-focus);
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
 .cr-node.is-root {
     min-height: 64px;
     padding: 8px 10px;
-    border-color: var(--vscode-button-background);
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
+    border-color: var(--cr-root-bg);
+    background: var(--cr-root-bg);
+    color: var(--cr-root-fg);
     box-shadow: none;
 }
 
@@ -783,47 +810,47 @@ body.is-loading .cr-bar {
 .cr-node.is-root .cr-node-meta {
     font-size: 12px;
     line-height: 16px;
-    color: color-mix(in srgb, var(--vscode-button-foreground) 72%, transparent);
+    color: color-mix(in srgb, var(--cr-root-fg) 72%, transparent);
 }
 
 .cr-node.is-root:hover {
-    background: var(--vscode-button-background);
-    border-color: var(--vscode-focusBorder, #007fd4);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 50%, transparent);
+    background: var(--cr-root-bg);
+    border-color: var(--cr-focus);
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
 .cr-node.is-prev:hover {
     background: var(--vscode-list-hoverBackground);
-    border-color: var(--vscode-textLink-foreground, #3794ff);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 45%, transparent);
+    border-color: var(--cr-accent);
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
 .cr-node.is-selected:hover {
-    box-shadow: 0 0 0 2px var(--vscode-focusBorder, #007fd4);
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
 .cr-node.is-root.is-selected:hover {
-    background: var(--vscode-button-background);
-    border-color: var(--vscode-focusBorder, #007fd4);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 50%, transparent);
+    background: var(--cr-root-bg);
+    border-color: var(--cr-focus);
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
 .cr-node.is-prev {
     border-style: solid;
     border-width: 2px;
-    border-color: var(--vscode-textLink-foreground, #3794ff);
-    background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 10%, var(--vscode-editor-background));
+    border-color: var(--cr-accent);
+    background: color-mix(in srgb, var(--cr-accent) 10%, var(--vscode-editor-background));
     box-shadow: none;
 }
 
 .cr-node.is-selected {
-    border-color: var(--vscode-focusBorder, #007fd4);
-    box-shadow: 0 0 0 2px var(--vscode-focusBorder, #007fd4);
+    border-color: var(--cr-focus);
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
     z-index: 3;
 }
 
 .cr-node.is-root.is-selected {
-    box-shadow: 0 0 0 2px var(--vscode-button-hoverBackground, var(--vscode-focusBorder, #007fd4));
+    box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
 .cr-canvas.is-focus .cr-node:not(.is-on-path):not(.is-find-hit),
@@ -908,7 +935,7 @@ body.is-loading .cr-bar {
 }
 
 .cr-node.is-root.is-find-current {
-    background: color-mix(in srgb, var(--vscode-editor-findMatchBackground, #ea5c00) 45%, var(--vscode-button-background));
+    background: color-mix(in srgb, var(--vscode-editor-findMatchBackground, #ea5c00) 45%, var(--cr-root-bg));
     box-shadow: 0 0 0 3px var(--vscode-editor-findMatchBackground, #ea5c00);
 }
 
@@ -937,7 +964,7 @@ body.is-loading .cr-bar {
     box-sizing: border-box;
     pointer-events: none;
     z-index: 1;
-    border: 2px dashed var(--vscode-textLink-foreground, #3794ff);
+    border: 2px dashed var(--cr-accent, #3794ff);
     border-radius: 10px;
 }
 
@@ -1079,12 +1106,12 @@ body.is-loading .cr-bar {
 }
 
 .cr-thumb:hover {
-    color: var(--vscode-focusBorder, #007fd4);
+    color: var(--cr-focus);
     background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
 }
 
 .cr-node.is-root .cr-thumb {
-    color: color-mix(in srgb, var(--vscode-button-foreground) 80%, transparent);
+    color: color-mix(in srgb, var(--cr-root-fg) 80%, transparent);
 }
 
 .cr-toggle {
@@ -1128,8 +1155,8 @@ body.is-loading .cr-bar {
 }
 
 .cr-toggle:hover {
-    border-color: var(--vscode-focusBorder, #007fd4);
-    color: var(--vscode-focusBorder, #007fd4);
+    border-color: var(--cr-focus);
+    color: var(--cr-focus);
 }
 
 .cr-toggle.is-left {
