@@ -2510,6 +2510,9 @@ function render(graph) {
         }
         if (node.kind === 'group') {
             el.classList.add('is-group');
+            if (node.expanded) {
+                el.classList.add('is-expanded');
+            }
         }
         if (node.compact) {
             el.classList.add('is-compact');
@@ -2588,13 +2591,16 @@ function render(graph) {
             const name = document.createElement('div');
             name.className = 'cr-node-name';
             fillNodeName(name, node);
+            const caret = document.createElement('span');
+            caret.className = 'cr-group-caret';
+            caret.setAttribute('aria-hidden', 'true');
+            head.appendChild(caret);
             head.appendChild(name);
             el.appendChild(head);
             const meta = document.createElement('div');
             meta.className = 'cr-node-meta';
-            meta.textContent = node.expanded
-                ? 'Hide library symbols'
-                : `${node.moreCount || 0} library symbols`;
+            const n = node.moreCount || 0;
+            meta.textContent = `${n} library symbol${n === 1 ? '' : 's'}`;
             el.appendChild(meta);
             el.addEventListener('click', ev => {
                 ev.stopPropagation();

@@ -1033,13 +1033,45 @@ body.is-loading .cr-bar {
 }
 
 .cr-node.is-group {
-    color: var(--vscode-descriptionForeground);
     border-style: dashed;
 }
 
 .cr-node.is-group .cr-node-name {
-    font-weight: 600;
-    color: inherit;
+    font-weight: 700;
+    color: var(--cr-accent, #3794ff);
+}
+
+.cr-node.is-group .cr-node-meta {
+    color: var(--vscode-descriptionForeground);
+}
+
+.cr-group-caret {
+    flex: 0 0 auto;
+    width: 0;
+    height: 0;
+    margin-right: 2px;
+    border-style: solid;
+    border-width: 4px 0 4px 6px;
+    border-color: transparent transparent transparent var(--cr-accent, #3794ff);
+}
+
+.cr-node.is-group.is-expanded .cr-group-caret {
+    margin-top: 2px;
+    border-width: 6px 4px 0 4px;
+    border-color: var(--cr-accent, #3794ff) transparent transparent transparent;
+}
+
+.cr-node.is-group.is-expanded {
+    border-style: solid;
+    border-color: transparent;
+    background: color-mix(in srgb, var(--cr-accent) 10%, var(--vscode-editor-background));
+    box-shadow: none;
+}
+
+.cr-node.is-group.is-expanded:hover,
+.cr-node.is-group.is-expanded.is-twin {
+    border-color: var(--cr-selected);
+    background: color-mix(in srgb, var(--cr-accent) 16%, var(--vscode-editor-background));
 }
 
 .cr-group-frame {
@@ -1117,7 +1149,7 @@ body.is-loading .cr-bar {
 }
 
 .cr-node.is-group .cr-node-name.has-short::after {
-    color: var(--vscode-descriptionForeground);
+    color: var(--cr-accent, #3794ff);
 }
 
 .cr-node-meta {
