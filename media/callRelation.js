@@ -631,8 +631,31 @@ function createTwinBadge(node, twins) {
         const list = twins.slice().sort(sortByLayout);
         const i = list.findIndex(t => t.id === node.id);
         const next = list[(i < 0 ? 0 : i + 1) % list.length];
-        if (next && next.id !== node.id) {
-            selectNode(next, true);
+        if (!next || next.id === node.id) {
+            return;
+        }
+        const r = badge.getBoundingClientRect();
+        const ox = ev.clientX - r.left;
+        const oy = ev.clientY - r.top;
+        const fromEl = badge.closest('.cr-node');
+        selectNode(next, false);
+        scrollKeepPointer(next.id, ev.clientX, ev.clientY, ox, oy, '.cr-twin');
+        if (fromEl) {
+            fromEl.dispatchEvent(new PointerEvent('pointerleave', {
+                bubbles: true,
+                clientX: ev.clientX,
+                clientY: ev.clientY
+            }));
+        }
+        const toEl = nodeElById(next.id);
+        if (toEl) {
+            toEl.dispatchEvent(new PointerEvent('pointerenter', {
+                bubbles: true,
+                clientX: ev.clientX,
+                clientY: ev.clientY
+            }));
+            hideNodeTip();
+            markTipUsed(toEl);
         }
     });
     return badge;
@@ -820,6 +843,29 @@ function scrollToNode(id) {
     const p = lastPos[id];
     stage.scrollLeft = (p.x + nodeW(p) / 2) * zoom - stage.clientWidth / 2;
     stage.scrollTop = (p.y + p.h / 2) * zoom - stage.clientHeight / 2;
+}
+
+function nodeElById(id) {
+    if (!canvasEl || !id) {
+        return null;
+    }
+    return [...canvasEl.querySelectorAll('.cr-node')].find(e => e.dataset.nodeId === id) || null;
+}
+
+/** 平移画布，让目标节点（或子控件）上的同一点击点仍落在指针下。 */
+function scrollKeepPointer(id, clientX, clientY, offsetX, offsetY, childSel) {
+    if (!stage) {
+        return;
+    }
+    const host = nodeElById(id);
+    const el = (host && childSel && host.querySelector(childSel)) || host;
+    if (!el) {
+        scrollToNode(id);
+        return;
+    }
+    const r = el.getBoundingClientRect();
+    stage.scrollLeft += (r.left + offsetX) - clientX;
+    stage.scrollTop += (r.top + offsetY) - clientY;
 }
 
 function graphNode(id) {
