@@ -93,6 +93,17 @@ export class CallRelationPanel {
         await this.reloadFromEditor(editor);
     }
 
+    isActive(): boolean {
+        return !!this.panel?.active;
+    }
+
+    find(action: 'open' | 'next' | 'prev' | 'close'): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.webview.postMessage({ type: 'find', action });
+    }
+
     private ensurePanel(column: vscode.ViewColumn = vscode.ViewColumn.Beside): vscode.WebviewPanel {
         if (this.panel) {
             return this.panel;
@@ -103,6 +114,7 @@ export class CallRelationPanel {
             column,
             {
                 enableScripts: true,
+                enableFindWidget: false,
                 retainContextWhenHidden: true,
                 localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')]
             }
@@ -110,6 +122,14 @@ export class CallRelationPanel {
         const iconPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'icon.png');
         this.panel.iconPath = { light: iconPath, dark: iconPath };
         this.panel.webview.html = this.html(this.panel.webview);
+        void vscode.commands.executeCommand('setContext', 'contextView.callRelation.active', true);
+        this.panel.onDidChangeViewState(() => {
+            void vscode.commands.executeCommand(
+                'setContext',
+                'contextView.callRelation.active',
+                !!this.panel?.active
+            );
+        });
         this.panel.onDidDispose(() => {
             if (this.followTimer) {
                 clearTimeout(this.followTimer);
@@ -117,6 +137,8 @@ export class CallRelationPanel {
             }
             this.panel = undefined;
             this.model.reset();
+            void vscode.commands.executeCommand('setContext', 'contextView.callRelation.active', false);
+            void vscode.commands.executeCommand('setContext', 'contextView.callRelation.findOpen', false);
         });
         this.panel.webview.onDidReceiveMessage(message => {
             void this.onMessage(message);
@@ -157,6 +179,13 @@ export class CallRelationPanel {
             return;
         }
         switch (message?.type) {
+            case 'findState':
+                void vscode.commands.executeCommand(
+                    'setContext',
+                    'contextView.callRelation.findOpen',
+                    !!message.open
+                );
+                break;
             case 'ready':
                 this.postState();
                 if (this.progressDepth > 0) {
@@ -365,6 +394,13 @@ export class CallRelationPanel {
         const script = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'callRelation.js'));
         const style = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'callRelation.css'));
         const n = nonce();
+        const icon = (d: string) =>
+            `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg>`;
+        const iconCase = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M4.02602 3.34176C4.16218 2.93404 4.83818 2.93398 4.97426 3.34176L6.97426 9.34274C6.97526 9.34674 6.97817 9.35544 6.97817 9.35544L7.97426 12.3427C8.06126 12.6047 7.91984 12.8875 7.65786 12.9756C7.60486 12.9926 7.55165 13.0009 7.49965 13.0009C7.29082 13.0008 7.09602 12.868 7.02602 12.6591L6.14028 10.0009H2.86L1.97426 12.6591C1.88728 12.919 1.60634 13.0634 1.34243 12.9746C1.08043 12.8866 0.93902 12.6038 1.02602 12.3418L2.02211 9.35544C2.02311 9.35144 2.02602 9.34274 2.02602 9.34274L4.02602 3.34176ZM3.19399 8.99997H5.80629L4.49965 5.08102L3.19399 8.99997Z"/><path fill-rule="evenodd" d="M11.8581 6.66794C13.165 6.73296 13.9427 7.48427 13.9967 8.69626L13.9997 8.83297V12.5078C13.9957 12.7568 13.809 12.9621 13.568 12.9951L13.4997 13C13.2469 12.9998 13.0376 12.8121 13.0045 12.5683L12.9997 12.5V12.4297C12.3407 12.8066 11.7316 13 11.1666 13C9.94081 12.9998 8.99965 12.1369 8.99965 10.833C8.99967 9.68299 9.79211 8.82889 11.1061 8.66989C11.7279 8.59493 12.3589 8.64164 12.9987 8.80954C12.9915 8.07194 12.6279 7.70704 11.8082 7.66598C11.1672 7.63398 10.7158 7.72415 10.4518 7.90915C10.2258 8.06799 9.91347 8.01301 9.75551 7.78708C9.59671 7.56115 9.65178 7.24878 9.87758 7.09079C10.3165 6.78283 10.9138 6.64715 11.6666 6.6611L11.8581 6.66794ZM12.7965 9.8154C12.2587 9.66749 11.7361 9.62551 11.2262 9.68747C10.4042 9.78747 9.99868 10.2244 9.99868 10.8574C9.99884 11.5881 10.474 12.0242 11.1657 12.0244C11.6196 12.0244 12.1777 11.8137 12.8336 11.3818L12.9987 11.2695V9.87594L12.7965 9.8154Z"/></svg>`;
+        const iconWord = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M15.5 12.5C15.776 12.5 16 12.724 16 13V13.5C16 14.327 15.327 15 14.5 15H1.5C0.673 15 0 14.327 0 13.5V13C0 12.724 0.224 12.5 0.5 12.5C0.776 12.5 1 12.724 1 13V13.5C1 13.775 1.224 14 1.5 14H14.5C14.776 14 15 13.775 15 13.5V13C15 12.724 15.224 12.5 15.5 12.5Z"/><path fill-rule="evenodd" d="M4.8584 5.6709C6.16516 5.73603 6.94308 6.48734 6.99707 7.69922L7 7.83594V11.5107C6.996 11.7596 6.80919 11.9649 6.56836 11.998L6.5 12.0029C6.24709 12.0029 6.038 11.8152 6.00488 11.5713L6 11.5029V11.4326C5.341 11.8096 4.73199 12.0029 4.16699 12.0029C2.941 12.0029 2 11.1399 2 9.83594C2.00003 8.68597 2.79247 7.83185 4.10645 7.67285C4.7283 7.59793 5.35918 7.64552 5.99902 7.81348C5.99202 7.07548 5.62762 6.70995 4.80762 6.66895C4.16686 6.637 3.7161 6.72717 3.45215 6.91211C3.22615 7.07111 2.91386 7.01604 2.75586 6.79004C2.5969 6.56404 2.65194 6.25174 2.87793 6.09375C3.31692 5.78579 3.91404 5.65006 4.66699 5.66406L4.8584 5.6709ZM5.79688 8.81836C5.25888 8.67037 4.73558 8.62843 4.22559 8.69043C3.40389 8.79054 2.99902 9.22747 2.99902 9.86035C2.99917 10.5911 3.47413 11.0273 4.16602 11.0273C4.62001 11.0273 5.17799 10.8168 5.83398 10.3848L5.99902 10.2725V8.87891L5.79688 8.81836Z"/><path fill-rule="evenodd" d="M9.55078 2.00586C9.78578 2.02986 9.97307 2.21715 9.99707 2.45215C10 2.46907 10 2.48601 10 2.50293V6.60254C10.418 6.22566 10.9371 6.00293 11.5 6.00293C12.881 6.00293 14 7.34596 14 9.00293C14 10.6599 12.881 12.0029 11.5 12.0029C10.9371 12.0029 10.418 11.7802 10 11.4033V11.5029C10 11.7619 9.80278 11.974 9.55078 12C9.53385 12.003 9.51693 12.0029 9.5 12.0029C9.224 12.0029 9 11.7789 9 11.5029V2.50293C9 2.486 9.00095 2.46907 9.00293 2.45215C9.02793 2.20015 9.241 2.00293 9.5 2.00293C9.51692 2.00293 9.53386 2.00388 9.55078 2.00586ZM11.4355 7.00391C11.0307 7.03208 10.5769 7.31545 10.29 7.82227C10.1232 8.12611 10.018 8.49479 10.002 8.89453C9.99995 8.92952 10 8.96597 10 9.00195C10 9.03795 10.001 9.07438 10.002 9.10938C10.018 9.50814 10.1222 9.87582 10.2891 10.1797C10.576 10.6875 11.0307 10.9728 11.4355 11C11.4565 11.002 11.478 11.002 11.5 11.002C11.522 11.002 11.5435 11.001 11.5645 11C11.9693 10.9728 12.424 10.6875 12.7109 10.1797C12.8778 9.87582 12.982 9.50814 12.998 9.10938C13 9.07438 13 9.03795 13 9.00195C13 8.96597 12.999 8.92952 12.998 8.89453C12.982 8.49479 12.8768 8.12611 12.71 7.82227C12.4231 7.31545 11.9693 7.03109 11.5645 7.00391C11.5435 7.00191 11.522 7.00195 11.5 7.00195C11.478 7.00195 11.4565 7.00291 11.4355 7.00391Z"/></svg>`;
+        const iconUp = icon('M13.854 7.146 8.854 2.146c-.195-.195-.512-.195-.707 0L3.146 7.146c-.195.195-.195.512 0 .707.195.195.512.195.707 0L8 3.707V13.5c0 .276.224.5.5.5s.5-.224.5-.5V3.707l4.146 4.146c.098.098.226.146.354.146s.256-.049.353-.146c.195-.195.195-.512 0-.707z');
+        const iconDown = icon('M13.854 8.146c-.195-.195-.512-.195-.707 0L9 12.292V2.5c0-.276-.224-.5-.5-.5s-.5.224-.5.5v9.793L3.855 8.147c-.195-.195-.512-.195-.707 0s-.195.512 0 .707l5 5c.098.098.226.146.354.146s.256-.049.354-.146l5-5c.195-.195.195-.512 0-.707z');
+        const iconClose = icon('M13.85 13.15c.2.2.2.51 0 .71-.1.1-.23.15-.35.15s-.26-.05-.35-.15L8 8.71l-5.15 5.15c-.1.1-.23.15-.35.15s-.26-.05-.35-.15c-.2-.2-.2-.51 0-.71L7.3 8 2.15 2.85c-.2-.2-.2-.51 0-.71.2-.2.51-.2.71 0L8 7.29l5.15-5.15c.2-.2.51-.2.71 0 .2.2.2.51 0 .71L8.71 8l5.14 5.15z');
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -388,9 +424,22 @@ export class CallRelationPanel {
       <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
     </div>
   </header>
-  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
-  <div class="cr-stage" id="cr-stage">
-    <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
+  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. Find uses the editor Find shortcut. Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
+  <div class="cr-main">
+    <div class="cr-find" id="cr-find">
+      <div class="cr-find-field">
+        <input type="text" id="cr-find-input" placeholder="Find" spellcheck="false" autocomplete="off" aria-label="Find">
+        <button type="button" class="cr-find-opt" id="cr-find-case" title="Match Case (Alt+C)" aria-pressed="false">${iconCase}</button>
+        <button type="button" class="cr-find-opt" id="cr-find-word" title="Match Whole Word (Alt+W)" aria-pressed="false">${iconWord}</button>
+      </div>
+      <span class="cr-find-count" id="cr-find-count"></span>
+      <button type="button" class="cr-find-action" id="cr-find-prev" title="Previous Match (Shift+Enter)">${iconUp}</button>
+      <button type="button" class="cr-find-action" id="cr-find-next" title="Next Match (Enter)">${iconDown}</button>
+      <button type="button" class="cr-find-action" id="cr-find-close" title="Close (Escape)">${iconClose}</button>
+    </div>
+    <div class="cr-stage" id="cr-stage">
+      <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
+    </div>
   </div>
   <div class="progress-container">
     <div class="progress-bar"></div>

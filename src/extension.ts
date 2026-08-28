@@ -70,6 +70,21 @@ export function activate(context: vscode.ExtensionContext) {
         }));
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('contextView.callRelation.find', () => {
+            callRelation.find('open');
+        }));
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('contextView.callRelation.findNext', () => {
+            callRelation.find('next');
+        }));
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('contextView.callRelation.findPrevious', () => {
+            callRelation.find('prev');
+        }));
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('vscode-context-window.navigateUri', async (uri?: string, range?: { start: { line: number; character: number }; end: { line: number; character: number } }, token?: string, recordTrail: boolean = true) => {
             // 如果没有提供参数，则显示输入框
             if (!uri || !range) {

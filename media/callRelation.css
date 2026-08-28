@@ -2,6 +2,8 @@ html, body {
     margin: 0;
     height: 100%;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
     font-family: var(--vscode-font-family, sans-serif);
     font-size: var(--vscode-font-size, 13px);
     color: var(--vscode-foreground);
@@ -165,9 +167,110 @@ body.vscode-high-contrast {
     font-size: 12px;
 }
 
+.cr-main {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.cr-find {
+    position: absolute;
+    top: 0;
+    right: 18px;
+    z-index: 40;
+    display: none;
+    align-items: center;
+    gap: 4px;
+    height: 33px;
+    padding: 0 4px 0 8px;
+    border: 1px solid var(--vscode-editorWidget-border, #555);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.16));
+}
+
+.cr-find.is-open {
+    display: flex;
+}
+
+.cr-find-field {
+    display: flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 2px 0 0;
+    border: 1px solid var(--vscode-input-border, var(--vscode-editorWidget-border, #555));
+    border-radius: 2px;
+    background: var(--vscode-input-background);
+}
+
+.cr-find-field:focus-within {
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.cr-find input {
+    width: 156px;
+    height: 22px;
+    margin: 0;
+    padding: 0 6px;
+    border: none;
+    outline: none;
+    font: inherit;
+    font-size: 13px;
+    line-height: 22px;
+    color: var(--vscode-input-foreground);
+    background: transparent;
+}
+
+.cr-find-opt,
+.cr-find-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--vscode-icon-foreground, var(--vscode-foreground));
+    background: transparent;
+    cursor: pointer;
+}
+
+.cr-find-opt:hover,
+.cr-find-action:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+.cr-find-opt.is-on {
+    color: var(--vscode-inputOption-activeForeground, var(--vscode-foreground));
+    background: var(--vscode-inputOption-activeBackground, rgba(90, 93, 94, 0.5));
+    border-color: var(--vscode-inputOption-activeBorder, transparent);
+}
+
+.cr-find-action:disabled {
+    opacity: 0.4;
+    cursor: default;
+    background: transparent;
+}
+
+.cr-find-count {
+    min-width: 4.6em;
+    padding: 0 4px;
+    font-size: 12px;
+    line-height: 22px;
+    color: var(--vscode-editorWidget-foreground, var(--vscode-descriptionForeground));
+    white-space: nowrap;
+}
+
+.cr-find-count.is-empty {
+    color: var(--vscode-errorForeground, #f14c4c);
+}
+
 .cr-stage {
     position: relative;
-    height: calc(100% - 68px);
+    height: 100%;
     overflow: auto;
     cursor: grab;
 }
@@ -406,7 +509,7 @@ body.is-loading .cr-bar {
     box-shadow: 0 0 0 2px var(--vscode-button-hoverBackground, var(--vscode-focusBorder, #007fd4));
 }
 
-.cr-canvas.is-focus .cr-node:not(.is-on-path),
+.cr-canvas.is-focus .cr-node:not(.is-on-path):not(.is-find-hit),
 .cr-canvas.is-focus .cr-group-frame {
     opacity: 0.28;
 }
@@ -444,6 +547,29 @@ body.is-loading .cr-bar {
     display: block;
     width: 12px;
     height: 12px;
+}
+
+.cr-node.is-find-hit {
+    border-color: var(--vscode-editor-findMatchHighlightBorder, #dcdcaa);
+    background: color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c0055) 55%, var(--vscode-editor-background));
+    box-shadow: none;
+    z-index: 6;
+}
+
+.cr-node.is-find-current {
+    border-color: var(--vscode-editor-findMatchBorder, #c9a227);
+    background: color-mix(in srgb, var(--vscode-editor-findMatchBackground, #ea5c00) 72%, var(--vscode-editor-background));
+    box-shadow: 0 0 0 3px var(--vscode-editor-findMatchBackground, #ea5c00);
+    z-index: 8;
+}
+
+.cr-node.is-root.is-find-hit {
+    box-shadow: none;
+}
+
+.cr-node.is-root.is-find-current {
+    background: color-mix(in srgb, var(--vscode-editor-findMatchBackground, #ea5c00) 45%, var(--vscode-button-background));
+    box-shadow: 0 0 0 3px var(--vscode-editor-findMatchBackground, #ea5c00);
 }
 
 .cr-node.is-more {
@@ -510,6 +636,7 @@ body.is-loading .cr-bar {
 }
 
 .cr-node-name {
+    position: relative;
     font-weight: 700;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -517,6 +644,30 @@ body.is-loading .cr-bar {
     flex: 0 1 auto;
     min-width: 0;
     line-height: 18px;
+}
+
+.cr-node-name.has-short,
+.cr-node.is-root .cr-node-name.has-short {
+    color: transparent;
+}
+
+.cr-node-name.has-short::after {
+    content: attr(data-short);
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--vscode-foreground);
+    pointer-events: none;
+}
+
+.cr-node.is-root .cr-node-name.has-short::after {
+    color: var(--vscode-button-foreground);
+}
+
+.cr-node.is-group .cr-node-name.has-short::after {
+    color: var(--vscode-descriptionForeground);
 }
 
 .cr-node-meta {

@@ -30,6 +30,14 @@ const styleBtn = document.getElementById('cr-style');
 const zoomInBtn = document.getElementById('cr-zoom-in');
 const zoomOutBtn = document.getElementById('cr-zoom-out');
 const zoomLabel = document.getElementById('cr-zoom-label');
+const findBar = document.getElementById('cr-find');
+const findInput = document.getElementById('cr-find-input');
+const findCount = document.getElementById('cr-find-count');
+const findCaseBtn = document.getElementById('cr-find-case');
+const findWordBtn = document.getElementById('cr-find-word');
+const findPrevBtn = document.getElementById('cr-find-prev');
+const findNextBtn = document.getElementById('cr-find-next');
+const findCloseBtn = document.getElementById('cr-find-close');
 
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 3;
@@ -88,6 +96,16 @@ function nodeLabel(node) {
         return (node && node.name) || '';
     }
     return shortSymbolName(node.name);
+}
+
+function fillNodeName(el, node) {
+    const full = (node && node.name) || '';
+    const shown = nodeLabel(node);
+    el.textContent = full;
+    if (shown && shown !== full) {
+        el.classList.add('has-short');
+        el.setAttribute('data-short', shown);
+    }
 }
 
 function nodeHeight(node, rootId) {
@@ -574,6 +592,205 @@ function clearPathPin() {
     }
     pinnedNodeId = '';
     applyPathFocus();
+}
+
+let findQuery = '';
+/** @type {string[]} */
+let findHits = [];
+let findIndex = 0;
+let findOpen = false;
+let findMatchCase = false;
+let findWholeWord = false;
+
+function escapeRegExp(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function nameMatches(name, query) {
+    const raw = String(name || '');
+    const q = String(query || '');
+    if (!q) {
+        return false;
+    }
+    if (findWholeWord) {
+        try {
+            return new RegExp(`\\b${escapeRegExp(q)}\\b`, findMatchCase ? '' : 'i').test(raw);
+        } catch (_) {
+            return false;
+        }
+    }
+    if (findMatchCase) {
+        return raw.includes(q);
+    }
+    return raw.toLowerCase().includes(q.toLowerCase());
+}
+
+function findable(node) {
+    return !!node && (node.kind === 'symbol' || node.kind === 'group');
+}
+
+function collectFindHits(query) {
+    if (!String(query || '').trim() || !lastGraph || !Array.isArray(lastGraph.nodes)) {
+        return [];
+    }
+    const hits = [];
+    for (const n of lastGraph.nodes) {
+        if (!findable(n)) {
+            continue;
+        }
+        if (nameMatches(n.name, query)) {
+            hits.push(n.id);
+        }
+    }
+    if (lastPos) {
+        hits.sort((a, b) => {
+            const pa = lastPos[a];
+            const pb = lastPos[b];
+            if (!pa || !pb) {
+                return 0;
+            }
+            return pa.y - pb.y || pa.x - pb.x;
+        });
+    }
+    return hits;
+}
+
+function scrollToNode(id) {
+    if (!stage || !lastPos || !lastPos[id]) {
+        return;
+    }
+    const p = lastPos[id];
+    stage.scrollLeft = (p.x + nodeW(p) / 2) * zoom - stage.clientWidth / 2;
+    stage.scrollTop = (p.y + p.h / 2) * zoom - stage.clientHeight / 2;
+}
+
+function syncFindToggles() {
+    if (findCaseBtn) {
+        findCaseBtn.classList.toggle('is-on', findMatchCase);
+        findCaseBtn.setAttribute('aria-pressed', findMatchCase ? 'true' : 'false');
+    }
+    if (findWordBtn) {
+        findWordBtn.classList.toggle('is-on', findWholeWord);
+        findWordBtn.setAttribute('aria-pressed', findWholeWord ? 'true' : 'false');
+    }
+}
+
+function updateFindChrome() {
+    if (findBar) {
+        findBar.classList.toggle('is-open', findOpen);
+    }
+    syncFindToggles();
+    if (findCount) {
+        if (!findHits.length) {
+            findCount.textContent = 'No results';
+            findCount.classList.add('is-empty');
+        } else {
+            findCount.textContent = `${findIndex + 1} of ${findHits.length}`;
+            findCount.classList.remove('is-empty');
+        }
+    }
+    if (findPrevBtn) {
+        findPrevBtn.disabled = !findHits.length;
+    }
+    if (findNextBtn) {
+        findNextBtn.disabled = !findHits.length;
+    }
+}
+
+function paintFindClasses() {
+    const canvas = canvasEl;
+    if (!canvas) {
+        return;
+    }
+    const current = findHits[findIndex] || '';
+    const hitSet = new Set(findHits);
+    canvas.classList.toggle('is-find', findHits.length > 0);
+    canvas.querySelectorAll('.cr-node').forEach(el => {
+        const id = el.dataset.nodeId || '';
+        const hit = hitSet.has(id);
+        el.classList.toggle('is-find-hit', hit);
+        el.classList.toggle('is-find-current', hit && id === current);
+    });
+}
+
+function applyFind(opts) {
+    const scroll = !!(opts && opts.scroll);
+    const keepIndex = !!(opts && opts.keepIndex);
+    const prevId = findHits[findIndex] || '';
+    findHits = findOpen && findQuery.trim() ? collectFindHits(findQuery) : [];
+    if (!keepIndex) {
+        findIndex = 0;
+    } else if (prevId) {
+        const i = findHits.indexOf(prevId);
+        findIndex = i >= 0 ? i : 0;
+    }
+    if (findIndex >= findHits.length) {
+        findIndex = 0;
+    }
+    paintFindClasses();
+    updateFindChrome();
+    if (scroll && findHits.length) {
+        scrollToNode(findHits[findIndex]);
+    }
+}
+
+function postFindState() {
+    vscode.postMessage({ type: 'findState', open: findOpen });
+}
+
+function openFind() {
+    findOpen = true;
+    postFindState();
+    if (findInput) {
+        findQuery = findInput.value;
+    }
+    applyFind({ scroll: !!findQuery.trim(), keepIndex: true });
+    if (findInput) {
+        findInput.focus();
+        findInput.select();
+    }
+}
+
+function closeFind() {
+    if (!findOpen) {
+        return;
+    }
+    findOpen = false;
+    postFindState();
+    applyFind({ scroll: false });
+}
+
+function stepFind(dir) {
+    if (!findOpen) {
+        openFind();
+        return;
+    }
+    if (findInput) {
+        findQuery = findInput.value;
+    }
+    applyFind({ keepIndex: true });
+    if (!findHits.length) {
+        return;
+    }
+    findIndex = (findIndex + dir + findHits.length) % findHits.length;
+    paintFindClasses();
+    updateFindChrome();
+    scrollToNode(findHits[findIndex]);
+}
+
+function onFindInput() {
+    findQuery = findInput ? findInput.value : '';
+    applyFind({ scroll: true });
+}
+
+function toggleFindCase() {
+    findMatchCase = !findMatchCase;
+    applyFind({ scroll: true, keepIndex: true });
+}
+
+function toggleFindWord() {
+    findWholeWord = !findWholeWord;
+    applyFind({ scroll: true, keepIndex: true });
 }
 
 const EDGE_STYLE_ITEMS = [
@@ -1163,6 +1380,7 @@ function render(graph) {
         empty.className = 'cr-empty';
         empty.textContent = graph.empty || 'No call hierarchy at this position.';
         stage.appendChild(empty);
+        applyFind({ keepIndex: true });
         return;
     }
 
@@ -1342,7 +1560,7 @@ function render(graph) {
             head.className = 'cr-node-head';
             const name = document.createElement('div');
             name.className = 'cr-node-name';
-            name.textContent = node.name;
+            fillNodeName(name, node);
             head.appendChild(name);
             el.appendChild(head);
             const meta = document.createElement('div');
@@ -1365,7 +1583,7 @@ function render(graph) {
             head.className = 'cr-node-head';
             const name = document.createElement('div');
             name.className = 'cr-node-name';
-            name.textContent = nodeLabel(node);
+            fillNodeName(name, node);
             head.appendChild(name);
             el.appendChild(head);
             const meta = document.createElement('div');
@@ -1443,6 +1661,7 @@ function render(graph) {
     applyZoomChrome();
     applyView(graph, pos);
     applyPathFocus();
+    applyFind({ keepIndex: true });
     if (lastTipNodeId && canvas) {
         const n = graph.nodes.find(x => x.id === lastTipNodeId);
         const el = [...canvas.querySelectorAll('.cr-node')].find(e => e.dataset.nodeId === lastTipNodeId);
@@ -1680,6 +1899,16 @@ window.addEventListener('message', ev => {
         if (typeof msg.hoverDelay === 'number' && Number.isFinite(msg.hoverDelay) && msg.hoverDelay >= 0) {
             tipDelayMs = msg.hoverDelay;
         }
+    } else if (msg.type === 'find') {
+        if (msg.action === 'next') {
+            stepFind(1);
+        } else if (msg.action === 'prev') {
+            stepFind(-1);
+        } else if (msg.action === 'close') {
+            closeFind();
+        } else {
+            openFind();
+        }
     } else if (msg.type === 'beginProgress') {
         setProgress(true);
     } else if (msg.type === 'endProgress') {
@@ -1708,6 +1937,50 @@ if (stage) {
         }
     });
 }
+
+findInput?.addEventListener('input', onFindInput);
+findInput?.addEventListener('keydown', e => {
+    if (e.altKey && (e.key === 'c' || e.key === 'C')) {
+        e.preventDefault();
+        toggleFindCase();
+        return;
+    }
+    if (e.altKey && (e.key === 'w' || e.key === 'W')) {
+        e.preventDefault();
+        toggleFindWord();
+        return;
+    }
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeFind();
+        return;
+    }
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        stepFind(e.shiftKey ? -1 : 1);
+    }
+});
+findCaseBtn?.addEventListener('click', () => {
+    toggleFindCase();
+});
+findWordBtn?.addEventListener('click', () => {
+    toggleFindWord();
+});
+findPrevBtn?.addEventListener('click', () => {
+    stepFind(-1);
+});
+findNextBtn?.addEventListener('click', () => {
+    stepFind(1);
+});
+findCloseBtn?.addEventListener('click', () => {
+    closeFind();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && findOpen && !(findInput && document.activeElement === findInput)) {
+        closeFind();
+    }
+});
 
 syncStyleBtn();
 applyZoomChrome();

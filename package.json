@@ -2,7 +2,7 @@
   "name": "context-window",
   "displayName": "Context Window",
   "description": "Display full code context in the panel, similar to the context window in Source Insight.",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "publisher": "zhiminxiong",
   "keywords": [
     "context",
@@ -107,6 +107,21 @@
         "title": "Show Call Relation (Independent Window)",
         "icon": "$(type-hierarchy)",
         "category": "Context View"
+      },
+      {
+        "command": "contextView.callRelation.find",
+        "title": "Find in Call Relation",
+        "category": "Context View"
+      },
+      {
+        "command": "contextView.callRelation.findNext",
+        "title": "Find Next in Call Relation",
+        "category": "Context View"
+      },
+      {
+        "command": "contextView.callRelation.findPrevious",
+        "title": "Find Previous in Call Relation",
+        "category": "Context View"
       }
     ],
     "keybindings": [
@@ -114,6 +129,42 @@
         "command": "vscode-context-window.float",
         "key": "ctrl+shift+9",
         "mac": "cmd+shift+9"
+      },
+      {
+        "command": "contextView.callRelation.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "contextView.callRelation.active"
+      },
+      {
+        "command": "contextView.callRelation.findNext",
+        "key": "f3",
+        "when": "contextView.callRelation.active"
+      },
+      {
+        "command": "contextView.callRelation.findNext",
+        "key": "enter",
+        "when": "contextView.callRelation.findOpen"
+      },
+      {
+        "command": "contextView.callRelation.findNext",
+        "key": "cmd+g",
+        "when": "contextView.callRelation.active"
+      },
+      {
+        "command": "contextView.callRelation.findPrevious",
+        "key": "shift+f3",
+        "when": "contextView.callRelation.active"
+      },
+      {
+        "command": "contextView.callRelation.findPrevious",
+        "key": "shift+enter",
+        "when": "contextView.callRelation.findOpen"
+      },
+      {
+        "command": "contextView.callRelation.findPrevious",
+        "key": "cmd+shift+g",
+        "when": "contextView.callRelation.active"
       },
       {
         "command": "contextView.contextWindow.toggleSelectBracketPair"
@@ -128,6 +179,18 @@
         {
           "command": "contextView.contextWindow.unpin",
           "when": "contextView.contextWindow.isPinned"
+        },
+        {
+          "command": "contextView.callRelation.find",
+          "when": "false"
+        },
+        {
+          "command": "contextView.callRelation.findNext",
+          "when": "false"
+        },
+        {
+          "command": "contextView.callRelation.findPrevious",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -251,6 +314,16 @@
           "default": false,
           "description": "Double-clicking right next to a bracket ( [ { < or a quote \" ' ` selects the whole matching pair INCLUDING the brackets/quotes themselves. Complements VSCode's built-in editor.doubleClickSelectsBlock, which selects only the content inside. Toggle it from the status bar ({si}), the editor right-click menu, or the keyboard shortcut."
         },
+        "contextView.contextWindow.doubleClickSelectsSymbol": {
+          "type": "boolean",
+          "default": false,
+          "description": "In the main editor, double-clicking a line number selects the smallest enclosing function, method, class, or namespace. Off by default."
+        },
+        "contextView.contextWindow.contextDoubleClickSelectsSymbol": {
+          "type": "boolean",
+          "default": true,
+          "description": "In the Context Window, double-clicking a line number selects the smallest enclosing function, method, class, or namespace. On by default. Replaces jumping to the same location in the main editor."
+        },
         "contextView.contextWindow.enableHover": {
           "type": "boolean",
           "default": false,
@@ -321,6 +394,13 @@
             "Curved single-arrow links using the same attachment points as Direct."
           ],
           "description": "Call Relation connector style. Can be switched from the Call Relation toolbar."
+        },
+        "contextView.callRelation.nodeFontSize": {
+          "type": "number",
+          "default": 13,
+          "minimum": 8,
+          "maximum": 32,
+          "description": "Font size in pixels for Call Relation node names. Other node text scales in proportion. Change it from the Call Relation toolbar."
         },
         "contextView.callRelation.updateMode": {
           "type": "string",
