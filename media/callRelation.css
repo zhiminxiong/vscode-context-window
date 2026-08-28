@@ -941,6 +941,11 @@ body.is-loading .cr-bar {
     white-space: pre-wrap;
     word-break: break-word;
 }
+.cr-node-tip-cycle {
+    color: var(--vscode-charts-purple, #b180d7);
+    opacity: 1;
+    font-weight: 600;
+}
 .cr-node-tip-sep {
     height: 1px;
     margin: 7px 0 6px;

@@ -561,11 +561,16 @@ function createCycleBadge() {
     return badge;
 }
 
+function formatSiteCount(count) {
+    const n = Math.max(0, Number(count) || 0);
+    return n > 99 ? '99+' : String(n);
+}
+
 function addSiteCountLabel(g, pathEl, count, nearTail, nodePos) {
     if (count <= 1) {
         return;
     }
-    const text = String(count);
+    const text = formatSiteCount(count);
     const rx = Math.max(7, 3.6 + text.length * 3.4);
     const ry = 6.5;
     const gap = 4;
@@ -1194,7 +1199,7 @@ function fillNodeTip(tip, node) {
     }
     if (lastGraph && isCyclicNode(lastGraph, node)) {
         const cycle = document.createElement('div');
-        cycle.className = 'cr-node-tip-detail';
+        cycle.className = 'cr-node-tip-detail cr-node-tip-cycle';
         cycle.textContent = 'Repeats an ancestor on this path';
         tip.appendChild(cycle);
     }
@@ -1613,6 +1618,9 @@ function render(graph) {
         el.style.height = p.h + 'px';
         el.addEventListener('pointerenter', ev => {
             setHoverPaths(edgesByNode.get(node.id) || []);
+            if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle')) {
+                return;
+            }
             if (usesNodeTip(node)) {
                 tipMoveX = ev.clientX;
                 tipMoveY = ev.clientY;
@@ -1620,6 +1628,13 @@ function render(graph) {
             }
         });
         el.addEventListener('pointermove', ev => {
+            if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle')) {
+                if (tipHover && tipHover.el === el) {
+                    tipHover = null;
+                    hideNodeTip();
+                }
+                return;
+            }
             if (usesNodeTip(node)) {
                 onNodeTipMove(ev, node, el);
             }
@@ -1728,7 +1743,22 @@ function render(graph) {
                     ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
                     : (node.hop < 0 ? 'Expand callers' : 'Expand callees');
                 exp.setAttribute('aria-label', expLabel);
-                bindControlTip(node, el, exp, expLabel);
+                exp.addEventListener('pointerenter', ev => {
+                    ev.stopPropagation();
+                    tipHover = null;
+                    hideNodeTip();
+                });
+                exp.addEventListener('pointerleave', ev => {
+                    ev.stopPropagation();
+                    const next = ev.relatedTarget;
+                    if (next && el.contains(next) && !(next.closest && next.closest('.cr-thumb, .cr-toggle'))) {
+                        tipMoveX = ev.clientX;
+                        tipMoveY = ev.clientY;
+                        if (usesNodeTip(node)) {
+                            armNodeTip(node, el);
+                        }
+                    }
+                });
                 exp.addEventListener('click', ev => {
                     ev.stopPropagation();
                     hideNodeTip();
