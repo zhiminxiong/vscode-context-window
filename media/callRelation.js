@@ -54,6 +54,8 @@ let zoomWrap = null;
 let lastGraph = null;
 /** @type {string} */
 let selectedKey = '';
+/** 键盘/点击当前节点 id；优先于 selectedKey。 */
+let selectedId = '';
 /** Alt+click 钉住的节点 id；空串表示未钉路径。 */
 let pinnedNodeId = '';
 /** @type {'elbow' | 'direct' | 'arc'} */
@@ -745,6 +747,278 @@ function scrollToNode(id) {
     stage.scrollTop = (p.y + p.h / 2) * zoom - stage.clientHeight / 2;
 }
 
+function graphNode(id) {
+    return lastGraph && id ? lastGraph.nodes.find(n => n.id === id) : undefined;
+}
+
+function nodeSide(node) {
+    if (!node) {
+        return 0;
+    }
+    return node.hop < 0 ? -1 : node.hop > 0 ? 1 : 0;
+}
+
+function siblingNodes(node) {
+    if (!lastGraph || !node) {
+        return [];
+    }
+    const side = nodeSide(node);
+    const list = lastGraph.nodes.filter(n => {
+        if (node.parentId) {
+            return n.parentId === node.parentId && nodeSide(n) === side;
+        }
+        return n.id === lastGraph.rootId;
+    });
+    list.sort((a, b) => {
+        const pa = lastPos && lastPos[a.id];
+        const pb = lastPos && lastPos[b.id];
+        if (!pa || !pb) {
+            return 0;
+        }
+        return pa.y - pb.y || pa.x - pb.x;
+    });
+    return list;
+}
+
+function resolveSelection() {
+    if (selectedId && graphNode(selectedId)) {
+        return;
+    }
+    selectedId = '';
+    if (selectedKey && lastGraph) {
+        const hit = lastGraph.nodes.find(n => n.itemKey === selectedKey);
+        if (hit) {
+            selectedId = hit.id;
+        }
+    }
+}
+
+function isNodeSelected(node) {
+    resolveSelection();
+    if (selectedId) {
+        return node.id === selectedId;
+    }
+    return !!(node.itemKey && node.itemKey === selectedKey);
+}
+
+function paintSelection() {
+    const canvas = canvasEl;
+    if (!canvas) {
+        return;
+    }
+    resolveSelection();
+    canvas.querySelectorAll('.cr-node').forEach(el => {
+        const n = graphNode(el.dataset.nodeId);
+        el.classList.toggle('is-selected', !!(n && isNodeSelected(n)));
+    });
+}
+
+function selectNode(node, scroll) {
+    if (!node) {
+        return;
+    }
+    selectedId = node.id;
+    selectedKey = node.itemKey || '';
+    paintSelection();
+    if (scroll) {
+        scrollToNode(node.id);
+    }
+}
+
+function ensureSelection() {
+    const cur = graphNode(selectedId);
+    if (cur) {
+        return cur;
+    }
+    if (selectedKey && lastGraph) {
+        const hit = lastGraph.nodes.find(n => n.itemKey === selectedKey);
+        if (hit) {
+            selectedId = hit.id;
+            return hit;
+        }
+    }
+    if (lastGraph) {
+        const root = graphNode(lastGraph.rootId);
+        if (root) {
+            selectedId = root.id;
+            selectedKey = root.itemKey || '';
+            paintSelection();
+            return root;
+        }
+    }
+    return undefined;
+}
+
+function sortByLayout(a, b) {
+    const pa = lastPos && lastPos[a.id];
+    const pb = lastPos && lastPos[b.id];
+    if (!pa || !pb) {
+        return 0;
+    }
+    return pa.y - pb.y || pa.x - pb.x;
+}
+
+function childrenOf(node, side) {
+    if (!lastGraph || !node) {
+        return [];
+    }
+    const list = lastGraph.nodes.filter(n => {
+        if (n.parentId !== node.id) {
+            return false;
+        }
+        return side == null || nodeSide(n) === side;
+    });
+    list.sort(sortByLayout);
+    return list;
+}
+
+function moveSibling(dir) {
+    const cur = ensureSelection();
+    if (!cur) {
+        return;
+    }
+    const list = siblingNodes(cur);
+    if (!list.length) {
+        return;
+    }
+    const i = list.findIndex(n => n.id === cur.id);
+    const idx = Math.max(0, Math.min(list.length - 1, (i < 0 ? 0 : i) + dir));
+    selectNode(list[idx], true);
+}
+
+/** 展开后跳到该侧第一个子节点（方向键走路，而不是停在原地）。 */
+let pendingHop = null;
+
+function requestExpand(node, side) {
+    if (!node) {
+        return;
+    }
+    if (node.kind === 'more') {
+        pendingHop = { parentId: node.parentId, side };
+        vscode.postMessage({ type: 'expandMore', nodeId: node.expandKey || node.id });
+        return;
+    }
+    if (node.kind === 'group') {
+        if (!node.expanded) {
+            pendingHop = { parentId: node.id, side };
+            vscode.postMessage({ type: 'toggleGroup', nodeId: node.id });
+        }
+        return;
+    }
+    if (node.expandable) {
+        pendingHop = { parentId: node.id, side };
+        vscode.postMessage({ type: 'expandHop', nodeId: node.id });
+    }
+}
+
+function applyPendingHop() {
+    if (!pendingHop || !lastGraph) {
+        return;
+    }
+    const { parentId, side } = pendingHop;
+    pendingHop = null;
+    const parent = graphNode(parentId);
+    const kids = parent ? childrenOf(parent, side) : [];
+    if (kids[0]) {
+        selectNode(kids[0], true);
+    }
+}
+
+function hopMove(dir) {
+    const cur = ensureSelection();
+    if (!cur || !lastGraph) {
+        return;
+    }
+    const side = nodeSide(cur);
+    if (cur.id === lastGraph.rootId || side === 0) {
+        const kids = childrenOf(cur, dir);
+        if (kids[0]) {
+            selectNode(kids[0], true);
+            return;
+        }
+        requestExpand(cur, dir);
+        return;
+    }
+    if (dir === side) {
+        const kids = childrenOf(cur);
+        if (kids[0]) {
+            selectNode(kids[0], true);
+            return;
+        }
+        requestExpand(cur, side);
+        return;
+    }
+    const parent = cur.parentId ? graphNode(cur.parentId) : undefined;
+    if (parent) {
+        selectNode(parent, true);
+    }
+}
+
+function toggleExpandSelected() {
+    const cur = ensureSelection();
+    if (!cur || !lastGraph || cur.id === lastGraph.rootId) {
+        return;
+    }
+    if (cur.kind === 'more') {
+        vscode.postMessage({ type: 'expandMore', nodeId: cur.expandKey || cur.id });
+        return;
+    }
+    if (cur.kind === 'group') {
+        vscode.postMessage({ type: 'toggleGroup', nodeId: cur.id });
+        return;
+    }
+    const opened = !!(cur.expanded || lastGraph.nodes.some(n => n.parentId === cur.id));
+    if (opened) {
+        vscode.postMessage({ type: 'collapseHop', nodeId: cur.id });
+        return;
+    }
+    if (cur.expandable) {
+        vscode.postMessage({ type: 'expandHop', nodeId: cur.id });
+    }
+}
+
+function openSelected() {
+    const cur = ensureSelection();
+    if (!cur) {
+        return;
+    }
+    if (cur.kind === 'more') {
+        vscode.postMessage({ type: 'expandMore', nodeId: cur.expandKey || cur.id });
+        return;
+    }
+    if (cur.kind === 'group') {
+        vscode.postMessage({ type: 'toggleGroup', nodeId: cur.id });
+        return;
+    }
+    vscode.postMessage({ type: 'openNode', nodeId: cur.id });
+}
+
+function focusPrevCenter() {
+    if (!lastGraph) {
+        return;
+    }
+    const prev = lastGraph.nodes.find(n => n.prevCenter);
+    if (!prev) {
+        return;
+    }
+    selectNode(prev, false);
+    clearPathPin();
+    vscode.postMessage({ type: 'focusNode', nodeId: prev.id });
+}
+
+function clearNavSelection() {
+    selectedId = '';
+    selectedKey = '';
+    paintSelection();
+}
+
+function isTypingTarget(el) {
+    if (!el || !el.closest) {
+        return false;
+    }
+    return !!el.closest('input, textarea, select, [contenteditable="true"]');
+}
+
 function syncFindToggles() {
     if (findCaseBtn) {
         findCaseBtn.classList.toggle('is-on', findMatchCase);
@@ -812,6 +1086,10 @@ function applyFind(opts) {
     updateFindChrome();
     if (scroll && findHits.length) {
         scrollToNode(findHits[findIndex]);
+        const hit = graphNode(findHits[findIndex]);
+        if (hit) {
+            selectNode(hit, false);
+        }
     }
 }
 
@@ -857,6 +1135,10 @@ function stepFind(dir) {
     paintFindClasses();
     updateFindChrome();
     scrollToNode(findHits[findIndex]);
+    const hit = graphNode(findHits[findIndex]);
+    if (hit) {
+        selectNode(hit, false);
+    }
 }
 
 function onFindInput() {
@@ -1449,6 +1731,7 @@ function applyView(graph, pos) {
 function render(graph) {
     savedView = captureView();
     lastGraph = graph;
+    resolveSelection();
     if (graph.rootId && nameOnlyIds.delete(graph.rootId)) {
         persistViewState();
     }
@@ -1596,7 +1879,7 @@ function render(graph) {
         if (node.prevCenter) {
             el.classList.add('is-prev');
         }
-        if (node.itemKey && node.itemKey === selectedKey) {
+        if (isNodeSelected(node)) {
             el.classList.add('is-selected');
         }
         if (node.kind === 'more') {
@@ -1659,6 +1942,7 @@ function render(graph) {
                     togglePathPin(node.id);
                     return;
                 }
+                selectNode(node, false);
                 vscode.postMessage({ type: 'expandMore', nodeId: node.expandKey || node.id });
             });
         } else if (node.kind === 'group') {
@@ -1681,6 +1965,7 @@ function render(graph) {
                     togglePathPin(node.id);
                     return;
                 }
+                selectNode(node, false);
                 vscode.postMessage({ type: 'toggleGroup', nodeId: node.id });
             });
             addThumb(el, head, node);
@@ -1713,11 +1998,7 @@ function render(graph) {
                 }
                 clickTimer = setTimeout(() => {
                     clickTimer = 0;
-                    selectedKey = node.itemKey || '';
-                    document.querySelectorAll('.cr-node.is-selected').forEach(n => {
-                        n.classList.remove('is-selected');
-                    });
-                    el.classList.add('is-selected');
+                    selectNode(node, false);
                     vscode.postMessage({ type: 'openNode', nodeId: node.id });
                 }, 280);
             });
@@ -1728,7 +2009,7 @@ function render(graph) {
                     clearTimeout(clickTimer);
                     clickTimer = 0;
                 }
-                selectedKey = node.itemKey || '';
+                selectNode(node, false);
                 clearPathPin();
                 vscode.postMessage({ type: 'focusNode', nodeId: node.id });
             });
@@ -1786,6 +2067,7 @@ function render(graph) {
     applyView(graph, pos);
     applyPathFocus();
     applyFind({ keepIndex: true });
+    applyPendingHop();
     if (lastTipNodeId && canvas) {
         const n = graph.nodes.find(x => x.id === lastTipNodeId);
         const el = [...canvas.querySelectorAll('.cr-node')].find(e => e.dataset.nodeId === lastTipNodeId);
@@ -2101,8 +2383,57 @@ findCloseBtn?.addEventListener('click', () => {
     closeFind();
 });
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && findOpen && !(findInput && document.activeElement === findInput)) {
-        closeFind();
+    if (isTypingTarget(e.target)) {
+        return;
+    }
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        if (findOpen) {
+            closeFind();
+            return;
+        }
+        if (document.querySelector('.cr-site-menu')) {
+            hideSiteMenu();
+            return;
+        }
+        if (document.getElementById('cr-style-menu')) {
+            closeStyleMenu();
+            return;
+        }
+        if (pinnedNodeId) {
+            clearPathPin();
+            return;
+        }
+        if (selectedId || selectedKey) {
+            clearNavSelection();
+        }
+        return;
+    }
+    if (e.key === 'Enter') {
+        if (findOpen) {
+            return;
+        }
+        e.preventDefault();
+        if (e.shiftKey) {
+            toggleExpandSelected();
+        } else {
+            openSelected();
+        }
+        return;
+    }
+    if (e.key === 'Backspace') {
+        e.preventDefault();
+        focusPrevCenter();
+        return;
+    }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        moveSibling(e.key === 'ArrowDown' ? 1 : -1);
+        return;
+    }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        hopMove(e.key === 'ArrowRight' ? 1 : -1);
     }
 });
 
