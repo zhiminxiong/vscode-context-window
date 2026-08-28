@@ -13,6 +13,7 @@ const commitMessageCache = new Map<string, string>();
 const commitMessageInflight = new Map<string, Promise<string>>();
 const lineBlameCache = new Map<string, LineBlameCacheEntry>();
 const lineBlameInflight = new Map<string, Promise<LineBlameInfo | undefined>>();
+const lineDiffInflight = new Map<string, Promise<LineBlameDiffLine[] | undefined>>();
 const gitHeadFileByDir = new Map<string, string>();
 const repoHeadMemo = new Map<string, { sha: string; headMtime: number; refFile?: string; refMtime: number }>();
 const LINE_BLAME_CACHE_MAX = 400;
@@ -22,8 +23,27 @@ const GIT_TIMEOUT_FILE_MS = 25000;
 const GIT_FILE_MAX_BUFFER = 32 * 1024 * 1024;
 const fileBlameCache = new Map<string, FileBlameCache>();
 const fileBlameInflight = new Map<string, Promise<void>>();
+const fileDiffCache = new Map<string, DiffHunk[] | null>();
+const FILE_DIFF_CACHE_MAX = 40;
+const repoRootByDir = new Map<string, string>();
 let resolvedGit: string | undefined;
 let gitWarmed = false;
+
+// git 空树：首提交没有 parent 时，左侧对空树即「整文件新增」，对齐 GitLens Open Changes。
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+export interface LineBlameDiffLine {
+    kind: 'add' | 'del' | 'ctx';
+    text: string;
+}
+
+type DiffHunk = {
+    oldStart: number;
+    oldCount: number;
+    newStart: number;
+    newCount: number;
+    lines: LineBlameDiffLine[];
+};
 
 type PorcelainFields = {
     sha: string;
@@ -32,6 +52,10 @@ type PorcelainFields = {
     time: number;
     summary: string;
     previous: string;
+    previousPath: string;
+    filename: string;
+    origLine: number;
+    content: string;
     uncommitted: boolean;
 };
 
@@ -57,6 +81,11 @@ type LineBlameCacheHit = {
     previousSha?: string;
     previousShortSha?: string;
     workingTree?: boolean;
+    origLine?: number;
+    filename?: string;
+    previousPath?: string;
+    content?: string;
+    diff?: LineBlameDiffLine[];
 };
 
 type LineBlameCacheEntry = LineBlameCacheHit | { stamp: string; miss: true };
@@ -506,6 +535,9 @@ function materializeBlame(hit: LineBlameCacheHit): LineBlameInfo {
     if (hit.workingTree) {
         hover.workingTree = true;
     }
+    if (hit.diff) {
+        hover.diff = hit.diff;
+    }
     let text = '';
     if (hit.uncommitted) {
         text = when
@@ -519,24 +551,39 @@ function materializeBlame(hit: LineBlameCacheHit): LineBlameInfo {
     return { text, hover };
 }
 
+function parsePreviousField(rest: string): { previous: string; previousPath: string } {
+    const trimmed = rest.trim();
+    const sp = trimmed.indexOf(' ');
+    if (sp < 0) {
+        return { previous: trimmed, previousPath: '' };
+    }
+    return { previous: trimmed.slice(0, sp), previousPath: trimmed.slice(sp + 1).trim() };
+}
+
 function parsePorcelain(stdout: string): PorcelainFields | null {
     const lines = stdout.split(/\r?\n/);
     if (!lines.length) {
         return null;
     }
-    const sha = (lines[0].split(' ')[0] || '').trim();
+    const head = (lines[0] || '').split(' ');
+    const sha = (head[0] || '').trim();
     if (!sha) {
         return null;
     }
     const uncommitted = /^0+$/.test(sha);
+    const origLine = parseInt(head[1], 10) || 0;
     let author = '';
     let email = '';
     let time = 0;
     let summary = '';
     let previous = '';
+    let previousPath = '';
+    let filename = '';
+    let content = '';
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
         if (line.startsWith('\t')) {
+            content = line.slice(1);
             break;
         }
         if (line.startsWith('author ')) {
@@ -548,7 +595,11 @@ function parsePorcelain(stdout: string): PorcelainFields | null {
         } else if (line.startsWith('summary ')) {
             summary = line.slice(8).trim();
         } else if (line.startsWith('previous ')) {
-            previous = (line.slice(9).split(' ')[0] || '').trim();
+            const parsedPrev = parsePreviousField(line.slice(9));
+            previous = parsedPrev.previous;
+            previousPath = parsedPrev.previousPath;
+        } else if (line.startsWith('filename ')) {
+            filename = line.slice(9).trim();
         }
     }
     return {
@@ -558,6 +609,10 @@ function parsePorcelain(stdout: string): PorcelainFields | null {
         time,
         summary,
         previous,
+        previousPath,
+        filename,
+        origLine,
+        content,
         uncommitted
     };
 }
@@ -576,6 +631,7 @@ function parsePorcelainFile(stdout: string): Map<number, PorcelainFields> {
             continue;
         }
         const rawSha = rec[1];
+        const origLine = parseInt(rec[2], 10) || 0;
         const resultLine = parseInt(rec[3], 10);
         i++;
         let author = '';
@@ -583,10 +639,14 @@ function parsePorcelainFile(stdout: string): Map<number, PorcelainFields> {
         let time = 0;
         let summary = '';
         let previous = '';
+        let previousPath = '';
+        let filename = '';
+        let content = '';
         let gotMeta = false;
         while (i < rows.length) {
             const line = rows[i];
             if (line.startsWith('\t')) {
+                content = line.slice(1);
                 i++;
                 break;
             }
@@ -603,7 +663,11 @@ function parsePorcelainFile(stdout: string): Map<number, PorcelainFields> {
             } else if (line.startsWith('summary ')) {
                 summary = line.slice(8).trim();
             } else if (line.startsWith('previous ')) {
-                previous = (line.slice(9).split(' ')[0] || '').trim();
+                const parsedPrev = parsePreviousField(line.slice(9));
+                previous = parsedPrev.previous;
+                previousPath = parsedPrev.previousPath;
+            } else if (line.startsWith('filename ')) {
+                filename = line.slice(9).trim();
             }
             i++;
         }
@@ -616,12 +680,16 @@ function parsePorcelainFile(stdout: string): Map<number, PorcelainFields> {
                 time,
                 summary,
                 previous,
+                previousPath,
+                filename,
+                origLine: 0,
+                content: '',
                 uncommitted
             });
         }
         const meta = commits.get(rawSha);
         if (meta && resultLine >= 1) {
-            out.set(resultLine, meta);
+            out.set(resultLine, { ...meta, origLine, content });
         }
     }
     return out;
@@ -650,6 +718,7 @@ export interface LineBlameHoverInfo {
     previousSha?: string;
     previousShortSha?: string;
     workingTree?: boolean;
+    diff?: LineBlameDiffLine[];
 }
 
 export interface LineBlameInfo {
@@ -742,6 +811,208 @@ async function blamePorcelainFile(fileDir: string, fsPath: string): Promise<stri
     }
 }
 
+async function repoRoot(fileDir: string): Promise<string | undefined> {
+    const key = cacheFileKey(fileDir);
+    const memo = repoRootByDir.get(key);
+    if (memo !== undefined) {
+        return memo || undefined;
+    }
+    try {
+        const root = normalizeGitFsPath((await gitExec(fileDir, ['rev-parse', '--show-toplevel'])).trim());
+        repoRootByDir.set(key, root);
+        return root;
+    } catch {
+        repoRootByDir.set(key, '');
+        return undefined;
+    }
+}
+
+function parseUnifiedDiff(stdout: string): DiffHunk[] {
+    const hunks: DiffHunk[] = [];
+    const header = /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/;
+    let current: DiffHunk | undefined;
+    for (const line of stdout.split(/\r?\n/)) {
+        const m = header.exec(line);
+        if (m) {
+            current = {
+                oldStart: parseInt(m[1], 10),
+                oldCount: m[2] !== undefined ? parseInt(m[2], 10) : 1,
+                newStart: parseInt(m[3], 10),
+                newCount: m[4] !== undefined ? parseInt(m[4], 10) : 1,
+                lines: []
+            };
+            hunks.push(current);
+            continue;
+        }
+        if (!current) {
+            continue;
+        }
+        if (line.startsWith('\\')) {
+            continue;
+        }
+        if (line.startsWith('+')) {
+            current.lines.push({ kind: 'add', text: line.slice(1) });
+        } else if (line.startsWith('-')) {
+            current.lines.push({ kind: 'del', text: line.slice(1) });
+        } else if (line.startsWith(' ')) {
+            current.lines.push({ kind: 'ctx', text: line.slice(1) });
+        } else if (
+            line.startsWith('diff ')
+            || line.startsWith('index ')
+            || line.startsWith('---')
+            || line.startsWith('+++')
+        ) {
+            current = undefined;
+        }
+    }
+    return hunks;
+}
+
+function hunkForNewLine(hunks: DiffHunk[], line: number): DiffHunk | undefined {
+    return hunks.find(h => h.newCount > 0 && line >= h.newStart && line < h.newStart + h.newCount);
+}
+
+// 对齐 GitLens hovers.changesDiff = line：只展示目标行对应的第一对增删，不铺整个 hunk。
+function extractChangeGroup(hunk: DiffHunk, targetNewLine: number): LineBlameDiffLine[] {
+    type Group = { dels: LineBlameDiffLine[]; adds: LineBlameDiffLine[]; addLines: number[] };
+    const groups: Group[] = [];
+    let cur: Group = { dels: [], adds: [], addLines: [] };
+    let newLine = hunk.newStart;
+    const flush = () => {
+        if (cur.dels.length || cur.adds.length) {
+            groups.push(cur);
+        }
+        cur = { dels: [], adds: [], addLines: [] };
+    };
+    for (const l of hunk.lines) {
+        if (l.kind === 'ctx') {
+            flush();
+            newLine++;
+            continue;
+        }
+        if (l.kind === 'del') {
+            cur.dels.push(l);
+            continue;
+        }
+        cur.adds.push(l);
+        cur.addLines.push(newLine);
+        newLine++;
+    }
+    flush();
+    const group = groups.find(g => g.addLines.includes(targetNewLine)) ?? groups[0];
+    if (!group) {
+        return hunk.lines.slice(0, 2);
+    }
+    const i = group.addLines.indexOf(targetNewLine);
+    const add = i >= 0 ? group.adds[i] : group.adds[0];
+    const del = group.dels.length === group.adds.length && i >= 0
+        ? group.dels[i]
+        : group.dels[0];
+    const out: LineBlameDiffLine[] = [];
+    if (del) {
+        out.push(del);
+    }
+    if (add) {
+        out.push(add);
+    }
+    return out;
+}
+
+async function gitDiffHunks(cwd: string, args: string[]): Promise<DiffHunk[] | undefined> {
+    try {
+        const stdout = await gitExec(cwd, args, GIT_TIMEOUT_MS, 2 * 1024 * 1024);
+        if (!stdout || /Binary files .* differ/i.test(stdout)) {
+            return undefined;
+        }
+        const hunks = parseUnifiedDiff(stdout);
+        return hunks.length ? hunks : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+async function fetchDiffHunks(
+    cwd: string,
+    fileDir: string,
+    fsPath: string,
+    left: string,
+    right: string,
+    oldFile: string,
+    newFile: string,
+    rel: string,
+    workingTree: boolean
+): Promise<DiffHunk[] | undefined> {
+    const flags = ['diff', '-U0', '--no-color', '--no-ext-diff'];
+    const treeFlags = [...flags, '--find-renames'];
+    const attempts: { cwd: string; args: string[] }[] = [];
+    const renamed = !!(oldFile && newFile && oldFile !== newFile);
+    if (!workingTree && right && left && left !== EMPTY_TREE_SHA && renamed) {
+        attempts.push({ cwd, args: [...flags, `${left}:${oldFile}`, `${right}:${newFile}`] });
+    }
+    if (!workingTree && right) {
+        attempts.push({ cwd, args: [...treeFlags, left, right, '--', newFile] });
+        attempts.push({ cwd: fileDir, args: [...treeFlags, left, right, '--', path.basename(fsPath)] });
+    }
+    if (workingTree) {
+        attempts.push({ cwd, args: [...treeFlags, left, '--', rel || newFile] });
+        attempts.push({ cwd: fileDir, args: [...treeFlags, left, '--', path.basename(fsPath)] });
+    }
+    for (const a of attempts) {
+        const hunks = await gitDiffHunks(a.cwd, a.args);
+        if (hunks) {
+            return hunks;
+        }
+    }
+    return undefined;
+}
+
+function asAddedLine(content: string | undefined): LineBlameDiffLine[] | undefined {
+    return content ? [{ kind: 'add', text: content }] : undefined;
+}
+
+// 对齐 GitLens hover 里当前行的增删：对该行所在提交做 -U0 diff，抽出包含该行的 change group。
+async function loadLineDiff(
+    fileDir: string,
+    fsPath: string,
+    parsed: PorcelainFields,
+    line1Based: number
+): Promise<LineBlameDiffLine[] | undefined> {
+    const root = await repoRoot(fileDir);
+    const relRaw = root ? path.relative(root, fsPath) : path.basename(fsPath);
+    if (!relRaw || relRaw.startsWith('..') || path.isAbsolute(relRaw)) {
+        return asAddedLine(parsed.uncommitted ? parsed.content : '');
+    }
+    const rel = relRaw.replace(/\\/g, '/');
+    const newFile = (parsed.filename || rel).replace(/\\/g, '/');
+    const oldFile = (parsed.previousPath || newFile).replace(/\\/g, '/');
+    const cwd = root || fileDir;
+    const workingTree = parsed.uncommitted;
+    const right = workingTree ? '' : parsed.sha;
+    let left = parsed.previous;
+    if (!left) {
+        left = workingTree ? await repoHead(fileDir) : EMPTY_TREE_SHA;
+    }
+    if (!left) {
+        return asAddedLine(parsed.content);
+    }
+    const cacheKey = `${cwd}\0${left}\0${right}\0${newFile}\0${oldFile}\0${workingTree ? 1 : 0}`;
+    let hunks = lruGet(fileDiffCache, cacheKey);
+    if (hunks === undefined) {
+        hunks = await fetchDiffHunks(cwd, fileDir, fsPath, left, right, oldFile, newFile, rel, workingTree) ?? null;
+        lruSet(fileDiffCache, cacheKey, hunks, FILE_DIFF_CACHE_MAX);
+    }
+    if (!hunks) {
+        return workingTree ? asAddedLine(parsed.content) : undefined;
+    }
+    const lineInNew = workingTree ? line1Based : (parsed.origLine || line1Based);
+    const hunk = hunkForNewLine(hunks, lineInNew);
+    if (!hunk) {
+        return workingTree ? asAddedLine(parsed.content) : undefined;
+    }
+    const lines = extractChangeGroup(hunk, lineInNew);
+    return lines.length ? lines : undefined;
+}
+
 async function storedFromParsed(
     parsed: PorcelainFields,
     stamp: string,
@@ -775,6 +1046,7 @@ async function storedFromParsed(
             stored.previousSha = left;
             stored.previousShortSha = shortSha(left);
         }
+        attachDiffSource(stored, parsed);
         return stored;
     }
     const fullMessage = (await commitMessage(cwd, parsed.sha)) || parsed.summary;
@@ -804,7 +1076,32 @@ async function storedFromParsed(
         stored.previousSha = parsed.previous;
         stored.previousShortSha = shortSha(parsed.previous);
     }
+    attachDiffSource(stored, parsed);
     return stored;
+}
+
+function attachDiffSource(stored: LineBlameCacheHit, parsed: PorcelainFields): void {
+    stored.origLine = parsed.origLine;
+    stored.filename = parsed.filename;
+    stored.previousPath = parsed.previousPath;
+    stored.content = parsed.content;
+}
+
+function parsedFromHit(hit: LineBlameCacheHit): PorcelainFields {
+    const previous = hit.previousSha && hit.previousSha !== 'working-tree' ? hit.previousSha : '';
+    return {
+        sha: hit.uncommitted ? '' : hit.sha,
+        author: '',
+        email: '',
+        time: hit.time,
+        summary: '',
+        previous,
+        previousPath: hit.previousPath || '',
+        filename: hit.filename || '',
+        origLine: hit.origLine || 0,
+        content: hit.content || '',
+        uncommitted: hit.uncommitted
+    };
 }
 
 async function infoFromParsed(
@@ -931,6 +1228,70 @@ export async function blameLine(uriString: string, line1Based: number): Promise<
     return job;
 }
 
+/**
+ * 浮窗打开后再拉当前行的增删。blame porcelain 不含旧行内容，必须 git diff；
+ * 同一「文件 + 两个 SHA」命中 fileDiffCache 则不再打 git。
+ */
+export async function blameLineDiff(
+    uriString: string,
+    line1Based: number
+): Promise<LineBlameDiffLine[] | undefined> {
+    if (!uriString || line1Based < 1) {
+        return undefined;
+    }
+    const uri = toFileUri(uriString);
+    if (!uri) {
+        return undefined;
+    }
+    const fsPath = uri.fsPath;
+    const fileDir = path.dirname(fsPath);
+    const key = lineCacheKey(fsPath, line1Based);
+    const pending = lineDiffInflight.get(key);
+    if (pending) {
+        return pending;
+    }
+    const job = (async () => {
+        try {
+            const stamp = await blameStamp(fileDir, uri, fsPath);
+            const cached = lruGet(lineBlameCache, key);
+            if (cached && !cached.miss && cached.stamp === stamp && cached.diff) {
+                return cached.diff.length ? cached.diff : undefined;
+            }
+            const fileKey = cacheFileKey(fsPath);
+            let fileHit = lruGet(fileBlameCache, fileKey);
+            if (!fileHit || fileHit.stamp !== stamp) {
+                const inflightKey = `${fileKey}\0${stamp}`;
+                const fileJob = fileBlameInflight.get(inflightKey);
+                if (fileJob) {
+                    await fileJob;
+                    fileHit = lruGet(fileBlameCache, fileKey);
+                }
+            }
+            let parsed: PorcelainFields | undefined;
+            if (fileHit && fileHit.stamp === stamp && !fileHit.failed) {
+                parsed = fileHit.lines.get(line1Based);
+            }
+            if (!parsed && cached && !cached.miss && cached.stamp === stamp) {
+                parsed = parsedFromHit(cached);
+            }
+            if (!parsed) {
+                return undefined;
+            }
+            const diff = await loadLineDiff(fileDir, fsPath, parsed, line1Based);
+            if (cached && !cached.miss && cached.stamp === stamp) {
+                cached.diff = diff && diff.length ? diff : [];
+            }
+            return diff && diff.length ? diff : undefined;
+        } catch {
+            return undefined;
+        } finally {
+            lineDiffInflight.delete(key);
+        }
+    })();
+    lineDiffInflight.set(key, job);
+    return job;
+}
+
 function toGitUri(uri: vscode.Uri, ref: string): vscode.Uri {
     return uri.with({
         scheme: 'git',
@@ -946,11 +1307,9 @@ function editorViewColumn(): vscode.ViewColumn {
     return visible?.viewColumn ?? vscode.ViewColumn.One;
 }
 
-// git 空树：首提交没有 parent 时，左侧对空树即「整文件新增」，对齐 GitLens Open Changes。
-const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
-
 /**
  * 在 VS Code 主编辑区打开该行 blame 对应的两次提交 diff（对齐 GitLens Open Changes）。
+ * 已提交：对该行 blame 的 previous ↔ 本次 sha（上一次改这行 ↔ 这次），并定位到该行。
  * previousSha 为空时对空树 diff，展示该提交首次加入的内容。
  * workingTree：右侧用磁盘文件，即未提交工作区。
  */
@@ -958,7 +1317,7 @@ export async function openBlameDiff(
     uriString: string,
     previousSha: string,
     sha: string,
-    opts?: { workingTree?: boolean }
+    opts?: { workingTree?: boolean; line?: number }
 ): Promise<void> {
     const uri = toFileUri(uriString);
     if (!uri) {
@@ -976,8 +1335,25 @@ export async function openBlameDiff(
         // git 方案由 vscode.git 提供；激活失败时 vscode.diff 仍可能打开空页
     }
     const name = path.basename(uri.fsPath);
+    const workingTree = !!opts?.workingTree;
     const leftRef = previousSha || EMPTY_TREE_SHA;
-    if (opts?.workingTree) {
+    let revealLine = opts?.line && opts.line > 0 ? opts.line : 0;
+    if (!workingTree && revealLine) {
+        const cached = lineBlameCache.get(lineCacheKey(uri.fsPath, revealLine));
+        if (cached && !cached.miss && cached.origLine && cached.origLine > 0) {
+            revealLine = cached.origLine;
+        }
+    }
+    const showOptions: vscode.TextDocumentShowOptions = {
+        preview: true,
+        preserveFocus: false,
+        viewColumn: editorViewColumn()
+    };
+    if (revealLine > 0) {
+        const line0 = revealLine - 1;
+        showOptions.selection = new vscode.Range(line0, 0, line0, Number.MAX_SAFE_INTEGER);
+    }
+    if (workingTree) {
         const title = previousSha
             ? `${name} (${shortSha(previousSha)}) ↔ ${name} (Working Tree)`
             : `${name} ↔ ${name} (Working Tree)`;
@@ -986,7 +1362,7 @@ export async function openBlameDiff(
             toGitUri(uri, leftRef),
             uri,
             title,
-            { preview: true, preserveFocus: false, viewColumn: editorViewColumn() }
+            showOptions
         );
         return;
     }
@@ -998,6 +1374,6 @@ export async function openBlameDiff(
         toGitUri(uri, leftRef),
         toGitUri(uri, sha),
         title,
-        { preview: true, preserveFocus: false, viewColumn: editorViewColumn() }
+        showOptions
     );
 }

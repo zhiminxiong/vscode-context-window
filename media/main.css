@@ -159,10 +159,10 @@ body.has-jump-trail #container {
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
-    max-width: 520px;
-    min-width: 280px;
-    max-height: min(70vh, 440px);
-    overflow: hidden;
+    max-width: min(720px, calc(100vw - 24px));
+    min-width: 400px;
+    width: max-content;
+    overflow: visible;
     padding: 12px 14px 10px;
     background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
     color: var(--vscode-editorHoverWidget-foreground, var(--vscode-editorWidget-foreground, #cccccc));
@@ -233,9 +233,9 @@ body.has-jump-trail #container {
 }
 
 .cw-line-blame-hover-msg {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-height: 0;
-    overflow: auto;
+    overflow: visible;
 }
 
 .cw-line-blame-hover-summary {
@@ -259,7 +259,62 @@ body.has-jump-trail #container {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 4px 0 6px;
+    margin: 4px 0 8px;
+    flex-shrink: 0;
+}
+
+.cw-line-blame-hover-diff {
+    flex: 0 0 auto;
+    height: auto;
+    overflow: visible;
+    margin: 0 0 8px;
+    padding-top: 8px;
+    width: 100%;
+    align-self: stretch;
+    box-sizing: border-box;
+    border: none;
+    border-top: 1px solid var(--vscode-editorHoverWidget-border, rgba(128, 128, 128, 0.35));
+    border-radius: 0;
+    font-family: var(--vscode-editor-font-family, Consolas, monospace);
+    font-size: 12px;
+    line-height: 1.45;
+    tab-size: 4;
+}
+
+.cw-line-blame-hover-diff-line {
+    display: block;
+    padding: 1px 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.cw-line-blame-hover-diff-mark {
+    display: inline;
+    user-select: none;
+    font-weight: 600;
+}
+
+.cw-line-blame-hover-diff-text {
+    display: inline;
+}
+
+.cw-line-blame-hover-diff-del {
+    background: transparent;
+    color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149);
+}
+
+.cw-line-blame-hover-diff-add {
+    background: transparent;
+    color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+}
+
+.cw-line-blame-hover-diff-ctx {
+    color: var(--vscode-descriptionForeground, #999);
+}
+
+.cw-line-blame-hover-diff-inner {
+    background: transparent;
 }
 
 .cw-line-blame-hover-sha {

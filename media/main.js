@@ -1104,6 +1104,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                 case 'lineBlameResult':
                                     lineBlame.handleResult(message);
                                     break;
+                                case 'lineBlameDiffResult':
+                                    lineBlame.handleDiffResult(message);
+                                    break;
                                 case 'selectEnclosingSymbol.result':
                                     mouseHandlers.handleSelectEnclosingSymbolResult(message);
                                     break;

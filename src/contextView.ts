@@ -3,7 +3,7 @@ import { showPanelInNewWindow } from './auxiliaryWindow';
 import { Renderer, FileContentInfo } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent } from './grammarRegistry';
-import { blameLine, openBlameDiff } from './lineBlame';
+import { blameLine, blameLineDiff, openBlameDiff } from './lineBlame';
 import { enclosingSymbolRange } from './enclosingSymbol';
 
 enum UpdateMode {
@@ -417,11 +417,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const previousSha = String(message?.previousSha ?? '');
         const sha = String(message?.sha ?? '');
         const workingTree = !!message?.workingTree;
+        const line = message?.line | 0;
         if (!uri || (!sha && !workingTree)) {
             return;
         }
         try {
-            await openBlameDiff(uri, previousSha, sha, { workingTree });
+            await openBlameDiff(uri, previousSha, sha, { workingTree, line });
         } catch (err) {
             console.error('[context-window] openLineBlameChanges failed:', err);
             vscode.window.showErrorMessage('Failed to open git changes');
@@ -871,6 +872,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 case 'requestLineBlame':
                     await this.handleRequestLineBlame(message);
                     break;
+                case 'requestLineBlameDiff':
+                    await this.handleRequestLineBlameDiff(message);
+                    break;
                 case 'setEnableHover':
                     await this.handleSetEnableHover(message);
                     break;
@@ -1224,6 +1228,30 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 line,
                 text: info?.text || '',
                 hover: info?.hover
+            });
+        } catch {
+            empty();
+        }
+    }
+
+    // 浮窗打开后再取当前行增删，点行尾摘要时不打 git diff。
+    private async handleRequestLineBlameDiff(message: any) {
+        const reqId = message?.reqId;
+        const uri = String(message?.uri ?? '');
+        const line = message?.line | 0;
+        const empty = () => this.postMessageToWebview({ type: 'lineBlameDiffResult', reqId, uri, line, diff: [] });
+        if (typeof reqId !== 'number' || !uri || line < 1) {
+            empty();
+            return;
+        }
+        try {
+            const diff = await blameLineDiff(uri, line);
+            this.postMessageToWebview({
+                type: 'lineBlameDiffResult',
+                reqId,
+                uri,
+                line,
+                diff: diff || []
             });
         } catch {
             empty();

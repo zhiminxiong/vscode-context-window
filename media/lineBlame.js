@@ -24,11 +24,12 @@ export function createLineBlame(ctx) {
     let hoverEnabled = ctx && ctx.hoverEnabled !== false;
     let seq = 0;
     let timer = 0;
-    /** @type {{ uri: string, line: number, text: string, hover?: any, versionId: number } | null} */
+    /** @type {{ uri: string, line: number, text: string, hover?: any, versionId: number, diffPending?: boolean, diffReqId?: number } | null} */
     let lastShown = null;
     let lastReqLine = 0;
     let lastReqUri = '';
     let pendingReq = false;
+    let diffSeq = 0;
     /** @type {HTMLSpanElement | null} */
     let node = null;
     /** @type {import('monaco-editor').editor.IContentWidget | null} */
@@ -122,7 +123,8 @@ export function createLineBlame(ctx) {
                     uri,
                     previousSha,
                     sha,
-                    workingTree: !!workingTree
+                    workingTree: !!workingTree,
+                    line: lastShown ? lastShown.line : 0
                 });
             }
             hideHover();
@@ -228,6 +230,140 @@ export function createLineBlame(ctx) {
         return el;
     }
 
+    // 单行替换时高亮中间不同的片段，对齐 GitLens 行内 diff。
+    function splitAffix(a, b) {
+        const left = String(a || '');
+        const right = String(b || '');
+        let i = 0;
+        const max = Math.min(left.length, right.length);
+        while (i < max && left[i] === right[i]) {
+            i++;
+        }
+        let sa = left.length;
+        let sb = right.length;
+        while (sa > i && sb > i && left[sa - 1] === right[sb - 1]) {
+            sa--;
+            sb--;
+        }
+        if (i === 0 && sa === left.length && sb === right.length) {
+            return null;
+        }
+        return {
+            a: [left.slice(0, i), left.slice(i, sa), left.slice(sa)],
+            b: [right.slice(0, i), right.slice(i, sb), right.slice(sb)]
+        };
+    }
+
+    function appendAffix(el, parts) {
+        if (parts[0]) {
+            el.appendChild(document.createTextNode(parts[0]));
+        }
+        if (parts[1]) {
+            const mid = document.createElement('span');
+            mid.className = 'cw-line-blame-hover-diff-inner';
+            mid.textContent = parts[1];
+            el.appendChild(mid);
+        }
+        if (parts[2]) {
+            el.appendChild(document.createTextNode(parts[2]));
+        }
+    }
+
+    function renderDiff(h) {
+        const rows = h && Array.isArray(h.diff) ? h.diff : [];
+        if (!rows.length) {
+            return null;
+        }
+        const box = document.createElement('div');
+        box.className = 'cw-line-blame-hover-diff';
+        const trimLead = text => String(text || '').replace(/^[ \t]+/, '');
+        const dels = rows.filter(l => l.kind === 'del');
+        const adds = rows.filter(l => l.kind === 'add');
+        const affix = (dels.length === 1 && adds.length === 1)
+            ? splitAffix(trimLead(dels[0].text), trimLead(adds[0].text))
+            : null;
+        for (const line of rows) {
+            const row = document.createElement('div');
+            const kind = line.kind === 'del' ? 'del' : line.kind === 'add' ? 'add' : 'ctx';
+            row.className = 'cw-line-blame-hover-diff-line cw-line-blame-hover-diff-' + kind;
+            const mark = document.createElement('span');
+            mark.className = 'cw-line-blame-hover-diff-mark';
+            mark.textContent = kind === 'del' ? '- ' : kind === 'add' ? '+ ' : '  ';
+            const body = document.createElement('span');
+            body.className = 'cw-line-blame-hover-diff-text';
+            const text = trimLead(line.text);
+            if (affix && kind === 'del') {
+                appendAffix(body, affix.a);
+            } else if (affix && kind === 'add') {
+                appendAffix(body, affix.b);
+            } else {
+                body.textContent = text;
+            }
+            row.appendChild(mark);
+            row.appendChild(body);
+            box.appendChild(row);
+        }
+        return box;
+    }
+
+    function requestDiff() {
+        if (!lastShown || !lastShown.hover || Array.isArray(lastShown.hover.diff) || lastShown.diffPending) {
+            return;
+        }
+        lastShown.diffPending = true;
+        const reqId = ++diffSeq;
+        lastShown.diffReqId = reqId;
+        vscode.postMessage({
+            type: 'requestLineBlameDiff',
+            reqId,
+            uri: lastShown.uri,
+            line: lastShown.line
+        });
+    }
+
+    function patchHoverDiff() {
+        if (!hoverEl || !lastShown || !lastShown.hover) {
+            return;
+        }
+        const next = renderDiff(lastShown.hover);
+        const old = hoverEl.querySelector('.cw-line-blame-hover-diff');
+        if (!next) {
+            if (old && old.parentNode) {
+                old.parentNode.removeChild(old);
+            }
+            positionHover();
+            return;
+        }
+        if (old && old.parentNode) {
+            old.parentNode.replaceChild(next, old);
+        } else {
+            const foot = hoverEl.querySelector('.cw-line-blame-hover-foot');
+            if (foot) {
+                hoverEl.insertBefore(next, foot);
+            } else {
+                hoverEl.appendChild(next);
+            }
+        }
+        positionHover();
+    }
+
+    function handleDiffResult(message) {
+        if (!lastShown || !message || message.reqId !== lastShown.diffReqId) {
+            return;
+        }
+        lastShown.diffPending = false;
+        if (message.line !== lastShown.line || message.uri !== lastShown.uri) {
+            return;
+        }
+        if (!lastShown.hover) {
+            return;
+        }
+        lastShown.hover.diff = Array.isArray(message.diff) ? message.diff : [];
+        if (hoverEl) {
+            patchHoverDiff();
+        }
+    }
+
     function positionHover() {
         if (!hoverEl || !node) {
             return;
@@ -235,14 +371,12 @@ export function createLineBlame(ctx) {
         const rect = node.getBoundingClientRect();
         const pad = 8;
         const gap = 6;
-        const availAbove = Math.max(0, rect.top - pad - gap);
-        const availBelow = Math.max(0, window.innerHeight - rect.bottom - pad - gap);
-        const placeBelow = availBelow >= Math.max(availAbove, 120);
-        const avail = placeBelow ? availBelow : availAbove;
-        hoverEl.style.maxHeight = Math.max(140, Math.floor(avail)) + 'px';
-
+        hoverEl.style.maxHeight = '';
         const hw = hoverEl.offsetWidth;
         const hh = hoverEl.offsetHeight;
+        const availAbove = Math.max(0, rect.top - pad - gap);
+        const availBelow = Math.max(0, window.innerHeight - rect.bottom - pad - gap);
+        const placeBelow = availBelow >= availAbove || availBelow >= hh;
         let left = rect.left;
         if (left + hw > window.innerWidth - pad) {
             left = window.innerWidth - hw - pad;
@@ -264,6 +398,7 @@ export function createLineBlame(ctx) {
         // 按住 Alt 会重复 keydown；已打开就不要拆 DOM，否则头像会在照片/字母间闪。
         if (hoverEl && !force) {
             positionHover();
+            requestDiff();
             return;
         }
         const h = lastShown.hover;
@@ -315,10 +450,15 @@ export function createLineBlame(ctx) {
         const actions = document.createElement('div');
         actions.className = 'cw-line-blame-hover-actions';
         if (h.shortSha && !h.workingTree) {
-            actions.appendChild(makeShaButton(h.shortSha, h.sha, true));
+            actions.appendChild(makeShaButton(h.shortSha, h.sha));
         }
         if (actions.childNodes.length) {
-            foot.appendChild(actions);
+            hoverEl.appendChild(actions);
+        }
+
+        const diffEl = renderDiff(h);
+        if (diffEl) {
+            hoverEl.appendChild(diffEl);
         }
 
         const changes = document.createElement('div');
@@ -330,7 +470,7 @@ export function createLineBlame(ctx) {
             changes.appendChild(document.createTextNode('Changes '));
             if (leftLabel) {
                 if (h.previousSha && h.previousSha !== 'working-tree') {
-                    changes.appendChild(makeShaButton(leftLabel, h.previousSha));
+                    changes.appendChild(makeShaButton(leftLabel, h.previousSha, true));
                 } else {
                     changes.appendChild(document.createTextNode(leftLabel));
                 }
@@ -341,7 +481,7 @@ export function createLineBlame(ctx) {
                 changes.appendChild(sep);
             }
             if (!sameRef && h.shortSha && h.sha && h.sha !== 'working-tree') {
-                changes.appendChild(makeShaButton(rightLabel, h.sha, true));
+                changes.appendChild(makeShaButton(rightLabel, h.sha));
             } else {
                 changes.appendChild(document.createTextNode(rightLabel));
             }
@@ -355,20 +495,20 @@ export function createLineBlame(ctx) {
             }
         } else if (h.previousShortSha && h.shortSha) {
             changes.appendChild(document.createTextNode('Changes '));
-            changes.appendChild(makeShaButton(h.previousShortSha, h.previousSha || h.previousShortSha));
+            changes.appendChild(makeShaButton(h.previousShortSha, h.previousSha || h.previousShortSha, true));
             const sep = document.createElement('span');
             sep.className = 'cw-line-blame-hover-sep';
             sep.setAttribute('aria-hidden', 'true');
             sep.textContent = '↔';
             changes.appendChild(sep);
-            changes.appendChild(makeShaButton(h.shortSha, h.sha, true));
+            changes.appendChild(makeShaButton(h.shortSha, h.sha));
             if (h.previousSha && h.sha && lastShown.uri) {
                 changes.appendChild(makeOpenChangesButton(lastShown.uri, h.previousSha, h.sha));
             }
         } else if (h.shortSha) {
             // 首提交没有 parent：GitLens 仍固定写 Changes added in <sha>，并可打开对空树的 diff。
             changes.appendChild(document.createTextNode('Changes added in '));
-            changes.appendChild(makeShaButton(h.shortSha, h.sha, true));
+            changes.appendChild(makeShaButton(h.shortSha, h.sha));
             if (h.sha && lastShown.uri) {
                 changes.appendChild(makeOpenChangesButton(lastShown.uri, '', h.sha));
             }
@@ -381,6 +521,7 @@ export function createLineBlame(ctx) {
         hoverEl.style.visibility = 'hidden';
         positionHover();
         hoverEl.style.visibility = 'visible';
+        requestDiff();
     }
 
     function ensureWidget() {
@@ -661,5 +802,5 @@ export function createLineBlame(ctx) {
         }
     });
 
-    return { handleResult, clear, setEnabled, setHoverEnabled };
+    return { handleResult, handleDiffResult, clear, setEnabled, setHoverEnabled };
 }
