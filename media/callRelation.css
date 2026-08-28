@@ -253,6 +253,7 @@ body.is-loading .cr-bar {
 
 .cr-edge-group {
     pointer-events: none;
+    transition: opacity 0.15s ease;
 }
 
 .cr-edge-group.is-live {
@@ -331,7 +332,7 @@ body.is-loading .cr-bar {
     cursor: pointer;
     user-select: none;
     z-index: 2;
-    transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+    transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.15s ease;
 }
 
 .cr-node:hover {
@@ -403,6 +404,46 @@ body.is-loading .cr-bar {
 
 .cr-node.is-root.is-selected {
     box-shadow: 0 0 0 2px var(--vscode-button-hoverBackground, var(--vscode-focusBorder, #007fd4));
+}
+
+.cr-canvas.is-focus .cr-node:not(.is-on-path),
+.cr-canvas.is-focus .cr-group-frame {
+    opacity: 0.28;
+}
+
+.cr-canvas.is-focus .cr-edge-group:not(.is-on-path) {
+    opacity: 0.16;
+}
+
+.cr-canvas.is-focus .cr-node.is-on-path {
+    z-index: 4;
+}
+
+.cr-canvas.is-focus .cr-node.is-path-pin {
+    z-index: 5;
+    overflow: visible;
+}
+
+.cr-path-pin {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--vscode-charts-orange, #e8a317);
+    color: #fff;
+    pointer-events: none;
+    box-shadow: 0 0 0 2px var(--vscode-editor-background), 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.cr-path-pin svg {
+    display: block;
+    width: 12px;
+    height: 12px;
 }
 
 .cr-node.is-more {

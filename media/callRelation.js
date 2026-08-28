@@ -46,6 +46,8 @@ let zoomWrap = null;
 let lastGraph = null;
 /** @type {string} */
 let selectedKey = '';
+/** Alt+click 钉住的节点 id；空串表示未钉路径。 */
+let pinnedNodeId = '';
 /** @type {'elbow' | 'direct' | 'arc'} */
 let edgeStyle = 'arc';
 /** @type {Set<string>} */
@@ -486,6 +488,94 @@ function persistEdgeStyle() {
     persistViewState();
 }
 
+function pathFocusIds(graph, nodeId) {
+    if (!graph || !nodeId) {
+        return null;
+    }
+    const byId = new Map();
+    for (const n of graph.nodes) {
+        byId.set(n.id, n);
+    }
+    if (!byId.has(nodeId)) {
+        return null;
+    }
+    const ids = new Set();
+    let cur = byId.get(nodeId);
+    while (cur) {
+        ids.add(cur.id);
+        cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+    for (const n of graph.nodes) {
+        if (n.parentId === nodeId) {
+            ids.add(n.id);
+        }
+    }
+    return ids;
+}
+
+function createPathPinBadge() {
+    const badge = document.createElement('span');
+    badge.className = 'cr-path-pin';
+    badge.setAttribute('aria-hidden', 'true');
+    badge.title = 'Path pinned — Alt+click to unpin';
+    badge.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 1a4.2 4.2 0 0 0-4.2 4.2c0 3.1 3.5 8.3 4.2 9.1.7-.8 4.2-6 4.2-9.1A4.2 4.2 0 0 0 8 1zm0 5.8A1.6 1.6 0 1 1 8 3.6a1.6 1.6 0 0 1 0 3.2z"/></svg>';
+    return badge;
+}
+
+function applyPathFocus() {
+    const canvas = canvasEl;
+    if (!canvas) {
+        return;
+    }
+    if (pinnedNodeId && lastGraph && pinnedNodeId === lastGraph.rootId) {
+        pinnedNodeId = '';
+    }
+    let ids = pinnedNodeId && lastGraph ? pathFocusIds(lastGraph, pinnedNodeId) : null;
+    if (pinnedNodeId && !ids) {
+        pinnedNodeId = '';
+        ids = null;
+    }
+    const focus = !!(pinnedNodeId && ids);
+    canvas.classList.toggle('is-focus', focus);
+    canvas.querySelectorAll('.cr-node').forEach(el => {
+        const id = el.dataset.nodeId || '';
+        const onPath = !!(focus && ids && ids.has(id));
+        const isPin = !!(focus && id === pinnedNodeId);
+        el.classList.toggle('is-on-path', onPath);
+        el.classList.toggle('is-path-pin', isPin);
+        const badge = el.querySelector('.cr-path-pin');
+        if (isPin) {
+            if (!badge) {
+                el.appendChild(createPathPinBadge());
+            }
+        } else if (badge) {
+            badge.remove();
+        }
+    });
+    canvas.querySelectorAll('.cr-edge-group').forEach(g => {
+        const from = g.getAttribute('data-from') || '';
+        const to = g.getAttribute('data-to') || '';
+        g.classList.toggle('is-on-path', !!(focus && ids && ids.has(from) && ids.has(to)));
+    });
+}
+
+function togglePathPin(nodeId) {
+    if (!nodeId || (lastGraph && nodeId === lastGraph.rootId)) {
+        clearPathPin();
+        return;
+    }
+    pinnedNodeId = pinnedNodeId === nodeId ? '' : nodeId;
+    applyPathFocus();
+}
+
+function clearPathPin() {
+    if (!pinnedNodeId) {
+        return;
+    }
+    pinnedNodeId = '';
+    applyPathFocus();
+}
+
 const EDGE_STYLE_ITEMS = [
     { id: 'arc', label: 'Arc' },
     { id: 'direct', label: 'Direct' },
@@ -711,7 +801,8 @@ function hideSiteMenu() {
     }
 }
 
-const TIP_INITIAL_MS = 400;
+/** 与 VS Code workbench.hover.delay 对齐；Windows 默认 500ms，macOS 1500ms。 */
+let tipDelayMs = 500;
 let nodeTipEl = null;
 let nodeTipTimer = 0;
 let nodeTipAnchor = null;
@@ -743,7 +834,7 @@ function armTip(spec) {
         if (tipHover && tipHover.el === spec.el) {
             showTip(spec);
         }
-    }, TIP_INITIAL_MS);
+    }, tipDelayMs);
 }
 
 function armNodeTip(node, el) {
@@ -1144,6 +1235,8 @@ function render(graph) {
         const live = !!(edge.sites && edge.sites.length) && edge.style !== 'anchor';
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.setAttribute('class', 'cr-edge-group' + (live ? ' is-live' : ''));
+        g.setAttribute('data-from', edge.from);
+        g.setAttribute('data-to', edge.to);
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('class', 'cr-edge' + (edge.style === 'anchor' ? ' is-anchor' : ''));
         path.setAttribute('d', d);
@@ -1238,6 +1331,10 @@ function render(graph) {
             el.textContent = node.name;
             el.addEventListener('click', ev => {
                 ev.stopPropagation();
+                if (ev.altKey) {
+                    togglePathPin(node.id);
+                    return;
+                }
                 vscode.postMessage({ type: 'expandMore', nodeId: node.expandKey || node.id });
             });
         } else if (node.kind === 'group') {
@@ -1256,6 +1353,10 @@ function render(graph) {
             el.appendChild(meta);
             el.addEventListener('click', ev => {
                 ev.stopPropagation();
+                if (ev.altKey) {
+                    togglePathPin(node.id);
+                    return;
+                }
                 vscode.postMessage({ type: 'toggleGroup', nodeId: node.id });
             });
             addThumb(el, head, node);
@@ -1272,7 +1373,17 @@ function render(graph) {
             meta.textContent = node.file ? `${node.file}:${node.line}` : '';
             el.appendChild(meta);
             let clickTimer = 0;
-            el.addEventListener('click', () => {
+            el.addEventListener('click', ev => {
+                if (ev.altKey) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    if (clickTimer) {
+                        clearTimeout(clickTimer);
+                        clickTimer = 0;
+                    }
+                    togglePathPin(node.id);
+                    return;
+                }
                 if (clickTimer) {
                     return;
                 }
@@ -1294,6 +1405,7 @@ function render(graph) {
                     clickTimer = 0;
                 }
                 selectedKey = node.itemKey || '';
+                clearPathPin();
                 vscode.postMessage({ type: 'focusNode', nodeId: node.id });
             });
             const hasKids = graph.nodes.some(n => n.parentId === node.id);
@@ -1330,6 +1442,7 @@ function render(graph) {
     stage.appendChild(zoomWrap);
     applyZoomChrome();
     applyView(graph, pos);
+    applyPathFocus();
     if (lastTipNodeId && canvas) {
         const n = graph.nodes.find(x => x.id === lastTipNodeId);
         const el = [...canvas.querySelectorAll('.cr-node')].find(e => e.dataset.nodeId === lastTipNodeId);
@@ -1564,6 +1677,9 @@ window.addEventListener('message', ev => {
         }
         applyUpdateMode(msg.updateMode);
         applyEdgeStyle(normalizeEdgeStyle(msg.edgeStyle));
+        if (typeof msg.hoverDelay === 'number' && Number.isFinite(msg.hoverDelay) && msg.hoverDelay >= 0) {
+            tipDelayMs = msg.hoverDelay;
+        }
     } else if (msg.type === 'beginProgress') {
         setProgress(true);
     } else if (msg.type === 'endProgress') {
@@ -1587,6 +1703,9 @@ if (stage) {
             return;
         }
         hideSiteMenu();
+        if (e.altKey && !(hit && hit.closest && hit.closest('.cr-node'))) {
+            clearPathPin();
+        }
     });
 }
 

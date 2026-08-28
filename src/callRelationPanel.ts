@@ -38,6 +38,9 @@ export class CallRelationPanel {
                     this.updateMode = this.readUpdateMode();
                     this.postState();
                 }
+                if (e.affectsConfiguration('workbench.hover.delay')) {
+                    this.postState();
+                }
             }),
             vscode.workspace.onDidChangeTextDocument(e => {
                 if (e.document.uri.scheme !== 'file' || !e.contentChanges.length) {
@@ -340,12 +343,21 @@ export class CallRelationPanel {
             : 'live';
     }
 
+    private readHoverDelay(): number {
+        const n = vscode.workspace.getConfiguration('workbench').get<number>('hover.delay');
+        if (typeof n === 'number' && Number.isFinite(n) && n >= 0) {
+            return n;
+        }
+        return process.platform === 'darwin' ? 1500 : 500;
+    }
+
     private postState(): void {
         this.panel?.webview.postMessage({
             type: 'state',
             pinned: this.pinned,
             edgeStyle: this.edgeStyle,
-            updateMode: this.updateMode
+            updateMode: this.updateMode,
+            hoverDelay: this.readHoverDelay()
         });
     }
 
@@ -376,7 +388,7 @@ export class CallRelationPanel {
       <button type="button" id="cr-pin" class="cr-btn" title="Pin the current graph so cursor moves do not refresh it">Pin</button>
     </div>
   </header>
-  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Filled = current center, thick link border = previous center, ring = selected. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
+  <div class="cr-hint">Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path. Dashed nodes are library groups. Click a link for that call site. + / − expand or collapse. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</div>
   <div class="cr-stage" id="cr-stage">
     <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
   </div>
