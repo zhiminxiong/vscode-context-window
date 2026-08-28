@@ -326,6 +326,16 @@ export class CallRelationPanel {
                 this.graph = this.model.collapseHop(String(message.nodeId || ''), this.graph.nodes);
                 this.postGraph();
                 break;
+            case 'expandAll':
+                await this.withProgress(async () => {
+                    const loaded = await this.model.expandAll();
+                    this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+                });
+                break;
+            case 'collapseAll':
+                this.graph = this.model.collapseAll();
+                this.postGraph();
+                break;
             case 'toggleGroup': {
                 const nodes = this.graph.nodes;
                 await this.withProgress(async () => {
@@ -525,10 +535,10 @@ export class CallRelationPanel {
   </header>
   <div class="cr-centers" id="cr-centers" hidden></div>
   <div class="cr-hint" id="cr-hint" hidden>
-    <p>Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click to copy the call chain.</p>
+    <p>Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click the canvas to expand or collapse all nodes; right-click the trail to copy the call chain.</p>
     <p>Keys: arrows move focus (↑↓ siblings, ←→ parent/child; outward expands if needed), Enter opens, Shift+Enter expands/collapses, Backspace steps back on the center trail.</p>
     <p>Esc: with Find open closes Find only; otherwise dismisses menu, pin, then selection. Find uses the editor Find shortcut.</p>
-    <p>Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. Slim keeps the kinds checked in the list beside Slim. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</p>
+    <p>Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path, teal ×N = the same function on other call paths (click to jump). Hover a node to highlight its other copies; the highlight clears when the pointer leaves. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. Slim keeps the kinds checked in the list beside Slim. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</p>
   </div>
   <div class="cr-main">
     <div class="cr-find" id="cr-find">

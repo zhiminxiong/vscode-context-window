@@ -66,11 +66,12 @@ body.vscode-high-contrast {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px 12px 4px;
+    padding: 8px 14px 6px;
     flex-shrink: 0;
 }
 
 .cr-title {
+    font-size: 14px;
     font-weight: 600;
     min-width: 0;
     overflow: hidden;
@@ -132,9 +133,9 @@ body.vscode-high-contrast {
 }
 
 .cr-slim-caret {
-    min-width: 20px;
+    min-width: 22px;
     padding-left: 6px;
-    padding-right: 7px;
+    padding-right: 8px;
     border-left: 1px solid var(--cr-chip-line);
 }
 
@@ -142,9 +143,9 @@ body.vscode-high-contrast {
     content: '';
     display: inline-block;
     vertical-align: 2px;
-    border-left: 3.5px solid transparent;
-    border-right: 3.5px solid transparent;
-    border-top: 4px solid currentColor;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 4.5px solid currentColor;
     opacity: 0.75;
 }
 
@@ -187,8 +188,8 @@ body.vscode-high-contrast {
     text-align: left;
     cursor: pointer;
     font: inherit;
-    font-size: 12px;
-    line-height: 18px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--cr-menu-fg);
     background: transparent;
     white-space: nowrap;
@@ -202,8 +203,8 @@ body.vscode-high-contrast {
     appearance: auto;
     -webkit-appearance: checkbox;
     flex: 0 0 auto;
-    width: 13px;
-    height: 13px;
+    width: 14px;
+    height: 14px;
     margin: 0;
     padding: 0;
     accent-color: var(--cr-btn-on-bg);
@@ -215,9 +216,9 @@ body.vscode-high-contrast {
     display: inline-block;
     margin-left: 6px;
     vertical-align: 2px;
-    border-left: 3.5px solid transparent;
-    border-right: 3.5px solid transparent;
-    border-top: 4px solid currentColor;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 4.5px solid currentColor;
     opacity: 0.85;
 }
 
@@ -245,8 +246,8 @@ body.vscode-high-contrast {
     text-align: left;
     cursor: pointer;
     font: inherit;
-    font-size: 12px;
-    line-height: 18px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--cr-menu-fg);
     background: transparent;
     white-space: nowrap;
@@ -264,10 +265,13 @@ body.vscode-high-contrast {
 }
 
 .cr-zoom-label {
-    min-width: 3.6em;
+    box-sizing: border-box;
+    width: 4.8em;
+    min-width: 4.8em;
     padding-left: 6px;
     padding-right: 6px;
     text-align: center;
+    font-variant-numeric: tabular-nums;
 }
 
 .cr-btn:disabled {
@@ -278,11 +282,11 @@ body.vscode-high-contrast {
 .cr-btn {
     border: none;
     border-radius: 4px;
-    padding: 4px 10px;
+    padding: 5px 12px;
     cursor: pointer;
     font: inherit;
-    font-size: 12px;
-    line-height: 18px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--cr-btn-fg);
     background: var(--cr-btn-bg);
 }
@@ -304,33 +308,56 @@ body.vscode-high-contrast {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
+    width: 30px;
     padding-left: 0;
     padding-right: 0;
 }
 
 .cr-icon-btn svg {
     display: block;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
 }
 
 #cr-update {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    gap: 5px;
+    box-sizing: border-box;
 }
 
 #cr-update svg {
     display: block;
     flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+}
+
+#cr-update .cr-update-label {
+    position: relative;
+    display: inline-block;
+}
+
+#cr-update .cr-update-sizer {
+    display: block;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+#cr-update .cr-update-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .cr-centers {
     display: none;
     align-items: center;
     flex-shrink: 0;
-    height: 22px;
+    height: 24px;
     padding: 0 8px;
     gap: 0;
     overflow: hidden;
@@ -339,7 +366,7 @@ body.vscode-high-contrast {
     background: var(--vscode-breadcrumb-background, var(--vscode-editor-background));
     border-bottom: 1px solid var(--vscode-editorWidget-border);
     color: var(--vscode-breadcrumb-foreground, var(--vscode-descriptionForeground));
-    font-size: 13px;
+    font-size: 14px;
 }
 
 .cr-centers:not([hidden]) {
@@ -751,14 +778,16 @@ body.is-loading .cr-bar {
     fill: var(--vscode-charts-orange, #cc6d1b);
 }
 
-.cr-canvas.is-direct .cr-node:hover {
+.cr-canvas.is-direct .cr-node:hover,
+.cr-canvas.is-direct .cr-node.is-twin {
     z-index: 4;
     background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--cr-focus) 16%, var(--vscode-editor-background)));
     border-color: var(--cr-focus);
     box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
-.cr-canvas.is-direct .cr-node.is-root:hover {
+.cr-canvas.is-direct .cr-node.is-root:hover,
+.cr-canvas.is-direct .cr-node.is-root.is-twin {
     background: var(--cr-root-bg);
     border-color: var(--cr-focus);
     box-shadow: 0 0 0 2px var(--cr-focus-glow);
@@ -782,7 +811,8 @@ body.is-loading .cr-bar {
     transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.15s ease;
 }
 
-.cr-node:hover {
+.cr-node:hover,
+.cr-node.is-twin {
     z-index: 4;
     background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--cr-focus) 12%, var(--vscode-editor-background)));
     border-color: var(--cr-focus);
@@ -813,23 +843,27 @@ body.is-loading .cr-bar {
     color: color-mix(in srgb, var(--cr-root-fg) 72%, transparent);
 }
 
-.cr-node.is-root:hover {
+.cr-node.is-root:hover,
+.cr-node.is-root.is-twin {
     background: var(--cr-root-bg);
     border-color: var(--cr-focus);
     box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
-.cr-node.is-prev:hover {
+.cr-node.is-prev:hover,
+.cr-node.is-prev.is-twin {
     background: var(--vscode-list-hoverBackground);
     border-color: var(--cr-accent);
     box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
-.cr-node.is-selected:hover {
+.cr-node.is-selected:hover,
+.cr-node.is-selected.is-twin {
     box-shadow: 0 0 0 2px var(--cr-focus-glow);
 }
 
-.cr-node.is-root.is-selected:hover {
+.cr-node.is-root.is-selected:hover,
+.cr-node.is-root.is-selected.is-twin {
     background: var(--cr-root-bg);
     border-color: var(--cr-focus);
     box-shadow: 0 0 0 2px var(--cr-focus-glow);
@@ -893,7 +927,8 @@ body.is-loading .cr-bar {
     height: 12px;
 }
 
-.cr-node.is-cycle {
+.cr-node.is-cycle,
+.cr-node.is-alias {
     overflow: visible;
 }
 
@@ -914,6 +949,31 @@ body.is-loading .cr-bar {
     color: #fff;
     pointer-events: none;
     box-shadow: 0 0 0 2px var(--vscode-editor-background), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.cr-twin {
+    position: absolute;
+    top: -7px;
+    left: -7px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border: none;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    background: var(--cr-accent);
+    color: #fff;
+    cursor: pointer;
+    box-shadow: 0 0 0 2px var(--vscode-editor-background), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.cr-twin:hover {
+    filter: brightness(1.12);
 }
 
 .cr-node.is-find-hit {
@@ -1268,6 +1328,11 @@ body.is-loading .cr-bar {
 }
 .cr-node-tip-cycle {
     color: var(--vscode-charts-purple, #b180d7);
+    opacity: 1;
+    font-weight: 600;
+}
+.cr-node-tip-twin {
+    color: var(--cr-accent);
     opacity: 1;
     font-weight: 600;
 }

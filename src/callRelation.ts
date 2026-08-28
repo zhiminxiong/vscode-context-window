@@ -647,6 +647,67 @@ export class CallRelationModel {
         return graph ? { graph, seq } : undefined;
     }
 
+    collapseAll(): RelationGraph {
+        this.cancel();
+        this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.collapseLock.clear();
+        this.shown.clear();
+        return this.buildGraph();
+    }
+
+    async expandAll(): Promise<RelationLoad | undefined> {
+        const seq = this.seq;
+        const t0 = Date.now();
+        const limit = 6;
+        for (let round = 0; round < CALL_MAX_HOP * 2; round++) {
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            const graph = this.buildGraph();
+            let grew = false;
+            for (const n of graph.nodes) {
+                if (n.kind === 'group' && !n.expanded) {
+                    this.expanded.add(n.id);
+                    grew = true;
+                }
+            }
+            const todo = graph.nodes.filter(n => (
+                n.kind === 'symbol'
+                && n.expandable
+                && !n.expanded
+                && !n.cyclic
+                && n.id !== graph.rootId
+                && Math.abs(n.hop) < CALL_MAX_HOP
+            ));
+            if (!todo.length && !grew) {
+                break;
+            }
+            for (let i = 0; i < todo.length; i += limit) {
+                if (!this.isCurrent(seq)) {
+                    return undefined;
+                }
+                await Promise.all(todo.slice(i, i + limit).map(async n => {
+                    const item = this.items.get(n.itemKey);
+                    if (!item) {
+                        return;
+                    }
+                    this.collapseLock.delete(n.id);
+                    if (n.hop < 0) {
+                        await this.ensureIncoming(item, seq);
+                    } else if (n.hop > 0) {
+                        await this.ensureOutgoing(item, seq);
+                    }
+                    this.expanded.add(n.id);
+                }));
+            }
+        }
+        const graph = await this.buildVisible(seq, true);
+        costLog('expandAll', Date.now() - t0, '');
+        return graph ? { graph, seq } : undefined;
+    }
+
     async focusNode(nodeId: string, nodes: RelationNode[]): Promise<RelationLoad | undefined> {
         this.cancel();
         const seq = this.seq;

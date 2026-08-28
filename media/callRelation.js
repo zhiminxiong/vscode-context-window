@@ -291,8 +291,8 @@ function layout(graph, viewW, viewH) {
         top = Math.max(top, rootCY - p.y);
         bottom = Math.max(bottom, p.y + p.h - rootCY);
     }
-    const marginX = Math.max(PAD, viewW / 2);
-    const marginY = Math.max(PAD, viewH / 2);
+    const marginX = Math.max(PAD, viewW * 1.5);
+    const marginY = Math.max(PAD, viewH * 1.5);
     const width = left + right + marginX * 2;
     const height = top + bottom + marginY * 2;
     const dx = marginX + left - rootCX;
@@ -347,7 +347,7 @@ function drawGroupFrames(canvas, graph, pos) {
         let aboveBottom = -Infinity;
         let belowTop = Infinity;
         for (const n of graph.nodes) {
-            if (boxedIds.has(n.id) || n.hop !== group.hop) {
+            if (boxedIds.has(n.id) || n.hop !== group.hop || n.parentId !== group.parentId) {
                 continue;
             }
             const p = pos[n.id];
@@ -363,12 +363,14 @@ function drawGroupFrames(canvas, graph, pos) {
                 belowTop = nTop;
             }
         }
-        const midTop = aboveBottom > -Infinity
+        const hug = ROW_GAP / 2;
+        const near = ROW_GAP * 2 + 8;
+        const midTop = aboveBottom > -Infinity && (boxTop - aboveBottom) <= near
             ? (aboveBottom + boxTop) / 2
-            : boxTop - ROW_GAP / 2;
-        const midBottom = belowTop < Infinity
+            : boxTop - hug;
+        const midBottom = belowTop < Infinity && (belowTop - boxBottom) <= near
             ? (boxBottom + belowTop) / 2
-            : boxBottom + ROW_GAP / 2;
+            : boxBottom + hug;
         const top = midTop - stroke / 2;
         const bottom = midBottom + stroke / 2;
         const frame = document.createElement('div');
@@ -464,7 +466,12 @@ function bindControlTip(node, nodeEl, btn, label) {
         ev.stopPropagation();
         tipMoveX = ev.clientX;
         tipMoveY = ev.clientY;
-        hideNodeTip();
+        if (nodeTipEl) {
+            hideNodeTip();
+            markTipUsed(nodeEl);
+        } else {
+            hideNodeTip();
+        }
         armLabelTip(label, btn, node.hop);
     });
     btn.addEventListener('pointermove', ev => {
@@ -567,6 +574,67 @@ function createCycleBadge() {
     badge.setAttribute('aria-hidden', 'true');
     badge.title = 'Repeats an ancestor on this path';
     badge.textContent = '↻';
+    return badge;
+}
+
+/** @type {string} */
+let hoverTwinKey = '';
+
+function symbolTwins(key) {
+    if (!lastGraph || !key) {
+        return [];
+    }
+    return lastGraph.nodes.filter(n => n.kind === 'symbol' && n.itemKey === key);
+}
+
+function twinFocusKey() {
+    return hoverTwinKey || '';
+}
+
+function isTwinHighlight(node) {
+    const key = twinFocusKey();
+    return !!(node && node.kind === 'symbol' && node.itemKey && key && node.itemKey === key);
+}
+
+function paintTwins() {
+    const canvas = canvasEl;
+    if (!canvas) {
+        return;
+    }
+    canvas.querySelectorAll('.cr-node').forEach(el => {
+        const n = graphNode(el.dataset.nodeId);
+        el.classList.toggle('is-twin', isTwinHighlight(n));
+    });
+}
+
+function setHoverTwin(node) {
+    const next = node && node.kind === 'symbol' && node.itemKey ? node.itemKey : '';
+    if (next === hoverTwinKey) {
+        return;
+    }
+    hoverTwinKey = next;
+    paintTwins();
+}
+
+function createTwinBadge(node, twins) {
+    const badge = document.createElement('button');
+    badge.type = 'button';
+    badge.className = 'cr-twin';
+    const n = twins.length;
+    badge.textContent = '×' + (n > 99 ? '99+' : String(n));
+    badge.setAttribute('aria-label', n === 2
+        ? 'Same function on another call path — click to jump'
+        : `Same function on ${n} call paths — click to jump to the next`);
+    badge.addEventListener('click', ev => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const list = twins.slice().sort(sortByLayout);
+        const i = list.findIndex(t => t.id === node.id);
+        const next = list[(i < 0 ? 0 : i + 1) % list.length];
+        if (next && next.id !== node.id) {
+            selectNode(next, true);
+        }
+    });
     return badge;
 }
 
@@ -826,6 +894,7 @@ function paintSelection() {
         const n = graphNode(el.dataset.nodeId);
         el.classList.toggle('is-selected', !!(n && isNodeSelected(n)));
     });
+    paintTwins();
 }
 
 function selectNode(node, scroll) {
@@ -1053,13 +1122,12 @@ function copyCallChain() {
     vscode.postMessage({ type: 'copyToClipboard', text, notify: 'Call chain copied' });
 }
 
-function showCallChainMenu(e) {
+function showCtxMenu(e, items) {
     hideCtxMenu();
     hideCenterOverflow();
     hideSiteMenu();
     closeStyleMenu();
-    const items = (lastCenterTrail && lastCenterTrail.items) || [];
-    if (items.length < 2) {
+    if (!items.length) {
         return;
     }
     const menu = document.createElement('div');
@@ -1067,14 +1135,16 @@ function showCallChainMenu(e) {
     menu.className = 'cr-ctx-menu';
     menu.style.visibility = 'hidden';
     menu.addEventListener('mousedown', ev => ev.stopPropagation());
-    const item = document.createElement('div');
-    item.className = 'cr-ctx-menu-item';
-    item.textContent = 'Copy Call Chain';
-    item.addEventListener('click', () => {
-        copyCallChain();
-        hideCtxMenu();
-    });
-    menu.appendChild(item);
+    for (const entry of items) {
+        const item = document.createElement('div');
+        item.className = 'cr-ctx-menu-item';
+        item.textContent = entry.label;
+        item.addEventListener('click', () => {
+            hideCtxMenu();
+            entry.run();
+        });
+        menu.appendChild(item);
+    }
     document.body.appendChild(menu);
     const rect = menu.getBoundingClientRect();
     const pad = 4;
@@ -1089,6 +1159,30 @@ function showCallChainMenu(e) {
     menu.style.left = Math.max(pad, left) + 'px';
     menu.style.top = Math.max(pad, top) + 'px';
     menu.style.visibility = 'visible';
+}
+
+function showCallChainMenu(e) {
+    const trail = (lastCenterTrail && lastCenterTrail.items) || [];
+    if (trail.length < 2) {
+        return;
+    }
+    showCtxMenu(e, [{ label: 'Copy Call Chain', run: copyCallChain }]);
+}
+
+function showCanvasMenu(e) {
+    if (!lastGraph || !lastGraph.rootId) {
+        return;
+    }
+    /** @type {{ label: string, run: () => void }[]} */
+    const items = [
+        { label: 'Expand All', run: () => vscode.postMessage({ type: 'expandAll' }) },
+        { label: 'Collapse All', run: () => vscode.postMessage({ type: 'collapseAll' }) }
+    ];
+    const trail = (lastCenterTrail && lastCenterTrail.items) || [];
+    if (trail.length >= 2) {
+        items.push({ label: 'Copy Call Chain', run: copyCallChain });
+    }
+    showCtxMenu(e, items);
 }
 
 function hideCenterOverflow() {
@@ -1743,6 +1837,43 @@ let lastTipNodeId = '';
 let tipHover = null;
 let tipMoveX = 0;
 let tipMoveY = 0;
+/** `.cr-node` of the current pointer visit; once a tip shows, no more until leave. */
+let tipVisitNode = null;
+let tipVisitUsed = false;
+
+function tipHost(el) {
+    if (!el) {
+        return null;
+    }
+    return (el.closest && el.closest('.cr-node')) || el;
+}
+
+function beginTipVisit(nodeEl) {
+    if (tipVisitNode !== nodeEl) {
+        tipVisitNode = nodeEl;
+        tipVisitUsed = false;
+    }
+}
+
+function endTipVisit(nodeEl) {
+    if (tipVisitNode === nodeEl) {
+        tipVisitNode = null;
+        tipVisitUsed = false;
+    }
+}
+
+function markTipUsed(el) {
+    const host = tipHost(el);
+    if (host) {
+        tipVisitNode = host;
+        tipVisitUsed = true;
+    }
+}
+
+function tipVisitBlocked(el) {
+    const host = tipHost(el);
+    return !!(host && tipVisitNode === host && tipVisitUsed);
+}
 
 function hideNodeTip() {
     if (nodeTipTimer) {
@@ -1758,13 +1889,16 @@ function hideNodeTip() {
 }
 
 function armTip(spec) {
+    if (tipVisitBlocked(spec.el)) {
+        return;
+    }
     if (nodeTipTimer) {
         clearTimeout(nodeTipTimer);
     }
     tipHover = spec;
     nodeTipTimer = setTimeout(() => {
         nodeTipTimer = 0;
-        if (tipHover && tipHover.el === spec.el) {
+        if (tipHover && tipHover.el === spec.el && !tipVisitBlocked(spec.el)) {
             showTip(spec);
         }
     }, tipDelayMs);
@@ -1786,6 +1920,9 @@ function onTipMove(ev, spec) {
     tipMoveY = ev.clientY;
     if (nodeTipEl) {
         hideNodeTip();
+        markTipUsed(spec.el);
+        tipHover = null;
+        return;
     }
     armTip(spec);
 }
@@ -1837,6 +1974,31 @@ function fillNodeTip(tip, node) {
         cycle.className = 'cr-node-tip-detail cr-node-tip-cycle';
         cycle.textContent = 'Repeats an ancestor on this path';
         tip.appendChild(cycle);
+    }
+    if (lastGraph && node.kind === 'symbol' && node.itemKey) {
+        const others = symbolTwins(node.itemKey).filter(t => t.id !== node.id);
+        if (others.length) {
+            const alias = document.createElement('div');
+            alias.className = 'cr-node-tip-detail cr-node-tip-twin';
+            const vias = [];
+            const seen = new Set();
+            for (const t of others) {
+                const parent = t.parentId ? graphNode(t.parentId) : undefined;
+                const via = parent
+                    ? (nodeLabel(parent) || parent.name)
+                    : (t.file ? `${t.file}:${t.line}` : t.name);
+                if (!via || seen.has(via)) {
+                    continue;
+                }
+                seen.add(via);
+                vias.push(via);
+            }
+            const total = others.length + 1;
+            alias.textContent = vias.length === 1
+                ? `Same function on ${total} call paths — also under ${vias[0]}. Click ×${total} to jump.`
+                : `Same function on ${total} call paths — also under ${vias.join(', ')}. Click ×${total} to jump.`;
+            tip.appendChild(alias);
+        }
     }
     if (node.file || node.path) {
         const sep = document.createElement('div');
@@ -1947,6 +2109,7 @@ function showTip(spec) {
         fillNodeTip(nodeTipEl, spec.node);
         placeNodeTip(nodeTipEl, spec.el, spec.node.hop);
     }
+    markTipUsed(spec.el);
 }
 
 function showNodeTip(node, anchorEl) {
@@ -2243,6 +2406,9 @@ function render(graph) {
         if (isNodeSelected(node)) {
             el.classList.add('is-selected');
         }
+        if (isTwinHighlight(node)) {
+            el.classList.add('is-twin');
+        }
         if (node.kind === 'more') {
             el.classList.add('is-more');
         }
@@ -2261,8 +2427,20 @@ function render(graph) {
         el.style.width = nodeW(p) + 'px';
         el.style.height = p.h + 'px';
         el.addEventListener('pointerenter', ev => {
-            setHoverPaths(edgesByNode.get(node.id) || []);
-            if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle')) {
+            const twinIds = node.itemKey
+                ? symbolTwins(node.itemKey).map(t => t.id)
+                : [node.id];
+            const hoverDs = [];
+            for (const id of twinIds) {
+                const list = edgesByNode.get(id);
+                if (list) {
+                    hoverDs.push(...list);
+                }
+            }
+            setHoverPaths(hoverDs);
+            setHoverTwin(node);
+            beginTipVisit(el);
+            if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle, .cr-thumb')) {
                 return;
             }
             if (usesNodeTip(node)) {
@@ -2285,12 +2463,14 @@ function render(graph) {
         });
         el.addEventListener('pointerleave', ev => {
             setHoverPaths([]);
+            setHoverTwin(undefined);
             if (usesNodeTip(node)) {
                 const next = ev.relatedTarget;
                 if (next && el.contains(next)) {
                     return;
                 }
                 tipHover = null;
+                endTipVisit(el);
                 hideNodeTip();
             }
         });
@@ -2388,7 +2568,12 @@ function render(graph) {
                 exp.addEventListener('pointerenter', ev => {
                     ev.stopPropagation();
                     tipHover = null;
-                    hideNodeTip();
+                    if (nodeTipEl) {
+                        hideNodeTip();
+                        markTipUsed(el);
+                    } else {
+                        hideNodeTip();
+                    }
                 });
                 exp.addEventListener('pointerleave', ev => {
                     ev.stopPropagation();
@@ -2417,6 +2602,12 @@ function render(graph) {
         }
         if (el.classList.contains('is-cycle')) {
             el.appendChild(createCycleBadge());
+        } else if (node.kind === 'symbol' && node.itemKey) {
+            const twins = symbolTwins(node.itemKey);
+            if (twins.length > 1) {
+                el.classList.add('is-alias');
+                el.appendChild(createTwinBadge(node, twins));
+            }
         }
         canvas.appendChild(el);
     }
@@ -2503,9 +2694,12 @@ function applyUpdateMode(value) {
             ? 'Update mode: Sticky — keep last graph until new results'
             : 'Update mode: Live — empty graph when no call hierarchy';
         updateBtn.innerHTML = (sticky
-            ? '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M10.2 1.5 9.5 2.2l.3 3.5L12 8.2V9H9v5H7V9H4V8.2l2.2-2.5.3-3.5-.7-.7L6.5 1h3.7z"/></svg>'
-            : '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M8 3C4.67 3 1.82 5.07 1 8c.82 2.93 3.67 5 7 5s6.18-2.07 7-5c-.82-2.93-3.67-5-7-5zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-1.5A1.5 1.5 0 1 0 8 6a1.5 1.5 0 0 0 0 3z"/></svg>')
-            + '<span>' + (sticky ? 'Sticky' : 'Live') + '</span>';
+            ? '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M10.2 1.5 9.5 2.2l.3 3.5L12 8.2V9H9v5H7V9H4V8.2l2.2-2.5.3-3.5-.7-.7L6.5 1h3.7z"/></svg>'
+            : '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 3C4.67 3 1.82 5.07 1 8c.82 2.93 3.67 5 7 5s6.18-2.07 7-5c-.82-2.93-3.67-5-7-5zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-1.5A1.5 1.5 0 1 0 8 6a1.5 1.5 0 0 0 0 3z"/></svg>')
+            + '<span class="cr-update-label">'
+            + '<span class="cr-update-sizer" aria-hidden="true">Sticky</span>'
+            + '<span class="cr-update-text">' + (sticky ? 'Sticky' : 'Live') + '</span>'
+            + '</span>';
     }
 }
 
@@ -2967,7 +3161,14 @@ findCloseBtn?.addEventListener('click', () => {
 document.addEventListener('contextmenu', e => {
     e.preventDefault();
     e.stopPropagation();
-    showCallChainMenu(e);
+    const t = e.target;
+    if (t && t.closest && t.closest('#cr-stage')) {
+        showCanvasMenu(e);
+        return;
+    }
+    if (t && t.closest && t.closest('#cr-centers')) {
+        showCallChainMenu(e);
+    }
 }, true);
 document.addEventListener('mousedown', e => {
     const drop = document.querySelector('.cr-centers-drop');
