@@ -1832,6 +1832,7 @@ function hideSiteMenu() {
 let tipDelayMs = 500;
 let nodeTipEl = null;
 let nodeTipTimer = 0;
+let nodeTipPopTimer = 0;
 let nodeTipAnchor = null;
 let lastTipNodeId = '';
 let tipHover = null;
@@ -1879,6 +1880,10 @@ function hideNodeTip() {
     if (nodeTipTimer) {
         clearTimeout(nodeTipTimer);
         nodeTipTimer = 0;
+    }
+    if (nodeTipPopTimer) {
+        clearTimeout(nodeTipPopTimer);
+        nodeTipPopTimer = 0;
     }
     if (nodeTipEl && nodeTipEl.parentNode) {
         nodeTipEl.parentNode.removeChild(nodeTipEl);
@@ -2110,6 +2115,13 @@ function showTip(spec) {
         placeNodeTip(nodeTipEl, spec.el, spec.node.hop);
     }
     markTipUsed(spec.el);
+    if (nodeTipPopTimer) {
+        clearTimeout(nodeTipPopTimer);
+    }
+    nodeTipPopTimer = setTimeout(() => {
+        nodeTipPopTimer = 0;
+        hideNodeTip();
+    }, Math.max(2000, tipDelayMs * 10));
 }
 
 function showNodeTip(node, anchorEl) {
@@ -2522,34 +2534,30 @@ function render(graph) {
             meta.className = 'cr-node-meta';
             meta.textContent = node.file ? `${node.file}:${node.line}` : '';
             el.appendChild(meta);
-            let clickTimer = 0;
+            el.addEventListener('pointerdown', ev => {
+                if (ev.button !== 0) {
+                    return;
+                }
+                if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle, .cr-thumb')) {
+                    return;
+                }
+                selectNode(node, false);
+            });
             el.addEventListener('click', ev => {
                 if (ev.altKey) {
                     ev.preventDefault();
                     ev.stopPropagation();
-                    if (clickTimer) {
-                        clearTimeout(clickTimer);
-                        clickTimer = 0;
-                    }
                     togglePathPin(node.id);
                     return;
                 }
-                if (clickTimer) {
+                if (ev.detail > 1) {
                     return;
                 }
-                clickTimer = setTimeout(() => {
-                    clickTimer = 0;
-                    selectNode(node, false);
-                    vscode.postMessage({ type: 'openNode', nodeId: node.id });
-                }, 280);
+                vscode.postMessage({ type: 'openNode', nodeId: node.id });
             });
             el.addEventListener('dblclick', ev => {
                 ev.preventDefault();
                 ev.stopPropagation();
-                if (clickTimer) {
-                    clearTimeout(clickTimer);
-                    clickTimer = 0;
-                }
                 selectNode(node, false);
                 clearPathPin();
                 vscode.postMessage({ type: 'focusNode', nodeId: node.id });
