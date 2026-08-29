@@ -21,8 +21,8 @@ html, body {
     --cr-accent: var(--vscode-textLink-foreground, #3794ff);
     --cr-focus: var(--vscode-focusBorder, #007fd4);
     --cr-focus-glow: color-mix(in srgb, var(--cr-focus) 50%, transparent);
-    --cr-selected: var(--vscode-charts-orange, #cc6d1b);
-    --cr-selected-glow: color-mix(in srgb, var(--cr-selected) 50%, transparent);
+    --cr-selected: #e87a12;
+    --cr-selected-glow: color-mix(in srgb, var(--cr-selected) 72%, transparent);
     --cr-menu-bg: #f3f3f3;
     --cr-menu-fg: #1f1f1f;
     --cr-menu-border: #d0d0d0;
@@ -61,7 +61,7 @@ body.vscode-high-contrast {
     --cr-accent: var(--vscode-textLink-foreground, #3794ff);
     --cr-focus: var(--vscode-focusBorder, #007fd4);
     --cr-focus-glow: var(--cr-focus);
-    --cr-selected: var(--vscode-charts-orange, #cc6d1b);
+    --cr-selected: #e87a12;
     --cr-selected-glow: var(--cr-selected);
     --cr-menu-bg: #2d2d2d;
     --cr-menu-fg: #e0e0e0;
@@ -736,7 +736,7 @@ body.is-loading .cr-bar {
 
 .cr-edge.is-anchor {
     stroke-dasharray: 5 4;
-    stroke: var(--vscode-charts-orange, #d18616);
+    stroke: var(--cr-selected);
 }
 
 .cr-edge-hit {
@@ -770,7 +770,7 @@ body.is-loading .cr-bar {
 }
 
 .cr-edge-hover {
-    stroke: var(--vscode-charts-orange, #cc6d1b);
+    stroke: var(--cr-selected);
     stroke-width: 2.8;
 }
 
@@ -781,7 +781,7 @@ body.is-loading .cr-bar {
 }
 
 .cr-arrow-hover {
-    fill: var(--vscode-charts-orange, #cc6d1b);
+    fill: var(--cr-selected);
 }
 
 .cr-canvas.is-direct .cr-node:hover,
@@ -938,7 +938,7 @@ body.is-loading .cr-bar {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--vscode-charts-orange, #e8a317);
+    background: var(--cr-selected);
     color: #fff;
     pointer-events: none;
     box-shadow: 0 0 0 2px var(--vscode-editor-background), 0 1px 4px rgba(0, 0, 0, 0.35);
