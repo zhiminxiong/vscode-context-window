@@ -445,17 +445,23 @@ body.has-jump-trail #container {
     background: color-mix(in srgb, #3fb950 44%, transparent);
 }
 
-.cw-line-blame-hover-sha-current {
+.cw-line-blame-hover-sha-current,
+.vscode-dark .cw-line-blame-hover-sha-current,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .cw-line-blame-hover-sha-current {
     color: var(--vscode-descriptionForeground, #6a6a6a);
-    background: color-mix(in srgb, var(--vscode-descriptionForeground, #6a6a6a) 14%, transparent);
+    background: color-mix(in srgb, var(--vscode-descriptionForeground, #9d9d9d) 18%, transparent);
 }
 
-.cw-line-blame-hover-sha-current:hover {
-    background: color-mix(in srgb, var(--vscode-descriptionForeground, #6a6a6a) 22%, transparent);
+.cw-line-blame-hover-sha-current:hover,
+.vscode-dark .cw-line-blame-hover-sha-current:hover,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .cw-line-blame-hover-sha-current:hover {
+    background: color-mix(in srgb, var(--vscode-descriptionForeground, #9d9d9d) 28%, transparent);
 }
 
-.cw-line-blame-hover-sha-current:active {
-    background: color-mix(in srgb, var(--vscode-descriptionForeground, #6a6a6a) 32%, transparent);
+.cw-line-blame-hover-sha-current:active,
+.vscode-dark .cw-line-blame-hover-sha-current:active,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .cw-line-blame-hover-sha-current:active {
+    background: color-mix(in srgb, var(--vscode-descriptionForeground, #9d9d9d) 38%, transparent);
     transform: translateY(1px);
 }
 
