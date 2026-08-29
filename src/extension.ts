@@ -3,6 +3,21 @@ import { ContextWindowProvider } from './contextView';
 import { CallRelationPanel, CALL_RELATION_VIEW_TYPE } from './callRelationPanel';
 import { isSingleFullLineSelection, registerLineNumberSymbolSelection } from './enclosingSymbol';
 
+function parseRelationLoc(arg?: { uri?: string; line?: number; character?: number }):
+    { uri?: vscode.Uri; position?: vscode.Position } | undefined {
+    if (!arg || typeof arg.uri !== 'string' || typeof arg.line !== 'number') {
+        return undefined;
+    }
+    try {
+        return {
+            uri: vscode.Uri.parse(arg.uri),
+            position: new vscode.Position(Math.max(0, arg.line), Math.max(0, arg.character ?? 0))
+        };
+    } catch {
+        return undefined;
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
 
     const provider = new ContextWindowProvider(context.extensionUri);
@@ -60,13 +75,13 @@ export function activate(context: vscode.ExtensionContext) {
         }));
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.callRelation.show', () => {
-            callRelation.show();
+        vscode.commands.registerCommand('contextView.callRelation.show', (arg?: { uri?: string; line?: number; character?: number }) => {
+            callRelation.show(parseRelationLoc(arg));
         }));
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.callRelation.showIndependent', () => {
-            void callRelation.showInNewWindow();
+        vscode.commands.registerCommand('contextView.callRelation.showIndependent', (arg?: { uri?: string; line?: number; character?: number }) => {
+            void callRelation.showInNewWindow(parseRelationLoc(arg));
         }));
 
     context.subscriptions.push(

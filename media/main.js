@@ -658,32 +658,75 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     //     }
                     // });
 
+                    window.contextWindowEditor = editor;
+
+                    function copyFromEditor(clientX, clientY) {
+                        const model = editor.getModel();
+                        if (!model) {
+                            return '';
+                        }
+                        const sel = editor.getSelection();
+                        if (sel && !sel.isEmpty()) {
+                            return model.getValueInRange(sel);
+                        }
+                        const target = editor.getTargetAtClientPoint(clientX, clientY);
+                        const pos = target && target.position;
+                        if (!pos) {
+                            return '';
+                        }
+                        const word = model.getWordAtPosition(pos);
+                        return (word && word.word) || '';
+                    }
+
+                    function positionFromEvent(clientX, clientY) {
+                        const target = editor.getTargetAtClientPoint(clientX, clientY);
+                        const pos = target && target.position;
+                        if (!pos) {
+                            return undefined;
+                        }
+                        return { line: pos.lineNumber - 1, character: pos.column - 1 };
+                    }
+
+                    function showEditorModMenu(e) {
+                        if (typeof window.showCustomContextMenu !== 'function') {
+                            return;
+                        }
+                        const text = copyFromEditor(e.clientX, e.clientY);
+                        const loc = positionFromEvent(e.clientX, e.clientY);
+                        window.showCustomContextMenu(e, [
+                            {
+                                label: 'Copy',
+                                disabled: !text,
+                                action: () => {
+                                    if (text) {
+                                        vscode.postMessage({ type: 'copyToClipboard', text });
+                                    }
+                                }
+                            },
+                            { type: 'separator' },
+                            {
+                                label: 'Show Call Relation',
+                                action: () => vscode.postMessage({ type: 'showCallRelation', independent: false, ...loc })
+                            },
+                            {
+                                label: 'Show Call Relation (Independent Window)',
+                                action: () => vscode.postMessage({ type: 'showCallRelation', independent: true, ...loc })
+                            }
+                        ]);
+                    }
+
                     const editorDomNode = editor.getDomNode();
                     if (editorDomNode) {
                         editorDomNode.addEventListener('contextmenu', (e) => {
                             if (e.ctrlKey || e.shiftKey || e.metaKey) {
-                                // shift+右键，手动弹出 Monaco 菜单
-                                // 需要调用 Monaco 的菜单 API
-                                // 下面是常见做法（不同版本API略有不同）
-                                if (editor._contextMenuService) {
-                                    // 6.x/7.x 版本
-                                    editor._contextMenuService.showContextMenu({
-                                        getAnchor: () => ({ x: e.clientX, y: e.clientY }),
-                                        getActions: () => editor._getMenuActions(),
-                                        onHide: () => {},
-                                    });
-                                } else if (editor.trigger) {
-                                    // 旧版
-                                    editor.trigger('keyboard', 'editor.action.showContextMenu', {});
-                                }
-                            } else {
-                                // 普通右键，执行你自己的逻辑
-                                editor.focus();
                                 e.preventDefault();
                                 e.stopPropagation();
-                                // 这里写你自己的右键菜单逻辑
-                                //console.log('自定义右键菜单');
+                                showEditorModMenu(e);
+                                return;
                             }
+                            editor.focus();
+                            e.preventDefault();
+                            e.stopPropagation();
                         }, true);
                     }
 
@@ -697,22 +740,27 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // 之前用 closest('.monaco-editor') 判定是否屏蔽，但 Monaco 为语义 token 标识符
                     // (如 vscode.Disposable) 创建的隐藏输入框 / overflow widget 会挂到该子树之外，导致这次
                     // contextmenu 漏网、原生菜单盖在 token 浮窗上——这正是「浮窗弹出后又马上变菜单」的根因。
-                    // 改为「默认屏蔽 + 仅放行状态栏」即可彻底解决；shift/ctrl/meta+右键 放行给 Monaco 菜单逻辑。
+                    // 改为「默认屏蔽 + 仅放行状态栏」。Ctrl/Shift/Meta+右键也不再放行系统菜单，
+                    // 由编辑器节点上的自定义菜单处理。
                     if (!window.__ctxMenuSuppressorInstalled) {
                         window.__ctxMenuSuppressorInstalled = true;
                         document.addEventListener('contextmenu', (e) => {
-                            if (e.ctrlKey || e.shiftKey || e.metaKey) {
-                                return;
-                            }
                             const t = e.target;
-                            // 底栏和跳转链顶栏有自己的自定义右键菜单，放行。
                             if (t && typeof t.closest === 'function' &&
-                                (t.closest('.nav-bar') || t.closest('.double-click-area') || t.closest('#jump-trail') || t.closest('#jump-mode-menu'))) {
+                                (t.closest('.nav-bar') || t.closest('.double-click-area') || t.closest('#jump-trail') || t.closest('#jump-mode-menu') || t.closest('#custom-context-menu'))) {
                                 return;
                             }
-                            // 其它区域：统一禁用浏览器原生右键菜单
                             e.preventDefault();
-                            e.stopPropagation();
+                            const mod = e.ctrlKey || e.shiftKey || e.metaKey;
+                            const inMain = !!(editorDomNode && t && editorDomNode.contains(t));
+                            if (mod && !inMain && t && typeof t.closest === 'function' && t.closest('.monaco-editor')) {
+                                e.stopPropagation();
+                                showEditorModMenu(e);
+                                return;
+                            }
+                            if (!mod) {
+                                e.stopPropagation();
+                            }
                         }, true);
                     }
 

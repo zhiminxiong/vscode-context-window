@@ -100,14 +100,18 @@ export class CallRelationPanel {
         }
     }
 
-    show(): void {
+    show(loc?: { uri?: vscode.Uri; position?: vscode.Position }): void {
         this.ensurePanel(vscode.ViewColumn.Beside);
-        void this.afterOpen(vscode.window.activeTextEditor);
+        void this.afterOpen(vscode.window.activeTextEditor, loc);
     }
 
-    async showInNewWindow(): Promise<void> {
+    async showInNewWindow(loc?: { uri?: vscode.Uri; position?: vscode.Position }): Promise<void> {
         const editor = vscode.window.activeTextEditor;
         await showPanelInNewWindow(this.panel, column => this.ensurePanel(column));
+        if (loc?.uri && loc.position) {
+            await this.reloadFromUri(loc.uri, loc.position);
+            return;
+        }
         await this.reloadFromEditor(editor);
     }
 
@@ -164,8 +168,15 @@ export class CallRelationPanel {
         return this.panel;
     }
 
-    private async afterOpen(editor: vscode.TextEditor | undefined): Promise<void> {
+    private async afterOpen(
+        editor: vscode.TextEditor | undefined,
+        loc?: { uri?: vscode.Uri; position?: vscode.Position }
+    ): Promise<void> {
         await this.lockPanelGroup();
+        if (loc?.uri && loc.position) {
+            await this.reloadFromUri(loc.uri, loc.position);
+            return;
+        }
         await this.reloadFromEditor(editor);
     }
 
@@ -383,6 +394,20 @@ export class CallRelationPanel {
                 this.panel?.webview.postMessage({ type: 'endProgress' });
             }
         }
+    }
+
+    private async reloadFromUri(uri: vscode.Uri, position: vscode.Position): Promise<void> {
+        if (!this.panel) {
+            return;
+        }
+        if (uri.scheme !== 'file') {
+            await this.reloadFromEditor(undefined);
+            return;
+        }
+        await this.withProgress(async () => {
+            const loaded = await this.model.loadRoot(uri, position);
+            this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+        });
     }
 
     private async reloadFromEditor(editor: vscode.TextEditor | undefined): Promise<void> {

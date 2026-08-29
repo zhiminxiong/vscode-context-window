@@ -1166,6 +1166,14 @@ body.si-revealed .double-click-area {
     color: #ffffff;/* var(--vscode-menu-selectionForeground, #000); */
 }
 
+.custom-context-menu-item.is-disabled,
+.custom-context-menu-item.is-disabled:hover {
+    cursor: default;
+    opacity: 0.45;
+    background: transparent;
+    color: inherit;
+}
+
 .custom-context-menu-separator {
     height: 1px;
     margin: 4px 0;

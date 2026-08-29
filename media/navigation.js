@@ -318,26 +318,66 @@
         }
     }
 
-    function handleContextMenu(e) {
+    window.showCustomContextMenu = function(e, items) {
         e.preventDefault();
         e.stopPropagation();
-        
-        // 先移除已有菜单
         const oldMenu = document.getElementById('custom-context-menu');
-        if (oldMenu) oldMenu.remove();
-
-        // 创建菜单
+        if (oldMenu) {
+            oldMenu.remove();
+        }
         const menu = document.createElement('div');
         menu.id = 'custom-context-menu';
         menu.className = 'custom-context-menu';
-        menu.style.visibility = 'hidden'; // 先隐藏，后面再显示
+        menu.style.visibility = 'hidden';
+        menu.addEventListener('mousedown', ev => ev.stopPropagation());
+        menu.addEventListener('mouseup', ev => ev.stopPropagation());
+        menu.addEventListener('click', ev => ev.stopPropagation());
+        items.forEach(item => {
+            if (item.type === 'separator') {
+                const sep = document.createElement('div');
+                sep.className = 'custom-context-menu-separator';
+                menu.appendChild(sep);
+                return;
+            }
+            const el = document.createElement('div');
+            el.textContent = (item.checked ? '✔ ' : '') + item.label;
+            el.className = 'custom-context-menu-item';
+            if (item.disabled) {
+                el.classList.add('is-disabled');
+            }
+            el.onclick = () => {
+                if (!item.disabled && item.action) {
+                    item.action();
+                }
+                menu.remove();
+            };
+            menu.appendChild(el);
+        });
+        document.body.appendChild(menu);
+        const menuRect = menu.getBoundingClientRect();
+        let left = e.clientX;
+        let top = e.clientY;
+        const padding = 4;
+        if (left + menuRect.width > window.innerWidth - padding) {
+            left = window.innerWidth - menuRect.width - padding;
+        }
+        if (top + menuRect.height > window.innerHeight - padding) {
+            top = window.innerHeight - menuRect.height - padding;
+        }
+        menu.style.left = Math.max(left, padding) + 'px';
+        menu.style.top = Math.max(top, padding) + 'px';
+        menu.style.visibility = 'visible';
+        document.addEventListener('mousedown', function onDocClick() {
+            menu.remove();
+            document.removeEventListener('mousedown', onDocClick);
+        });
+        window.addEventListener('blur', function onBlur() {
+            menu.remove();
+            window.removeEventListener('blur', onBlur);
+        });
+    };
 
-        // 阻止事件穿透
-        menu.addEventListener('mousedown', e => e.stopPropagation());
-        menu.addEventListener('mouseup', e => e.stopPropagation());
-        menu.addEventListener('click', e => e.stopPropagation());
-
-        // 菜单项
+    function handleContextMenu(e) {
         const items = [
             { 
                 label: 'Pin',
@@ -414,55 +454,6 @@
                 action: () => window.postMessage({ type: 'StickyScroll' })
             }
         ];
-
-        items.forEach(item => {
-            if (item.type === 'separator') {
-                const sep = document.createElement('div');
-                sep.className = 'custom-context-menu-separator';
-                menu.appendChild(sep);
-                return;
-            }
-            const el = document.createElement('div');
-            el.textContent = (item.checked ? '✔ ' : '') + item.label;
-            el.className = 'custom-context-menu-item';
-            el.onclick = () => {
-                item.action();
-                menu.remove();
-            };
-            menu.appendChild(el);
-        });
-
-        document.body.appendChild(menu);
-
-        // 计算菜单位置，防止溢出
-        const menuRect = menu.getBoundingClientRect();
-        let left = e.clientX;
-        let top = e.clientY;
-        const padding = 4; // 距离边缘的最小距离
-
-        if (left + menuRect.width > window.innerWidth - padding) {
-            left = window.innerWidth - menuRect.width - padding;
-        }
-        if (top + menuRect.height > window.innerHeight - padding) {
-            top = window.innerHeight - menuRect.height - padding;
-        }
-        left = Math.max(left, padding);
-        top = Math.max(top, padding);
-
-        menu.style.left = left + 'px';
-        menu.style.top = top + 'px';
-        menu.style.visibility = 'visible';
-
-        // 点击其它地方关闭菜单
-        document.addEventListener('mousedown', function onDocClick() {
-            menu.remove();
-            document.removeEventListener('mousedown', onDocClick);
-        });
-
-        // webview失去焦点时关闭菜单
-        window.addEventListener('blur', function onBlur() {
-            menu.remove();
-            window.removeEventListener('blur', onBlur);
-        });
+        window.showCustomContextMenu(e, items);
     }
 })();
