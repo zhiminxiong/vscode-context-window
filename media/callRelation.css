@@ -2,6 +2,7 @@ html, body {
     margin: 0;
     height: 100%;
     overflow: hidden;
+    outline: none;
     display: flex;
     flex-direction: column;
     font-family: var(--vscode-font-family, sans-serif);
@@ -26,6 +27,8 @@ html, body {
     --cr-edge: #8aa0b4;
     --cr-group: #0b7f8a;
     --cr-twin: #1565c0;
+    --cr-twin-idle-bg: #e8eaed;
+    --cr-twin-idle-fg: #5f6368;
     --cr-sites: #2e7d32;
     --cr-menu-bg: #f3f3f3;
     --cr-menu-fg: #1f1f1f;
@@ -50,6 +53,8 @@ body.vscode-dark {
     --cr-edge: #6a7e92;
     --cr-group: #4ec0c8;
     --cr-twin: #3d7ab5;
+    --cr-twin-idle-bg: #3c3c3c;
+    --cr-twin-idle-fg: #b0b0b0;
     --cr-sites: #3a8f4e;
     --cr-menu-bg: #2d2d2d;
     --cr-menu-fg: #e0e0e0;
@@ -74,6 +79,8 @@ body.vscode-high-contrast {
     --cr-edge: #8aa0b4;
     --cr-group: #4ec0c8;
     --cr-twin: #3d7ab5;
+    --cr-twin-idle-bg: #3c3c3c;
+    --cr-twin-idle-fg: #b0b0b0;
     --cr-sites: #3a8f4e;
     --cr-menu-bg: #2d2d2d;
     --cr-menu-fg: #e0e0e0;
@@ -995,7 +1002,7 @@ body.is-loading .cr-bar {
     min-width: 16px;
     height: 16px;
     padding: 0 4px;
-    border: none;
+    border: 1px solid color-mix(in srgb, var(--cr-twin-idle-fg) 28%, transparent);
     border-radius: 8px;
     display: flex;
     align-items: center;
@@ -1003,14 +1010,19 @@ body.is-loading .cr-bar {
     font-size: 10px;
     font-weight: 700;
     line-height: 1;
-    background: var(--cr-twin);
-    color: #fff;
+    background: var(--cr-twin-idle-bg);
+    color: var(--cr-twin-idle-fg);
     cursor: pointer;
-    box-shadow: 0 0 0 2px var(--vscode-editor-background), 0 1px 3px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 0 0 2px var(--vscode-editor-background);
 }
 
-.cr-twin:hover {
-    filter: brightness(1.12);
+.cr-twin:hover,
+.cr-node:hover .cr-twin,
+.cr-node.is-twin .cr-twin {
+    background: var(--cr-twin);
+    color: #fff;
+    border-color: var(--cr-twin);
+    filter: none;
 }
 
 .cr-node.is-find-hit {

@@ -587,6 +587,9 @@ function createCycleBadge() {
 
 /** @type {string} */
 let hoverTwinKey = '';
+/** @type {any} */
+let hoverNode = null;
+let refreshHover = () => {};
 
 function symbolTwins(key) {
     if (!lastGraph || !key) {
@@ -600,6 +603,9 @@ function twinFocusKey() {
 }
 
 function isTwinHighlight(node) {
+    if (!altHeld) {
+        return false;
+    }
     const key = twinFocusKey();
     return !!(node && node.kind === 'symbol' && node.itemKey && key && node.itemKey === key);
 }
@@ -616,12 +622,9 @@ function paintTwins() {
 }
 
 function setHoverTwin(node) {
-    const next = node && node.kind === 'symbol' && node.itemKey ? node.itemKey : '';
-    if (next === hoverTwinKey) {
-        return;
-    }
-    hoverTwinKey = next;
-    paintTwins();
+    hoverNode = node || null;
+    hoverTwinKey = node && node.kind === 'symbol' && node.itemKey ? node.itemKey : '';
+    refreshHover();
 }
 
 function createTwinBadge(node, twins) {
@@ -1898,7 +1901,6 @@ function hideSiteMenu() {
 let tipDelayMs = 500;
 let nodeTipEl = null;
 let nodeTipTimer = 0;
-let nodeTipPopTimer = 0;
 let nodeTipAnchor = null;
 let lastTipNodeId = '';
 let tipHover = null;
@@ -1946,10 +1948,6 @@ function hideNodeTip() {
     if (nodeTipTimer) {
         clearTimeout(nodeTipTimer);
         nodeTipTimer = 0;
-    }
-    if (nodeTipPopTimer) {
-        clearTimeout(nodeTipPopTimer);
-        nodeTipPopTimer = 0;
     }
     if (nodeTipEl && nodeTipEl.parentNode) {
         nodeTipEl.parentNode.removeChild(nodeTipEl);
@@ -2202,13 +2200,6 @@ function showTip(spec) {
         placeNodeTip(nodeTipEl, spec.el, spec.node.hop);
     }
     markTipUsed(spec.el);
-    if (nodeTipPopTimer) {
-        clearTimeout(nodeTipPopTimer);
-    }
-    nodeTipPopTimer = setTimeout(() => {
-        nodeTipPopTimer = 0;
-        hideNodeTip();
-    }, Math.max(2000, tipDelayMs * 10));
 }
 
 function showNodeTip(node, anchorEl) {
@@ -2422,6 +2413,25 @@ function render(graph) {
             hoverLayer.appendChild(hoverPath);
         }
     };
+    refreshHover = () => {
+        if (!hoverNode) {
+            setHoverPaths([]);
+            paintTwins();
+            return;
+        }
+        const twinIds = (altHeld && hoverNode.itemKey)
+            ? symbolTwins(hoverNode.itemKey).map(t => t.id)
+            : [hoverNode.id];
+        const hoverDs = [];
+        for (const id of twinIds) {
+            const list = edgesByNode.get(id);
+            if (list) {
+                hoverDs.push(...list);
+            }
+        }
+        setHoverPaths(hoverDs);
+        paintTwins();
+    };
     const ports = isSpreadStyle(edgeStyle) ? edgePorts(graph, pos) : {};
     /** @type {Map<string, string[]>} */
     const edgesByNode = new Map();
@@ -2529,17 +2539,6 @@ function render(graph) {
         el.style.width = nodeW(p) + 'px';
         el.style.height = p.h + 'px';
         el.addEventListener('pointerenter', ev => {
-            const twinIds = node.itemKey
-                ? symbolTwins(node.itemKey).map(t => t.id)
-                : [node.id];
-            const hoverDs = [];
-            for (const id of twinIds) {
-                const list = edgesByNode.get(id);
-                if (list) {
-                    hoverDs.push(...list);
-                }
-            }
-            setHoverPaths(hoverDs);
             setHoverTwin(node);
             beginTipVisit(el);
             if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle, .cr-thumb')) {
@@ -2564,7 +2563,6 @@ function render(graph) {
             }
         });
         el.addEventListener('pointerleave', ev => {
-            setHoverPaths([]);
             setHoverTwin(undefined);
             if (usesNodeTip(node)) {
                 const next = ev.relatedTarget;
@@ -2803,28 +2801,78 @@ tipsBtn?.addEventListener('click', () => {
     applyTipsAuto(!tipsAuto);
 });
 
+function isAltKey(e) {
+    return e.key === 'Alt' || e.code === 'AltLeft' || e.code === 'AltRight';
+}
+
+let altSteal = false;
+let altStealTimer = 0;
+
+function keepWebviewFocus() {
+    if (isTypingTarget(document.activeElement)) {
+        return;
+    }
+    const el = document.body;
+    if (el && el.tabIndex < 0) {
+        el.tabIndex = -1;
+    }
+    try {
+        el.focus({ preventScroll: true });
+    } catch (_) {
+        el?.focus();
+    }
+    vscode.postMessage({ type: 'keepFocus' });
+}
+
+function markAltSteal() {
+    altSteal = true;
+    if (altStealTimer) {
+        clearTimeout(altStealTimer);
+    }
+    altStealTimer = setTimeout(() => {
+        altStealTimer = 0;
+        altSteal = false;
+    }, 200);
+}
+
 window.addEventListener('keydown', e => {
-    if (e.key !== 'Alt' || e.repeat) {
+    if (!isAltKey(e)) {
+        return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    markAltSteal();
+    if (e.repeat) {
         return;
     }
     altHeld = true;
+    refreshHover();
     if (!tipsAuto && tipHover && !isTypingTarget(e.target)) {
         armTip(tipHover);
     }
-});
+}, true);
 window.addEventListener('keyup', e => {
-    if (e.key !== 'Alt') {
+    if (!isAltKey(e)) {
         return;
     }
+    e.preventDefault();
+    e.stopPropagation();
+    markAltSteal();
     altHeld = false;
+    refreshHover();
     if (!tipsAuto) {
         hideNodeTip();
     }
-});
+    keepWebviewFocus();
+}, true);
 window.addEventListener('blur', () => {
     altHeld = false;
+    refreshHover();
     if (!tipsAuto) {
         hideNodeTip();
+    }
+    if (altSteal) {
+        keepWebviewFocus();
     }
 });
 
