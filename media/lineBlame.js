@@ -4,8 +4,9 @@
 // 手型光标（悬停在可跳转单词上）的点击走 jumpDefinition，不请求 blame。
 // 其余点击（行号、行尾空白、运算符/空白等非单词处）与点行尾空白一样请求 blame。
 // 浮窗挂在行尾摘要上：lineBlame 未显示时不出现。
-// 配置 lineBlameHover：勾选则指针在摘要上移动后出浮窗；不勾选（默认）则还要按住 Alt。
-// 必须在摘要上发生过 mousemove（摘要出现在静止光标下不算）。松开 Alt 不关，移出摘要/浮窗才关。
+// 配置 lineBlameHover：勾选则指针在摘要上移动并停留后出浮窗；不勾选（默认）则还要按住 Alt。
+// 必须在摘要上发生过 mousemove（摘要出现在静止光标下不算），再等 HOVER_DELAY_MS（其间预拉 diff）。
+// 松开 Alt 不关，移出摘要/浮窗才关。
 // Alt 模式下，在摘要/浮窗上会吞掉单独的 Alt，避免 Windows 顶栏菜单抢走焦点。
 
 const WIDGET_ID = 'cw.lineBlame';
@@ -54,6 +55,9 @@ export function createLineBlame(ctx) {
     /** @type {HTMLDivElement | null} */
     let hoverEl = null;
     let hoverHideTimer = 0;
+    let hoverShowTimer = 0;
+    // 对齐本面板 Monaco hover（main.js delay: 300），也给 git diff 一点拉取时间。
+    const HOVER_DELAY_MS = 300;
     let overBlame = false;
     let hoverMoved = false;
     let enterX = 0;
@@ -96,12 +100,37 @@ export function createLineBlame(ctx) {
         }
     }
 
+    function cancelShowHover() {
+        if (hoverShowTimer) {
+            clearTimeout(hoverShowTimer);
+            hoverShowTimer = 0;
+        }
+    }
+
+    function scheduleShowHover() {
+        if (!overBlame || !hoverMoved || !canShowHover() || !(hoverAuto || altDown)) {
+            return;
+        }
+        if (hoverEl) {
+            tryRevealHover();
+            return;
+        }
+        requestDiff();
+        if (hoverShowTimer) {
+            return;
+        }
+        hoverShowTimer = setTimeout(() => {
+            hoverShowTimer = 0;
+            tryRevealHover();
+        }, HOVER_DELAY_MS);
+    }
+
     function setAltDown(down) {
         const next = !!down;
         const rose = next && !altDown;
         altDown = next;
         if (rose) {
-            tryRevealHover();
+            scheduleShowHover();
             // Alt 常被 VSCode/Windows 用来聚焦顶栏菜单，webview 会 blur，下一次 Alt 就进不来。
             // 打开浮窗后立刻把焦点拉回编辑器。
             if (hoverEl) {
@@ -145,6 +174,7 @@ export function createLineBlame(ctx) {
             clearTimeout(hoverHideTimer);
             hoverHideTimer = 0;
         }
+        cancelShowHover();
         if (hoverEl && hoverEl.parentNode) {
             hoverEl.parentNode.removeChild(hoverEl);
         }
@@ -807,7 +837,7 @@ export function createLineBlame(ctx) {
         node.addEventListener('mousemove', ev => {
             if (!overBlame || hoverMoved) {
                 if (hoverMoved) {
-                    tryRevealHover();
+                    scheduleShowHover();
                 }
                 return;
             }
@@ -817,11 +847,12 @@ export function createLineBlame(ctx) {
                 return;
             }
             hoverMoved = true;
-            tryRevealHover();
+            scheduleShowHover();
         });
         node.addEventListener('mouseleave', () => {
             overBlame = false;
             hoverMoved = false;
+            cancelShowHover();
             scheduleHideHover();
         });
         node.addEventListener('mousedown', ev => ev.stopPropagation());
@@ -1038,7 +1069,7 @@ export function createLineBlame(ctx) {
         hoverAuto = !!value;
         syncLiveClass();
         if (hoverAuto) {
-            tryRevealHover();
+            scheduleShowHover();
         }
     }
 
