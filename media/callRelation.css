@@ -755,6 +755,8 @@ body.is-loading .cr-bar {
     fill: none;
     stroke: transparent;
     stroke-width: 14;
+    stroke-linecap: round;
+    stroke-linejoin: round;
     cursor: pointer;
 }
 

@@ -1790,7 +1790,10 @@ function columnEnds(a, b) {
     };
 }
 
-function stopBeforeTip(x1, y1, x2, y2) {
+function stopBeforeTip(x1, y1, x2, y2, toTip) {
+    if (toTip) {
+        return { x: x2, y: y2 };
+    }
     const dx = x2 - x1;
     const dy = y2 - y1;
     const len = Math.hypot(dx, dy) || 1;
@@ -1801,14 +1804,14 @@ function stopBeforeTip(x1, y1, x2, y2) {
     };
 }
 
-function directPath(x1, y1, x2, y2) {
-    const end = stopBeforeTip(x1, y1, x2, y2);
+function directPath(x1, y1, x2, y2, toTip) {
+    const end = stopBeforeTip(x1, y1, x2, y2, toTip);
     return `M ${x1} ${y1} L ${end.x} ${end.y}`;
 }
 
-function arcPath(x1, y1, x2, y2) {
+function arcPath(x1, y1, x2, y2, toTip) {
     const dir = x2 >= x1 ? 1 : -1;
-    const xBase = x2 - dir * ARROW_LEN;
+    const xBase = toTip ? x2 : x2 - dir * ARROW_LEN;
     const span = xBase - x1;
     const pull = Math.max(28, Math.abs(span) * 0.48);
     const c1x = x1 + dir * pull;
@@ -1830,7 +1833,7 @@ function centerEnds(a, b) {
     };
 }
 
-function edgePath(graph, edge, pos, ports) {
+function edgePath(graph, edge, pos, ports, toTip) {
     const a = pos[edge.from];
     const b = pos[edge.to];
     if (!a || !b) {
@@ -1842,18 +1845,18 @@ function edgePath(graph, edge, pos, ports) {
             return '';
         }
         return edgeStyle === 'arc'
-            ? arcPath(p.x1, p.y1, p.x2, p.y2)
-            : directPath(p.x1, p.y1, p.x2, p.y2);
+            ? arcPath(p.x1, p.y1, p.x2, p.y2, toTip)
+            : directPath(p.x1, p.y1, p.x2, p.y2, toTip);
     }
     const p = centerEnds(a, b);
     if (p.sameCol) {
-        const end = stopBeforeTip(p.x1, p.y1, p.x2, p.y2);
+        const end = stopBeforeTip(p.x1, p.y1, p.x2, p.y2, toTip);
         return `M ${p.x1} ${p.y1} L ${end.x} ${end.y}`;
     }
     const hubId = edgeHubId(graph, edge);
     const hubPos = pos[hubId] || a;
     const childPos = hubId === edge.from ? b : a;
-    return orthoPath(p.x1, p.y1, p.x2, p.y2, busXForHub(hubPos, childPos));
+    return orthoPath(p.x1, p.y1, p.x2, p.y2, busXForHub(hubPos, childPos), toTip);
 }
 
 function busXForHub(hubPos, childPos) {
@@ -1864,9 +1867,9 @@ function busXForHub(hubPos, childPos) {
     return hubPos.x - gap;
 }
 
-function orthoPath(x1, y1, x2, y2, busX) {
+function orthoPath(x1, y1, x2, y2, busX, toTip) {
     const dir = x2 >= x1 ? 1 : -1;
-    const xEnd = x2 - dir * ARROW_LEN;
+    const xEnd = toTip ? x2 : x2 - dir * ARROW_LEN;
     if (Math.abs(y1 - y2) < 0.5) {
         return `M ${x1} ${y1} L ${xEnd} ${y2}`;
     }
@@ -2454,7 +2457,7 @@ function render(graph) {
         if (live) {
             const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             hit.setAttribute('class', 'cr-edge-hit');
-            hit.setAttribute('d', d);
+            hit.setAttribute('d', edgePath(graph, edge, pos, ports, true) || d);
             const n = edge.sites.length;
             hit.setAttribute('title', n > 1
                 ? `${n} call sites — click to choose`
