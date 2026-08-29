@@ -38,7 +38,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
             ? Math.max(2, Math.floor(cfg0.jumpTrailMaxItems))
             : 8;
         window.lineBlameEnabled = (cfg0 && typeof cfg0.lineBlame === 'boolean') ? cfg0.lineBlame : true;
-        window.lineBlameHoverEnabled = (cfg0 && typeof cfg0.lineBlameHover === 'boolean') ? cfg0.lineBlameHover : true;
+        window.lineBlameHoverAuto = (cfg0 && typeof cfg0.lineBlameHover === 'boolean') ? cfg0.lineBlameHover : false;
     }
 
     // 统一调试日志开关：默认关闭，排查问题时置为 true 即可恢复所有调试输出，
@@ -844,7 +844,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         state: editorState,
                         vscode,
                         enabled: window.lineBlameEnabled,
-                        hoverEnabled: window.lineBlameHoverEnabled
+                        hoverAuto: window.lineBlameHoverAuto
                     });
 
                     const jumpTrail = createJumpTrail({
@@ -976,9 +976,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         }
 
                                         if (typeof message.contextEditorCfg.lineBlameHover === 'boolean'
-                                            && window.lineBlameHoverEnabled !== message.contextEditorCfg.lineBlameHover) {
-                                            window.lineBlameHoverEnabled = message.contextEditorCfg.lineBlameHover;
-                                            lineBlame.setHoverEnabled(window.lineBlameHoverEnabled);
+                                            && window.lineBlameHoverAuto !== message.contextEditorCfg.lineBlameHover) {
+                                            window.lineBlameHoverAuto = message.contextEditorCfg.lineBlameHover;
+                                            lineBlame.setHoverAuto(window.lineBlameHoverAuto);
                                         }
 
                                         // 「双击选中整对括号/引号」开关同步：无论来自快捷键、编辑器右键菜单、设置 UI 还是本栏 {si} 点击，

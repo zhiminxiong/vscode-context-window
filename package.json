@@ -346,8 +346,8 @@
         },
         "contextView.contextWindow.lineBlameHover": {
           "type": "boolean",
-          "default": true,
-          "description": "Allow holding Alt over the git line-blame annotation to open the hover card. Releasing Alt does not close it. Off: Alt does nothing. Has no effect unless Git Line Blame is on and an annotation is currently visible."
+          "default": false,
+          "description": "Automatically show the git line-blame hover when the pointer is over the annotation. Off (default): hold Alt over the annotation to open it. Releasing Alt does not close it. Has no effect unless Git Line Blame is on and an annotation is visible."
         },
         "contextView.contextWindow.jumpTrail": {
           "type": "boolean",

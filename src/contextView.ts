@@ -549,8 +549,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 jumpTrailMaxItems: contextWindowConfig.get('jumpTrailMaxItems', 8),
                 // 用户点击某行后，在该行行尾显示 git 摘要。跳转定位不显示。
                 lineBlame: contextWindowConfig.get('lineBlame', true),
-                // 是否允许按住 Alt 打开行尾 blame 浮窗。lineBlame 关闭或当前没有摘要时仍不出现。
-                lineBlameHover: contextWindowConfig.get('lineBlameHover', true),
+                // 勾选：指针移到行尾摘要即出浮窗。不勾选（默认）：按住 Alt 才出。lineBlame 关或没有摘要时仍不出现。
+                lineBlameHover: contextWindowConfig.get('lineBlameHover', false),
                 // 点击符号时走哪一种 LSP 跳转。默认 Definition；底栏上拉列表可改。
                 jumpMode: normalizeJumpMode(contextWindowConfig.get('jumpMode', 'definition')),
                 updateMode: String(contextWindowConfig.get('updateMode') || 'live') === 'sticky' ? 'sticky' : 'live',

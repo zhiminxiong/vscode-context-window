@@ -3,10 +3,10 @@
 // 用户主动点某一行后显示行尾 git 摘要。
 // 手型光标（悬停在可跳转单词上）的点击走 jumpDefinition，不请求 blame。
 // 其余点击（行号、行尾空白、运算符/空白等非单词处）与点行尾空白一样请求 blame。
-// 浮窗挂在行尾摘要上：lineBlame 未显示时即使「允许 Alt」开着也不出现。
-// 配置 lineBlameHover 控制是否允许 Alt 打开浮窗。指针在摘要上且按住 Alt 才打开；
+// 浮窗挂在行尾摘要上：lineBlame 未显示时不出现。
+// 配置 lineBlameHover：勾选则指针移上摘要即出浮窗；不勾选（默认）则按住 Alt 才出。
 // 松开 Alt 不关，移出摘要/浮窗才关。
-// 在摘要/浮窗上会吞掉单独的 Alt（keydown/keyup），避免 Windows 顶栏菜单抢走焦点。
+// Alt 模式下，在摘要/浮窗上会吞掉单独的 Alt，避免 Windows 顶栏菜单抢走焦点。
 
 const WIDGET_ID = 'cw.lineBlame';
 
@@ -16,13 +16,13 @@ const WIDGET_ID = 'cw.lineBlame';
  *   state: { uri?: string },
  *   vscode: { postMessage: (msg: any) => void },
  *   enabled?: boolean,
- *   hoverEnabled?: boolean  // 是否允许 Alt 打开浮窗
+ *   hoverAuto?: boolean  // 勾选：移上摘要即出浮窗；不勾选：按住 Alt 才出
  * }} ctx
  */
 export function createLineBlame(ctx) {
     const { editor, state, vscode } = ctx;
     let enabled = ctx && ctx.enabled !== false;
-    let hoverEnabled = ctx && ctx.hoverEnabled !== false;
+    let hoverAuto = !!(ctx && ctx.hoverAuto);
     let seq = 0;
     let timer = 0;
     /** @type {{ uri: string, line: number, text: string, hover?: any, versionId: number, diffPending?: boolean, diffReqId?: number } | null} */
@@ -61,15 +61,18 @@ export function createLineBlame(ctx) {
         if (!node) {
             return;
         }
-        node.classList.toggle('cw-line-blame-live', !!(enabled && hoverEnabled));
+        node.classList.toggle('cw-line-blame-live', !!enabled);
     }
 
     function canShowHover() {
-        return !!(enabled && hoverEnabled && lastShown && lastShown.hover);
+        return !!(enabled && lastShown && lastShown.hover);
     }
 
     function tryRevealHover() {
-        if (overBlame && altDown && canShowHover()) {
+        if (!overBlame || !canShowHover()) {
+            return;
+        }
+        if (hoverAuto || altDown) {
             showHover(false);
         }
     }
@@ -103,7 +106,7 @@ export function createLineBlame(ctx) {
 
     // 指针在行尾摘要或浮窗上时吞掉单独的 Alt，避免顶栏菜单抢走焦点。
     function shouldConsumeAlt() {
-        return !!(hoverEnabled && enabled && (overBlame || hoverEl));
+        return !!(!hoverAuto && enabled && (overBlame || hoverEl));
     }
 
     function consumeBareAlt(e) {
@@ -943,11 +946,11 @@ export function createLineBlame(ctx) {
         }
     }
 
-    function setHoverEnabled(value) {
-        hoverEnabled = !!value;
+    function setHoverAuto(value) {
+        hoverAuto = !!value;
         syncLiveClass();
-        if (!hoverEnabled) {
-            hideHover();
+        if (hoverAuto) {
+            tryRevealHover();
         }
     }
 
@@ -1018,5 +1021,5 @@ export function createLineBlame(ctx) {
         }
     });
 
-    return { handleResult, handleDiffResult, clear, setEnabled, setHoverEnabled };
+    return { handleResult, handleDiffResult, clear, setEnabled, setHoverAuto };
 }
