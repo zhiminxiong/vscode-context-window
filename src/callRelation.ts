@@ -3,6 +3,8 @@ import * as vscode from 'vscode';
 
 export const CALL_PAGE = 12;
 export const CALL_MAX_HOP = 8;
+/** Each Expand All adds at most this many nodes; run again to continue. */
+const CALL_EXPAND_ALL_NODES = 120;
 /** Stop remaining prefetch jobs after an incoming peek this large. */
 const CALL_HOT_PREFETCH = 200;
 
@@ -661,17 +663,14 @@ export class CallRelationModel {
         const seq = this.seq;
         const t0 = Date.now();
         const limit = 6;
+        const stopAt = this.buildGraph().nodes.length + CALL_EXPAND_ALL_NODES;
         for (let round = 0; round < CALL_MAX_HOP * 2; round++) {
             if (!this.isCurrent(seq)) {
                 return undefined;
             }
             const graph = this.buildGraph();
-            let grew = false;
-            for (const n of graph.nodes) {
-                if (n.kind === 'group' && !n.expanded) {
-                    this.expanded.add(n.id);
-                    grew = true;
-                }
+            if (graph.nodes.length >= stopAt) {
+                break;
             }
             const todo = graph.nodes.filter(n => (
                 n.kind === 'symbol'
@@ -681,12 +680,17 @@ export class CallRelationModel {
                 && n.id !== graph.rootId
                 && Math.abs(n.hop) < CALL_MAX_HOP
             ));
-            if (!todo.length && !grew) {
+            if (!todo.length) {
                 break;
             }
+            let full = false;
             for (let i = 0; i < todo.length; i += limit) {
                 if (!this.isCurrent(seq)) {
                     return undefined;
+                }
+                if (this.buildGraph().nodes.length >= stopAt) {
+                    full = true;
+                    break;
                 }
                 await Promise.all(todo.slice(i, i + limit).map(async n => {
                     const item = this.items.get(n.itemKey);
@@ -701,6 +705,9 @@ export class CallRelationModel {
                     }
                     this.expanded.add(n.id);
                 }));
+            }
+            if (full) {
+                break;
             }
         }
         const graph = await this.buildVisible(seq, true);
