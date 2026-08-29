@@ -484,10 +484,6 @@ export function createLineBlame(ctx) {
             row.appendChild(body);
             box.appendChild(row);
         }
-        box.appendChild(makeCopyButton(
-            () => formatDiffCopy(lastShown && lastShown.hover),
-            'Copy'
-        ));
         return box;
     }
 
@@ -512,6 +508,7 @@ export function createLineBlame(ctx) {
         }
         const next = renderDiff(lastShown.hover);
         const old = hoverEl.querySelector('.cw-line-blame-hover-diff');
+        const detail = hoverEl.querySelector('.cw-line-blame-hover-detail');
         if (!next) {
             if (old && old.parentNode) {
                 old.parentNode.removeChild(old);
@@ -521,6 +518,13 @@ export function createLineBlame(ctx) {
         }
         if (old && old.parentNode) {
             old.parentNode.replaceChild(next, old);
+        } else if (detail) {
+            const foot = detail.querySelector('.cw-line-blame-hover-foot');
+            if (foot) {
+                detail.insertBefore(next, foot);
+            } else {
+                detail.insertBefore(next, detail.firstChild);
+            }
         } else {
             const foot = hoverEl.querySelector('.cw-line-blame-hover-foot');
             if (foot) {
@@ -549,24 +553,53 @@ export function createLineBlame(ctx) {
         }
     }
 
+    function getAnchorLineRect() {
+        const fallback = node.getBoundingClientRect();
+        if (!lastShown || lastShown.line < 1) {
+            return fallback;
+        }
+        try {
+            const edNode = editor.getDomNode();
+            const pos = editor.getScrolledVisiblePosition({
+                lineNumber: lastShown.line,
+                column: 1
+            });
+            if (!edNode || !pos) {
+                return fallback;
+            }
+            const edRect = edNode.getBoundingClientRect();
+            const top = edRect.top + pos.top;
+            const height = pos.height || fallback.height;
+            return {
+                top,
+                bottom: top + height,
+                left: fallback.left,
+                right: fallback.right,
+                width: fallback.width,
+                height
+            };
+        } catch (e) {
+            return fallback;
+        }
+    }
+
     function positionHover() {
         if (!hoverEl || !node) {
             return;
         }
-        const rect = node.getBoundingClientRect();
+        const rect = getAnchorLineRect();
         const pad = 8;
-        const gap = 6;
         hoverEl.style.maxHeight = '';
         const hw = hoverEl.offsetWidth;
         const hh = hoverEl.offsetHeight;
-        const availAbove = Math.max(0, rect.top - pad - gap);
-        const availBelow = Math.max(0, window.innerHeight - rect.bottom - pad - gap);
+        const availAbove = Math.max(0, rect.top - pad);
+        const availBelow = Math.max(0, window.innerHeight - rect.bottom - pad);
         const placeBelow = availBelow >= availAbove || availBelow >= hh;
         let left = rect.left;
         if (left + hw > window.innerWidth - pad) {
             left = window.innerWidth - hw - pad;
         }
-        let top = placeBelow ? rect.bottom + gap : rect.top - hh - gap;
+        let top = placeBelow ? rect.bottom : rect.top - hh;
         if (top + hh > window.innerHeight - pad) {
             top = window.innerHeight - hh - pad;
         }
@@ -654,12 +687,15 @@ export function createLineBlame(ctx) {
         ));
         hoverEl.appendChild(tips);
 
+        const detail = document.createElement('div');
+        detail.className = 'cw-line-blame-hover-detail';
+
         const foot = document.createElement('div');
         foot.className = 'cw-line-blame-hover-foot';
 
         const diffEl = renderDiff(h);
         if (diffEl) {
-            hoverEl.appendChild(diffEl);
+            detail.appendChild(diffEl);
         }
 
         const changes = document.createElement('div');
@@ -717,7 +753,12 @@ export function createLineBlame(ctx) {
             changes.appendChild(document.createTextNode('Uncommitted changes'));
         }
         foot.appendChild(changes);
-        hoverEl.appendChild(foot);
+        detail.appendChild(foot);
+        detail.appendChild(makeCopyButton(
+            () => formatDiffCopy(lastShown && lastShown.hover),
+            'Copy'
+        ));
+        hoverEl.appendChild(detail);
 
         hoverEl.style.visibility = 'hidden';
         positionHover();
