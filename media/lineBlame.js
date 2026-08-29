@@ -4,8 +4,8 @@
 // 手型光标（悬停在可跳转单词上）的点击走 jumpDefinition，不请求 blame。
 // 其余点击（行号、行尾空白、运算符/空白等非单词处）与点行尾空白一样请求 blame。
 // 浮窗挂在行尾摘要上：lineBlame 未显示时不出现。
-// 配置 lineBlameHover：勾选则指针移上摘要即出浮窗；不勾选（默认）则按住 Alt 才出。
-// 松开 Alt 不关，移出摘要/浮窗才关。
+// 配置 lineBlameHover：勾选则指针在摘要上移动后出浮窗；不勾选（默认）则还要按住 Alt。
+// 必须在摘要上发生过 mousemove（摘要出现在静止光标下不算）。松开 Alt 不关，移出摘要/浮窗才关。
 // Alt 模式下，在摘要/浮窗上会吞掉单独的 Alt，避免 Windows 顶栏菜单抢走焦点。
 
 const WIDGET_ID = 'cw.lineBlame';
@@ -39,6 +39,9 @@ export function createLineBlame(ctx) {
     let hoverEl = null;
     let hoverHideTimer = 0;
     let overBlame = false;
+    let hoverMoved = false;
+    let enterX = 0;
+    let enterY = 0;
     let altDown = false;
 
     function syncFont() {
@@ -69,7 +72,7 @@ export function createLineBlame(ctx) {
     }
 
     function tryRevealHover() {
-        if (!overBlame || !canShowHover()) {
+        if (!overBlame || !hoverMoved || !canShowHover()) {
             return;
         }
         if (hoverAuto || altDown) {
@@ -772,12 +775,30 @@ export function createLineBlame(ctx) {
         }
         node = document.createElement('span');
         node.className = 'cw-line-blame';
-        node.addEventListener('mouseenter', () => {
+        node.addEventListener('mouseenter', ev => {
             overBlame = true;
+            hoverMoved = false;
+            enterX = ev.clientX;
+            enterY = ev.clientY;
+        });
+        node.addEventListener('mousemove', ev => {
+            if (!overBlame || hoverMoved) {
+                if (hoverMoved) {
+                    tryRevealHover();
+                }
+                return;
+            }
+            const dx = ev.clientX - enterX;
+            const dy = ev.clientY - enterY;
+            if (dx * dx + dy * dy < 1) {
+                return;
+            }
+            hoverMoved = true;
             tryRevealHover();
         });
         node.addEventListener('mouseleave', () => {
             overBlame = false;
+            hoverMoved = false;
             scheduleHideHover();
         });
         node.addEventListener('mousedown', ev => ev.stopPropagation());
@@ -809,6 +830,7 @@ export function createLineBlame(ctx) {
     function hideWidget() {
         lastShown = null;
         overBlame = false;
+        hoverMoved = false;
         hideHover();
         if (node) {
             node.textContent = '';
