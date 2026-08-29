@@ -160,7 +160,7 @@ body.has-jump-trail #container {
     flex-direction: column;
     box-sizing: border-box;
     max-width: min(720px, calc(100vw - 24px));
-    min-width: 400px;
+    min-width: 520px;
     width: max-content;
     overflow: visible;
     padding: 12px 14px 10px;
@@ -174,10 +174,55 @@ body.has-jump-trail #container {
     font-family: var(--vscode-font-family, "Segoe UI", sans-serif);
 }
 
+.cw-line-blame-hover-tips {
+    position: relative;
+    align-self: stretch;
+    width: 100%;
+    box-sizing: border-box;
+    padding-right: 26px;
+}
+
+.cw-line-blame-hover-copy {
+    position: absolute;
+    right: 0;
+    top: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--vscode-icon-foreground, #c5c5c5);
+    background: transparent;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.cw-line-blame-hover-copy svg {
+    width: 16px;
+    height: 16px;
+}
+
+.cw-line-blame-hover-tips:hover > .cw-line-blame-hover-copy,
+.cw-line-blame-hover-diff:hover > .cw-line-blame-hover-copy {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.cw-line-blame-hover-copy:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
 .cw-line-blame-hover-head {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     flex-shrink: 0;
     gap: 16px;
     margin-bottom: 8px;
@@ -227,9 +272,26 @@ body.has-jump-trail #container {
 }
 
 .cw-line-blame-hover-when {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     color: var(--vscode-descriptionForeground, #999);
-    text-align: right;
     white-space: nowrap;
+}
+
+.cw-line-blame-hover-when-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.cw-line-blame-hover-when-icon svg {
+    display: block;
+    width: 14px;
+    height: 14px;
 }
 
 .cw-line-blame-hover-msg {
@@ -264,11 +326,13 @@ body.has-jump-trail #container {
 }
 
 .cw-line-blame-hover-diff {
+    position: relative;
     flex: 0 0 auto;
     height: auto;
     overflow: visible;
     margin: 0 0 8px;
     padding-top: 8px;
+    padding-right: 26px;
     width: 100%;
     align-self: stretch;
     box-sizing: border-box;
@@ -281,6 +345,11 @@ body.has-jump-trail #container {
     tab-size: 4;
 }
 
+.cw-line-blame-hover-diff > .cw-line-blame-hover-copy {
+    top: 50%;
+    transform: translateY(-50%);
+}
+
 .cw-line-blame-hover-diff-line {
     display: block;
     padding: 1px 0;
@@ -289,10 +358,17 @@ body.has-jump-trail #container {
     word-break: break-word;
 }
 
+/* + / - 同色：当前主题操作符（keyword.operator）；解析失败时用 Light+ / Dark+ 偏紫兜底 */
 .cw-line-blame-hover-diff-mark {
     display: inline;
     user-select: none;
     font-weight: 600;
+    color: var(--cw-operator-foreground, #800080);
+}
+
+.vscode-dark .cw-line-blame-hover-diff-mark,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .cw-line-blame-hover-diff-mark {
+    color: var(--cw-operator-foreground, #C586C0);
 }
 
 .cw-line-blame-hover-diff-text {
@@ -301,12 +377,18 @@ body.has-jump-trail #container {
 
 .cw-line-blame-hover-diff-del {
     background: transparent;
-    color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149);
+    color: var(--vscode-gitDecoration-deletedResourceForeground, #ad0707);
 }
 
 .cw-line-blame-hover-diff-add {
     background: transparent;
-    color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+    /* 对齐 GitLens hover ```diff``` 的 markup.inserted（Light+ #16825D / Dark #3fb950） */
+    color: #16825D;
+}
+
+.vscode-dark .cw-line-blame-hover-diff-add,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .cw-line-blame-hover-diff-add {
+    color: #3fb950;
 }
 
 .cw-line-blame-hover-diff-ctx {
@@ -324,21 +406,32 @@ body.has-jump-trail #container {
     border: none;
     border-radius: 3px;
     cursor: pointer;
-    color: var(--vscode-button-secondaryForeground, #cccccc);
-    background: var(--vscode-button-secondaryBackground, #3a3d41);
+    color: #16825D;
+    background: color-mix(in srgb, #16825D 16%, transparent);
+}
+
+.vscode-dark .cw-line-blame-hover-sha,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .cw-line-blame-hover-sha {
+    color: #3fb950;
+    background: color-mix(in srgb, #3fb950 22%, transparent);
 }
 
 .cw-line-blame-hover-sha:hover {
-    background: var(--vscode-button-secondaryHoverBackground, #45494e);
+    background: color-mix(in srgb, #16825D 26%, transparent);
+}
+
+.vscode-dark .cw-line-blame-hover-sha:hover,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .cw-line-blame-hover-sha:hover {
+    background: color-mix(in srgb, #3fb950 32%, transparent);
 }
 
 .cw-line-blame-hover-sha-current {
-    color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
-    background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #3fb950) 18%, transparent);
+    color: var(--vscode-descriptionForeground, #6a6a6a);
+    background: color-mix(in srgb, var(--vscode-descriptionForeground, #6a6a6a) 14%, transparent);
 }
 
 .cw-line-blame-hover-sha-current:hover {
-    background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #3fb950) 28%, transparent);
+    background: color-mix(in srgb, var(--vscode-descriptionForeground, #6a6a6a) 22%, transparent);
 }
 
 .cw-line-blame-hover-changes {

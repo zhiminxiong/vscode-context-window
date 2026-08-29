@@ -508,6 +508,8 @@ function resolveSemanticRulesInner(): SemanticRule[] | undefined {
         { token: 'keyword.control.trycatch', scopes: ['keyword.control.trycatch', 'keyword.control.exception', 'keyword.control', 'keyword'] },
         { token: 'keyword.control.flow', scopes: ['keyword.control.flow', 'keyword.control', 'keyword'] },
         { token: 'keyword.control.import', scopes: ['keyword.control.import', 'keyword.control', 'keyword'] },
+        { token: 'keyword.operator', scopes: ['keyword.operator', 'keyword'] },
+        { token: 'keyword.operator.arithmetic', scopes: ['keyword.operator.arithmetic', 'keyword.operator', 'keyword'] },
         { token: 'keyword.operator.expression', scopes: ['keyword.operator.expression', 'keyword.operator.word', 'keyword.operator', 'keyword'] },
         { token: 'storage.type.class', scopes: ['storage.type.class', 'storage.type', 'keyword'] },
         { token: 'storage.type.enum', scopes: ['storage.type.enum', 'storage.type', 'keyword'] },

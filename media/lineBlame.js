@@ -6,6 +6,7 @@
 // 浮窗挂在行尾摘要上：lineBlame 未显示时即使「允许 Alt」开着也不出现。
 // 配置 lineBlameHover 控制是否允许 Alt 打开浮窗。指针在摘要上且按住 Alt 才打开；
 // 松开 Alt 不关，移出摘要/浮窗才关。
+// 在摘要/浮窗上会吞掉单独的 Alt（keydown/keyup），避免 Windows 顶栏菜单抢走焦点。
 
 const WIDGET_ID = 'cw.lineBlame';
 
@@ -79,7 +80,42 @@ export function createLineBlame(ctx) {
         altDown = next;
         if (rose) {
             tryRevealHover();
+            // Alt 常被 VSCode/Windows 用来聚焦顶栏菜单，webview 会 blur，下一次 Alt 就进不来。
+            // 打开浮窗后立刻把焦点拉回编辑器。
+            if (hoverEl) {
+                try {
+                    editor.focus();
+                } catch (e) {
+                    // ignore
+                }
+            }
         }
+    }
+
+    function isBareAlt(e) {
+        if (!e || e.ctrlKey || e.metaKey || e.shiftKey) {
+            return false;
+        }
+        const key = e.key || '';
+        const code = e.code || '';
+        return key === 'Alt' || code === 'AltLeft' || code === 'AltRight';
+    }
+
+    // 指针在行尾摘要或浮窗上时吞掉单独的 Alt，避免顶栏菜单抢走焦点。
+    function shouldConsumeAlt() {
+        return !!(hoverEnabled && enabled && (overBlame || hoverEl));
+    }
+
+    function consumeBareAlt(e) {
+        if (!e || !shouldConsumeAlt() || !isBareAlt(e)) {
+            return false;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') {
+            e.stopImmediatePropagation();
+        }
+        return true;
     }
 
     function hideHover() {
@@ -129,6 +165,99 @@ export function createLineBlame(ctx) {
             }
             hideHover();
         });
+        return btn;
+    }
+
+    function copyPlain(text, notify) {
+        if (!text || !window.vscode) {
+            return;
+        }
+        window.vscode.postMessage({
+            type: 'copyToClipboard',
+            text,
+            notify: notify || 'Copied'
+        });
+    }
+
+    function formatTipsCopy(h) {
+        if (!h) {
+            return '';
+        }
+        const who = String(h.author || '').trim();
+        let when = '';
+        if (h.ago && h.date) {
+            when = `${h.ago} (${h.date})`;
+        } else {
+            when = h.ago || h.date || '';
+        }
+        const raw = String(h.summary || '');
+        const nl = raw.search(/\r?\n/);
+        const subject = (nl < 0 ? raw : raw.slice(0, nl)).trim();
+        const body = nl < 0 ? '' : raw.slice(nl).replace(/^\r?\n+/, '').replace(/\s+$/, '');
+        const msg = body ? `${subject}\n\n${body}` : subject;
+        const sha = h.workingTree ? '' : String(h.shortSha || '').trim();
+        const line1 = [who, when].filter(Boolean).join(' ');
+        const parts = [];
+        if (line1) {
+            parts.push(line1);
+        }
+        if (msg) {
+            parts.push('', msg);
+        }
+        if (sha) {
+            parts.push('', sha);
+        }
+        return parts.join('\n');
+    }
+
+    function formatChangesLine(h) {
+        if (!h) {
+            return '';
+        }
+        if (h.workingTree) {
+            const left = h.previousShortSha || '';
+            const sameRef = !!(h.previousSha && h.sha && h.previousSha === h.sha);
+            const right = (!sameRef && h.shortSha) ? h.shortSha : 'Working Tree';
+            return left ? `Changes ${left} ⟷ ${right}` : `Changes ${right}`;
+        }
+        if (h.previousShortSha && h.shortSha) {
+            return `Changes ${h.previousShortSha} ⟷ ${h.shortSha}`;
+        }
+        if (h.shortSha) {
+            return `Changes added in ${h.shortSha}`;
+        }
+        return 'Uncommitted changes';
+    }
+
+    function formatDiffCopy(h) {
+        const rows = h && Array.isArray(h.diff) ? h.diff : [];
+        const trimLead = text => String(text || '').replace(/^[ \t]+/, '');
+        const lines = rows.map(line => {
+            const mark = line.kind === 'del' ? '-' : line.kind === 'add' ? '+' : ' ';
+            return `${mark} ${trimLead(line.text)}`;
+        });
+        const changes = formatChangesLine(h);
+        if (lines.length && changes) {
+            return `${lines.join('\n')}\n\n${changes}`;
+        }
+        return lines.length ? lines.join('\n') : changes;
+    }
+
+    function makeCopyButton(getText, title) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cw-line-blame-hover-copy';
+        btn.title = title || 'Copy';
+        btn.setAttribute('aria-label', title || 'Copy');
+        btn.tabIndex = -1;
+        btn.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25z"/><path fill="currentColor" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25z"/></svg>';
+        btn.addEventListener('click', ev => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const text = typeof getText === 'function' ? getText() : getText;
+            copyPlain(text, 'Copied');
+        });
+        btn.addEventListener('mousedown', ev => ev.stopPropagation());
         return btn;
     }
 
@@ -269,6 +398,51 @@ export function createLineBlame(ctx) {
         }
     }
 
+    function toCssColor(fg) {
+        const s = String(fg || '').trim();
+        if (!s) {
+            return '';
+        }
+        if (s.startsWith('#') || s.startsWith('rgb') || s.startsWith('hsl') || s.startsWith('var(')) {
+            return s;
+        }
+        if (/^[0-9a-fA-F]{6,8}$/.test(s)) {
+            return '#' + s;
+        }
+        return s;
+    }
+
+    function pickRuleColor(rules, token) {
+        if (!Array.isArray(rules)) {
+            return '';
+        }
+        for (let i = rules.length - 1; i >= 0; i--) {
+            const r = rules[i];
+            if (r && r.token === token && r.foreground) {
+                return toCssColor(r.foreground);
+            }
+        }
+        return '';
+    }
+
+    // + / - 对齐 VSCode 里 `+` 的 token：keyword.operator.arithmetic（Inspect 常见为偏紫）。
+    // 不用泛化 semantic operator（Light+ 常是前景黑）。解析不到时留给 CSS 兜底。
+    function getOperatorMarkColor() {
+        const cfg = window.vsCodeEditorConfiguration || {};
+        const sources = [cfg.themeTextmateRules, cfg.themeSemanticRules];
+        for (const token of ['keyword.operator.arithmetic', 'keyword.operator']) {
+            for (const src of sources) {
+                const c = pickRuleColor(src, token);
+                if (c) {
+                    return c;
+                }
+            }
+        }
+        return pickRuleColor(cfg.customThemeRules, 'operator')
+            || pickRuleColor(cfg.themeSemanticRules, 'operator')
+            || '';
+    }
+
     function renderDiff(h) {
         const rows = h && Array.isArray(h.diff) ? h.diff : [];
         if (!rows.length) {
@@ -276,6 +450,10 @@ export function createLineBlame(ctx) {
         }
         const box = document.createElement('div');
         box.className = 'cw-line-blame-hover-diff';
+        const markColor = getOperatorMarkColor();
+        if (markColor) {
+            box.style.setProperty('--cw-operator-foreground', markColor);
+        }
         const trimLead = text => String(text || '').replace(/^[ \t]+/, '');
         const dels = rows.filter(l => l.kind === 'del');
         const adds = rows.filter(l => l.kind === 'add');
@@ -303,6 +481,10 @@ export function createLineBlame(ctx) {
             row.appendChild(body);
             box.appendChild(row);
         }
+        box.appendChild(makeCopyButton(
+            () => formatDiffCopy(lastShown && lastShown.hover),
+            'Copy'
+        ));
         return box;
     }
 
@@ -412,6 +594,9 @@ export function createLineBlame(ctx) {
         }
         hoverEl.innerHTML = '';
 
+        const tips = document.createElement('div');
+        tips.className = 'cw-line-blame-hover-tips';
+
         const head = document.createElement('div');
         head.className = 'cw-line-blame-hover-head';
         const who = document.createElement('div');
@@ -421,13 +606,20 @@ export function createLineBlame(ctx) {
         head.appendChild(who);
         const when = document.createElement('div');
         when.className = 'cw-line-blame-hover-when';
+        const clock = document.createElement('span');
+        clock.className = 'cw-line-blame-hover-when-icon';
+        clock.setAttribute('aria-hidden', 'true');
+        clock.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.25a5.75 5.75 0 1 1 0 11.5 5.75 5.75 0 0 1 0-11.5zM8.5 4v4.05l2.6 1.5-.5.87L7.5 8.55V4h1z"/></svg>';
+        when.appendChild(clock);
+        const whenText = document.createElement('span');
         if (h.ago && h.date) {
-            when.textContent = `${h.ago} (${h.date})`;
+            whenText.textContent = `${h.ago} (${h.date})`;
         } else {
-            when.textContent = h.ago || h.date || '';
+            whenText.textContent = h.ago || h.date || '';
         }
+        when.appendChild(whenText);
         head.appendChild(when);
-        hoverEl.appendChild(head);
+        tips.appendChild(head);
 
         const raw = h.summary || '';
         const nl = raw.search(/\r?\n/);
@@ -442,19 +634,25 @@ export function createLineBlame(ctx) {
             addText(msg, 'cw-line-blame-hover-body', body);
         }
         if (msg.childNodes.length) {
-            hoverEl.appendChild(msg);
+            tips.appendChild(msg);
         }
 
-        const foot = document.createElement('div');
-        foot.className = 'cw-line-blame-hover-foot';
         const actions = document.createElement('div');
         actions.className = 'cw-line-blame-hover-actions';
         if (h.shortSha && !h.workingTree) {
             actions.appendChild(makeShaButton(h.shortSha, h.sha));
         }
         if (actions.childNodes.length) {
-            hoverEl.appendChild(actions);
+            tips.appendChild(actions);
         }
+        tips.appendChild(makeCopyButton(
+            () => formatTipsCopy(lastShown && lastShown.hover),
+            'Copy'
+        ));
+        hoverEl.appendChild(tips);
+
+        const foot = document.createElement('div');
+        foot.className = 'cw-line-blame-hover-foot';
 
         const diffEl = renderDiff(h);
         if (diffEl) {
@@ -760,11 +958,13 @@ export function createLineBlame(ctx) {
         if (e.repeat) {
             return;
         }
+        consumeBareAlt(e);
         if (e.altKey || e.key === 'Alt') {
             setAltDown(true);
         }
     }, true);
     window.addEventListener('keyup', e => {
+        consumeBareAlt(e);
         if (e.key === 'Alt') {
             setAltDown(false);
         }
@@ -773,15 +973,31 @@ export function createLineBlame(ctx) {
         setAltDown(false);
     });
     editor.onKeyDown(e => {
-        if (e.browserEvent && e.browserEvent.repeat) {
+        const ev = e.browserEvent;
+        if (ev && ev.repeat) {
             return;
+        }
+        if (ev) {
+            consumeBareAlt(ev);
+        }
+        if (shouldConsumeAlt() && (e.altKey || e.keyCode === monaco.KeyCode.Alt)) {
+            e.preventDefault();
+            e.stopPropagation();
         }
         if (e.altKey || e.keyCode === monaco.KeyCode.Alt) {
             setAltDown(true);
         }
     });
     editor.onKeyUp(e => {
+        const ev = e.browserEvent;
+        if (ev) {
+            consumeBareAlt(ev);
+        }
         if (e.keyCode === monaco.KeyCode.Alt) {
+            if (shouldConsumeAlt()) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
             setAltDown(false);
         }
     });
