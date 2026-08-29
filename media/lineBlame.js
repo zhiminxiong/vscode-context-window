@@ -31,6 +31,22 @@ export function createLineBlame(ctx) {
     let lastReqUri = '';
     let pendingReq = false;
     let diffSeq = 0;
+    /** @type {Map<string, any[]>} */
+    const lineDiffCache = new Map();
+
+    function lineDiffKey(uri, line) {
+        return `${uri}\0${line}`;
+    }
+
+    function attachCachedDiff(shown) {
+        if (!shown || !shown.hover || Array.isArray(shown.hover.diff)) {
+            return;
+        }
+        const cached = lineDiffCache.get(lineDiffKey(shown.uri, shown.line));
+        if (cached) {
+            shown.hover.diff = cached;
+        }
+    }
     /** @type {HTMLSpanElement | null} */
     let node = null;
     /** @type {import('monaco-editor').editor.IContentWidget | null} */
@@ -551,8 +567,10 @@ export function createLineBlame(ctx) {
             return;
         }
         lastShown.hover.diff = Array.isArray(message.diff) ? message.diff : [];
+        lineDiffCache.set(lineDiffKey(lastShown.uri, lastShown.line), lastShown.hover.diff);
         if (hoverEl) {
             patchHoverDiff();
+            hoverEl.style.visibility = 'visible';
         }
     }
 
@@ -597,7 +615,8 @@ export function createLineBlame(ctx) {
         const hh = hoverEl.offsetHeight;
         const availAbove = Math.max(0, rect.top - pad);
         const availBelow = Math.max(0, window.innerHeight - rect.bottom - pad);
-        const placeBelow = availBelow >= availAbove || availBelow >= hh;
+        // 只按哪边空间大选边，不看当前高度。否则没 diff 时变矮会往下，diff 到了再翻上去。
+        const placeBelow = availBelow > availAbove;
         let left = rect.left;
         if (left + hw > window.innerWidth - pad) {
             left = window.innerWidth - hw - pad;
@@ -616,6 +635,7 @@ export function createLineBlame(ctx) {
             hideHover();
             return;
         }
+        attachCachedDiff(lastShown);
         // 按住 Alt 会重复 keydown；已打开就不要拆 DOM，否则头像会在照片/字母间闪。
         if (hoverEl && !force) {
             positionHover();
@@ -765,7 +785,10 @@ export function createLineBlame(ctx) {
 
         hoverEl.style.visibility = 'hidden';
         positionHover();
-        hoverEl.style.visibility = 'visible';
+        const waitingDiff = lastShown.hover && !Array.isArray(lastShown.hover.diff);
+        if (!waitingDiff) {
+            hoverEl.style.visibility = 'visible';
+        }
         requestDiff();
     }
 
@@ -846,13 +869,15 @@ export function createLineBlame(ctx) {
             hideWidget();
             return;
         }
+        const nextHover = hover && typeof hover === 'object' ? hover : {};
         lastShown = {
             uri: (state && state.uri) || '',
             line,
             text,
-            hover,
+            hover: nextHover,
             versionId: model.getVersionId()
         };
+        attachCachedDiff(lastShown);
         ensureWidget();
         syncFont();
         syncLiveClass();
