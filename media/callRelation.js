@@ -2730,42 +2730,93 @@ function render(graph) {
     }
 }
 
+const PAN_SLOP = 5;
+
 function bindPan(el) {
     let dragging = false;
+    let pending = false;
+    let suppressClick = false;
     let sx = 0;
     let sy = 0;
     let sl = 0;
     let st = 0;
+    const suppressTipAt = (clientX, clientY) => {
+        const hit = document.elementFromPoint(clientX, clientY);
+        const node = hit && hit.closest && hit.closest('.cr-node');
+        if (!node) {
+            return;
+        }
+        markTipUsed(node);
+        tipHover = null;
+        hideNodeTip();
+    };
+    const beginDrag = e => {
+        dragging = true;
+        pending = false;
+        tipHover = null;
+        hideNodeTip();
+        el.classList.add('is-panning');
+        try { el.setPointerCapture(e.pointerId); } catch (_) { /* noop */ }
+    };
     el.addEventListener('pointerdown', e => {
         if (e.button !== 0) {
             return;
         }
         const hit = e.target;
-        if (hit && hit.closest && hit.closest('.cr-node, .cr-toggle, .cr-thumb, .cr-edge-group, .cr-site-menu')) {
+        if (hit && hit.closest && hit.closest('.cr-toggle, .cr-thumb, .cr-twin, .cr-edge-group, .cr-site-menu')) {
             return;
         }
-        hideNodeTip();
-        dragging = true;
+        const onNode = !!(hit && hit.closest && hit.closest('.cr-node'));
+        pending = onNode;
+        dragging = !onNode;
         sx = e.clientX;
         sy = e.clientY;
         sl = el.scrollLeft;
         st = el.scrollTop;
-        el.classList.add('is-panning');
-        try { el.setPointerCapture(e.pointerId); } catch (_) { /* noop */ }
+        if (dragging) {
+            beginDrag(e);
+        }
     });
     el.addEventListener('pointermove', e => {
+        if (pending && !dragging) {
+            if (Math.hypot(e.clientX - sx, e.clientY - sy) < PAN_SLOP) {
+                return;
+            }
+            suppressClick = true;
+            beginDrag(e);
+        }
         if (!dragging) {
             return;
         }
         el.scrollLeft = sl - (e.clientX - sx);
         el.scrollTop = st - (e.clientY - sy);
     });
-    const endPan = () => {
+    const endPan = e => {
+        const moved = dragging;
+        const x = e && typeof e.clientX === 'number' ? e.clientX : sx;
+        const y = e && typeof e.clientY === 'number' ? e.clientY : sy;
         dragging = false;
+        pending = false;
         el.classList.remove('is-panning');
+        if (suppressClick) {
+            setTimeout(() => {
+                suppressClick = false;
+            }, 0);
+        }
+        if (moved) {
+            requestAnimationFrame(() => suppressTipAt(x, y));
+        }
     };
     el.addEventListener('pointerup', endPan);
     el.addEventListener('pointercancel', endPan);
+    el.addEventListener('click', e => {
+        if (!suppressClick) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        suppressClick = false;
+    }, true);
 }
 
 pinBtn?.addEventListener('click', () => {
