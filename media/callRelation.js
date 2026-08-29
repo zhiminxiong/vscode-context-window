@@ -386,7 +386,7 @@ function drawGroupFrames(canvas, graph, pos) {
         frame.style.top = top + 'px';
         frame.style.width = (right - left + padX * 2) + 'px';
         frame.style.height = (bottom - top) + 'px';
-        canvas.appendChild(frame);
+        canvas.insertBefore(frame, canvas.firstChild);
     }
 }
 

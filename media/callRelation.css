@@ -1078,7 +1078,7 @@ body.is-loading .cr-bar {
     position: absolute;
     box-sizing: border-box;
     pointer-events: none;
-    z-index: 1;
+    z-index: 0;
     border: 2px dashed var(--cr-accent, #3794ff);
     border-radius: 10px;
 }
