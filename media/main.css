@@ -430,9 +430,19 @@ body.has-jump-trail #container {
     background: color-mix(in srgb, #16825D 26%, transparent);
 }
 
+.cw-line-blame-hover-sha:active {
+    background: color-mix(in srgb, #16825D 38%, transparent);
+    transform: translateY(1px);
+}
+
 .vscode-dark .cw-line-blame-hover-sha:hover,
 .vscode-high-contrast:not(.vscode-high-contrast-light) .cw-line-blame-hover-sha:hover {
     background: color-mix(in srgb, #3fb950 32%, transparent);
+}
+
+.vscode-dark .cw-line-blame-hover-sha:active,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .cw-line-blame-hover-sha:active {
+    background: color-mix(in srgb, #3fb950 44%, transparent);
 }
 
 .cw-line-blame-hover-sha-current {
@@ -442,6 +452,11 @@ body.has-jump-trail #container {
 
 .cw-line-blame-hover-sha-current:hover {
     background: color-mix(in srgb, var(--vscode-descriptionForeground, #6a6a6a) 22%, transparent);
+}
+
+.cw-line-blame-hover-sha-current:active {
+    background: color-mix(in srgb, var(--vscode-descriptionForeground, #6a6a6a) 32%, transparent);
+    transform: translateY(1px);
 }
 
 .cw-line-blame-hover-changes {

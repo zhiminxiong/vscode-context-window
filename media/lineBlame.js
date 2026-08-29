@@ -269,7 +269,7 @@ export function createLineBlame(ctx) {
         shaBtn.type = 'button';
         shaBtn.className = 'cw-line-blame-hover-sha' + (current ? ' cw-line-blame-hover-sha-current' : '');
         shaBtn.textContent = label || '';
-        shaBtn.title = 'Copy commit hash';
+        shaBtn.title = 'Copy SHA';
         shaBtn.addEventListener('click', ev => {
             ev.preventDefault();
             ev.stopPropagation();
@@ -278,7 +278,7 @@ export function createLineBlame(ctx) {
                 window.vscode.postMessage({
                     type: 'copyToClipboard',
                     text,
-                    notify: 'Commit hash copied'
+                    notify: 'SHA copied'
                 });
             }
         });
