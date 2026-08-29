@@ -71,19 +71,34 @@ export async function lockIfPanelActive(panel: vscode.WebviewPanel | undefined):
     await lockActiveGroupIfUnlocked();
 }
 
+const detachedPanels = new WeakSet<vscode.WebviewPanel>();
+
+async function focusDetachedPanel(panel: vscode.WebviewPanel): Promise<vscode.WebviewPanel> {
+    panel.reveal(undefined, false);
+    await waitForPanelActive(panel, isVisualStudioCode() ? 400 : 1000);
+    await lockIfPanelActive(panel);
+    await enableWindowAlwaysOnTop();
+    return panel;
+}
+
 /**
  * createWebviewPanel cannot target an auxiliary window.
  * VS Code: open an empty floating window, then create in the active column.
  * Cursor / other forks: create beside, then move the tab out.
+ * If the panel is already in an auxiliary window, only bring it to front.
  */
 export async function showPanelInNewWindow(
     panel: vscode.WebviewPanel | undefined,
     create: (column: vscode.ViewColumn) => vscode.WebviewPanel
 ): Promise<vscode.WebviewPanel> {
+    if (panel && detachedPanels.has(panel)) {
+        return focusDetachedPanel(panel);
+    }
     if (!panel && isVisualStudioCode()) {
         try {
             await vscode.commands.executeCommand('workbench.action.newEmptyEditorWindow');
             const created = create(vscode.ViewColumn.Active);
+            detachedPanels.add(created);
             await lockIfPanelActive(created);
             await enableWindowAlwaysOnTop();
             return created;
@@ -99,6 +114,7 @@ export async function showPanelInNewWindow(
     } catch {
         // Older VS Code / Cursor builds may not have auxiliary windows.
     }
+    detachedPanels.add(existing);
     if (!isVisualStudioCode()) {
         if (existing.viewColumn === columnBefore) {
             await delay(300);
