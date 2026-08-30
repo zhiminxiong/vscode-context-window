@@ -133,7 +133,8 @@ function isSpreadStyle(value) {
 
 /** AAAA.bbbb / ns::foo / foo() → 只留最末一段标识符。 */
 function shortSymbolName(name) {
-    const ident = String(name || '').replace(/\(.*\)$/, '').trim();
+    let ident = String(name || '').replace(/^\((?:get|set)\)\s+/i, '').replace(/^(?:get|set)\s+/i, '').trim();
+    ident = ident.replace(/\(.*\)$/, '').trim();
     if (!ident) {
         return name || '';
     }

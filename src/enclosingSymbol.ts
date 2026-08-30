@@ -17,6 +17,13 @@ const CALLABLE_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
     vscode.SymbolKind.Constructor,
 ]);
 
+/** Getters/setters and arrow fields are Property/Field in document symbols. */
+const ENCLOSING_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
+    ...CALLABLE_KINDS,
+    vscode.SymbolKind.Property,
+    vscode.SymbolKind.Field,
+]);
+
 const CONTAINER_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
     ...CALLABLE_KINDS,
     vscode.SymbolKind.Class,
@@ -105,8 +112,9 @@ async function documentSymbols(uri: vscode.Uri): Promise<EnclosingCallable[]> {
 }
 
 function identFromName(name: string): string {
-    const callback = /^(.*?)\(\)\s+callback$/i.exec((name || '').trim());
-    const base = (callback?.[1] || name || '').trim();
+    const stripped = (name || '').replace(/^\((?:get|set)\)\s+/i, '').replace(/^(?:get|set)\s+/i, '').trim();
+    const callback = /^(.*?)\(\)\s+callback$/i.exec(stripped);
+    const base = (callback?.[1] || stripped || '').trim();
     return base.replace(/\(.*\)$/, '').split(/::|\./).pop() || base;
 }
 
@@ -333,7 +341,7 @@ function collectCallables(symbols: readonly unknown[] | undefined, out: Enclosin
         const s = raw as vscode.DocumentSymbol & vscode.SymbolInformation;
         const range = asRange(s.range) ?? asRange(s.location?.range);
         const selectionRange = asRange(s.selectionRange) ?? range;
-        if (CALLABLE_KINDS.has(s.kind) && range && selectionRange) {
+        if (ENCLOSING_KINDS.has(s.kind) && range && selectionRange) {
             out.push({
                 name: s.name,
                 kind: s.kind,
@@ -349,7 +357,7 @@ function collectCallables(symbols: readonly unknown[] | undefined, out: Enclosin
 }
 
 /**
- * 当前行所属的最小函数 / 方法 / 构造函数（不含 class / namespace）。
+ * 当前行所属的最小函数 / 方法 / 构造函数 / getter / setter（不含 class / namespace）。
  * @param line 0-based
  * @param skipIdent skip innermost symbols whose name is this ident (e.g. do not
  *   group a reference to onDidChangeTextEditorSelection under

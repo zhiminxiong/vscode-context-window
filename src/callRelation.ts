@@ -68,10 +68,11 @@ export interface RelationOpenTarget {
     snippet?: string;
 }
 
-/** TS names anonymous functions "setTimeout() callback"; keep the callee ident. */
+/** TS names accessors "(get) foo" / "(set) foo"; anonymous fns "setTimeout() callback". */
 function identFromToken(name: string): string {
-    const callback = /^(.*?)\(\)\s+callback$/i.exec((name || '').trim());
-    const base = (callback?.[1] || name || '').trim();
+    const stripped = (name || '').replace(/^\((?:get|set)\)\s+/i, '').replace(/^(?:get|set)\s+/i, '').trim();
+    const callback = /^(.*?)\(\)\s+callback$/i.exec(stripped);
+    const base = (callback?.[1] || stripped || '').trim();
     return base.replace(/\(.*\)$/, '').split(/::|\./).pop() || base;
 }
 
@@ -316,7 +317,7 @@ function toSymbolNode(
     return {
         id: parentId ? visualId(key, hop, parentId) : `${key}@0`,
         itemKey: key,
-        name: item.name,
+        name: identFromToken(item.name) || item.name,
         detail: (item.detail || '').trim(),
         file: fileLabel(item.uri),
         path: item.uri.fsPath,
@@ -492,7 +493,7 @@ export class CallRelationModel {
             const sel = item.selectionRange?.start ?? item.range.start;
             return {
                 itemKey: itemKey(item),
-                name: item.name,
+                name: identFromToken(item.name) || item.name,
                 file: fileLabel(item.uri),
                 line: sel.line + 1
             };
