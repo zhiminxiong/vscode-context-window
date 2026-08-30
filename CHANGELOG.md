@@ -4,15 +4,15 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [1.0.9] 2026.08.26
+## [1.0.9] 2026.08.29
 
 #### Added
 
 - Jump trail at the top of the Context Window: shows the definition hop chain, with a configurable item limit and a right-click **Copy Call Chain** command.
-- Git line blame: after clicking a line number or the empty end of a line, show a trailing git summary; hold Alt to open a hover card (author, time, message, and changes). Can be toggled from the right-click menu.
+- Git line blame: after clicking a line number or the empty end of a line, show a trailing git summary; hold Alt to open a hover card (author, time, message, and changes). Can be toggled from the right-click menu. Hover card layout and dark-theme contrast were refined.
 - Jump mode pull-up in the Context footer: **Definition** (default), **Type Definition**, **Implementation**, and **References**. References open in the Context panel instead of the main editor.
-- Call Relation window: call hierarchy graph with expand/collapse, Elbow / Direct / Arc connectors (default Arc, chosen from a dropdown), zoom, pan, and Pin.
-- Open Context and Call Relation in an independent floating window.
+- Call Relation window: call hierarchy graph with expand/collapse, Elbow / Direct / Arc connectors (default Arc, chosen from a dropdown), zoom, pan (empty canvas or on a node), and Pin. Also: custom dwell tips (toolbar toggle; Alt when off), find, keyboard navigation, Slim (drop noisy LSP kinds), Alt+click path pin, ×N / ↻ for the same symbol on other paths (hold Alt to highlight all copies), library groups, and Expand All that skips library groups and adds at most 120 nodes per run. Re-run Expand All to continue. Opening a node is immediate; hover includes the arrowhead. If Call Hierarchy is empty at a call site (including when prepare returns nothing), the enclosing caller is loaded as center, the opened symbol is found among its callees, and the center switches to that child; if the callee is not among those children, the caller graph stays and a notice explains that the language server has no hierarchy for the opened symbol. Closing the window clears the graph; Sticky only keeps the last result while the window stays open.
+- Open Context and Call Relation in an independent floating window, with Always on Top. Opening again focuses the existing window instead of detaching the current editor.
 
 ## [1.0.8] 2026.08.13
 

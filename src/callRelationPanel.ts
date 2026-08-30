@@ -159,6 +159,8 @@ export class CallRelationPanel {
             }
             this.panel = undefined;
             this.model.reset();
+            this.graph = { rootId: '', title: '', nodes: [], edges: [] };
+            this.pinned = false;
             void vscode.commands.executeCommand('setContext', 'contextView.callRelation.active', false);
             void vscode.commands.executeCommand('setContext', 'contextView.callRelation.findOpen', false);
         });
