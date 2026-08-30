@@ -100,14 +100,14 @@ This extension implements Source Insight’s Context Window, plus Relation’s C
 - `contextView.callRelation.compactFilter` — When on, keep only the symbol kinds checked in `compactKinds`. Off by default. Toggle from the Call Relation toolbar (**Slim**).
 - `contextView.callRelation.compactKinds` — Symbol kinds kept when Slim is on. Default: `function`, `method`, `constructor`, `class`, `struct`, `variable`, `constant`, `property`. Change them from the list beside the Slim button.
 
-#### Commands
+## Commands
 
 - `Pin current Context` — Stop live updating of the context view. Keeps the currently visible context. 
 - `Unpin current Context` — Make the context view start tracking the cursor again.
 - `Show Context Window` — Show context view by Keyboard Shortcuts.
 - `Display the floating Context Window` — Show floating window by Keyboard Shortcuts.
 
-#### Build
+## Build
 
 - npm install
 - vsce package
