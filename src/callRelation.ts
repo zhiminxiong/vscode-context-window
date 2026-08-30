@@ -662,6 +662,7 @@ export class CallRelationModel {
         this.resetCenter(this.root);
         const rootKey = itemKey(this.root);
         this.outgoing.set(rootKey, []);
+        this.paintNow(seq);
         const locations = (refs || [])
             .map(loc => this.asLocation(loc))
             .filter((loc): loc is vscode.Location => !!loc && !this.isDeclSite(root, loc));
@@ -738,6 +739,7 @@ export class CallRelationModel {
         this.root = next;
         this.remember(this.root);
         this.resetCenter(this.root);
+        this.paintNow(seq);
         const rootName = itemLabel(this.root);
         const tRoot = Date.now();
         await this.ensureOutgoing(this.root, seq);
@@ -1272,6 +1274,13 @@ export class CallRelationModel {
         return graph ? { graph, seq } : undefined;
     }
 
+    private paintNow(seq: number): void {
+        if (!this.isCurrent(seq) || !this.root) {
+            return;
+        }
+        this.graphListener?.(this.buildGraph(), seq);
+    }
+
     private async completeRootSides(seq: number, t0: number, label: string): Promise<RelationGraph | undefined> {
         if (!this.root) {
             return undefined;
@@ -1759,10 +1768,12 @@ export class CallRelationModel {
             if (!call?.from) {
                 continue;
             }
-            const superTo = await this.resolveSuperCallee(call.from.uri, call.fromRanges, ident, item);
-            if (superTo && itemKey(call.from) === key) {
-                this.addSuperOutgoing(key, superTo, call.from.uri, call.fromRanges);
-                continue;
+            if (itemKey(call.from) === key) {
+                const superTo = await this.resolveSuperCallee(call.from.uri, call.fromRanges, ident, item);
+                if (superTo) {
+                    this.addSuperOutgoing(key, superTo, call.from.uri, call.fromRanges);
+                    continue;
+                }
             }
             const k = this.remember(call.from);
             if (seen.has(k)) {
