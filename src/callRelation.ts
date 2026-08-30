@@ -90,6 +90,36 @@ function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** `super.foo` / `base.foo` at a call-hierarchy fromRange. */
+async function superCallIdentPosition(
+    uri: vscode.Uri,
+    ranges: vscode.Range[] | undefined,
+    ident: string
+): Promise<{ position: vscode.Position; keyword: 'super' | 'base' } | undefined> {
+    if (!ident || !ranges?.length) {
+        return undefined;
+    }
+    let doc: vscode.TextDocument;
+    try {
+        doc = await vscode.workspace.openTextDocument(uri);
+    } catch {
+        return undefined;
+    }
+    const re = new RegExp(`\\b(super|base)\\s*\\.\\s*(${escapeRegExp(ident)})\\b`);
+    for (const range of ranges) {
+        const line = Math.min(Math.max(0, range.start.line), doc.lineCount - 1);
+        const text = doc.lineAt(line).text;
+        const match = re.exec(text);
+        if (!match) {
+            continue;
+        }
+        const keyword = match[1] === 'base' ? 'base' : 'super';
+        const col = match.index + match[0].length - match[2].length;
+        return { position: new vscode.Position(line, col), keyword };
+    }
+    return undefined;
+}
+
 /** LSP fromRanges often start at the whole call expression, not the callee name. */
 export async function callSiteIdentRange(site: RelationOpenTarget): Promise<{
     start: { line: number; character: number };
@@ -334,6 +364,8 @@ export class CallRelationModel {
     private readonly incoming = new Map<string, vscode.CallHierarchyItem[]>();
     private readonly outgoing = new Map<string, vscode.CallHierarchyItem[]>();
     private readonly callSites = new Map<string, RelationOpenTarget[]>();
+    /** super/base calls rewritten to the base method (LSP often points at the override). */
+    private readonly superOutgoing = new Map<string, vscode.CallHierarchyItem[]>();
     private readonly shown = new Map<string, number>();
     private readonly expanded = new Set<string>();
     private readonly keepExpand = new Set<string>();
@@ -389,6 +421,7 @@ export class CallRelationModel {
         this.incoming.clear();
         this.outgoing.clear();
         this.callSites.clear();
+        this.superOutgoing.clear();
         this.shown.clear();
         this.expanded.clear();
         this.keepExpand.clear();
@@ -423,11 +456,21 @@ export class CallRelationModel {
     }
 
     private sideList(item: vscode.CallHierarchyItem, dir: -1 | 1): vscode.CallHierarchyItem[] | undefined {
-        const raw = dir < 0 ? this.incoming.get(itemKey(item)) : this.outgoing.get(itemKey(item));
-        if (!raw) {
+        const key = itemKey(item);
+        const raw = dir < 0 ? this.incoming.get(key) : this.outgoing.get(key);
+        const extra = dir > 0 ? this.superOutgoing.get(key) : undefined;
+        if (!raw && !extra?.length) {
             return undefined;
         }
-        return raw.filter(child => this.keepCallItem(child));
+        const list = (raw || []).filter(child => this.keepCallItem(child));
+        if (dir > 0) {
+            for (const child of extra || []) {
+                if (this.keepCallItem(child) && !list.some(x => itemKey(x) === itemKey(child))) {
+                    list.push(child);
+                }
+            }
+        }
+        return list;
     }
 
     invalidateUri(uri: vscode.Uri): void {
@@ -446,6 +489,9 @@ export class CallRelationModel {
         }
         for (const [key, list] of [...this.outgoing]) {
             this.outgoing.set(key, list.filter(item => item.uri.toString() !== u));
+        }
+        for (const [key, list] of [...this.superOutgoing]) {
+            this.superOutgoing.set(key, list.filter(item => item.uri.toString() !== u));
         }
         for (const key of [...this.callSites.keys()]) {
             if (key.includes(u)) {
@@ -1637,6 +1683,63 @@ export class CallRelationModel {
         return this.fileGen.get(uri.toString()) ?? 0;
     }
 
+    private addSuperOutgoing(
+        parentKey: string,
+        callee: vscode.CallHierarchyItem,
+        siteUri: vscode.Uri,
+        ranges: vscode.Range[] | undefined
+    ): void {
+        const k = this.remember(callee);
+        const child = this.items.get(k)!;
+        const list = this.superOutgoing.get(parentKey) || [];
+        if (!list.some(x => itemKey(x) === k)) {
+            list.push(child);
+            this.superOutgoing.set(parentKey, list);
+        }
+        this.rememberCallSite(parentKey, 1, child, siteUri, ranges, child.name);
+    }
+
+    private async resolveSuperCallee(
+        siteUri: vscode.Uri,
+        ranges: vscode.Range[] | undefined,
+        ident: string,
+        self: vscode.CallHierarchyItem
+    ): Promise<vscode.CallHierarchyItem | undefined> {
+        const hit = await superCallIdentPosition(siteUri, ranges, ident);
+        if (!hit) {
+            return undefined;
+        }
+        let defs: unknown;
+        try {
+            defs = await vscode.commands.executeCommand(
+                'vscode.executeDefinitionProvider',
+                siteUri,
+                hit.position
+            );
+        } catch {
+            return undefined;
+        }
+        const selfKey = itemKey(self);
+        const list = Array.isArray(defs) ? defs : [];
+        for (const raw of list) {
+            const loc = this.asLocation(raw);
+            if (!loc) {
+                continue;
+            }
+            const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
+                'vscode.prepareCallHierarchy',
+                loc.uri,
+                loc.range.start
+            );
+            const other = (prepared || []).find(p => itemKey(p) !== selfKey) || prepared?.[0];
+            if (!other || itemKey(other) === selfKey) {
+                continue;
+            }
+            return other;
+        }
+        return undefined;
+    }
+
     private async fetchIncoming(item: vscode.CallHierarchyItem, key: string, _seq: number): Promise<void> {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
@@ -1651,8 +1754,14 @@ export class CallRelationModel {
         }
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
+        const ident = identFromToken(item.name);
         for (const call of calls || []) {
             if (!call?.from) {
+                continue;
+            }
+            const superTo = await this.resolveSuperCallee(call.from.uri, call.fromRanges, ident, item);
+            if (superTo && itemKey(call.from) === key) {
+                this.addSuperOutgoing(key, superTo, call.from.uri, call.fromRanges);
                 continue;
             }
             const k = this.remember(call.from);
@@ -1687,13 +1796,16 @@ export class CallRelationModel {
             if (!call?.to) {
                 continue;
             }
-            const k = this.remember(call.to);
+            const ident = identFromToken(call.to.name) || identFromToken(item.name);
+            const superTo = await this.resolveSuperCallee(item.uri, call.fromRanges, ident, item);
+            const target = superTo || call.to;
+            const k = this.remember(target);
             if (seen.has(k)) {
                 continue;
             }
             seen.add(k);
             items.push(this.items.get(k)!);
-            this.rememberCallSite(key, 1, call.to, item.uri, call.fromRanges, call.to.name);
+            this.rememberCallSite(key, 1, target, item.uri, call.fromRanges, target.name);
         }
         if (!this.outgoing.has(key)) {
             this.outgoing.set(key, items);
