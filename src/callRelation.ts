@@ -31,6 +31,7 @@ export interface RelationNode {
     compact?: boolean;
     prevCenter?: boolean;
     cyclic?: boolean;
+    typeName?: string;
 }
 
 export interface RelationEdge {
@@ -81,6 +82,54 @@ async function tokenAt(uri: vscode.Uri, position: vscode.Position): Promise<stri
         const doc = await vscode.workspace.openTextDocument(uri);
         const range = doc.getWordRangeAtPosition(position);
         return range ? identFromToken(doc.getText(range)) : '';
+    } catch {
+        return '';
+    }
+}
+
+function hoverPlain(hovers: unknown): string {
+    const parts: string[] = [];
+    if (!Array.isArray(hovers)) {
+        return '';
+    }
+    for (const raw of hovers) {
+        const contents = raw && typeof raw === 'object' && 'contents' in raw
+            ? (raw as vscode.Hover).contents
+            : [];
+        for (const c of contents || []) {
+            if (typeof c === 'string') {
+                parts.push(c);
+            } else if (c && typeof c === 'object' && 'value' in c) {
+                parts.push(String((c as { value: string }).value));
+            }
+        }
+    }
+    return parts.join('\n');
+}
+
+function typeFromHoverText(text: string, ident: string): string {
+    const stripped = (text || '').replace(/```(?:\w+)?\n?/g, '');
+    const named = new RegExp(`\\b${escapeRegExp(ident)}\\s*:\\s*(\\S.*)$`, 'm');
+    for (const line of stripped.split(/\r?\n/)) {
+        const m = named.exec(line.trim());
+        if (m) {
+            return m[1].replace(/\s+/g, ' ').trim();
+        }
+    }
+    return '';
+}
+
+async function resolveValueType(
+    uri: vscode.Uri,
+    position: vscode.Position,
+    ident: string
+): Promise<string> {
+    if (!ident) {
+        return '';
+    }
+    try {
+        const hovers = await vscode.commands.executeCommand('vscode.executeHoverProvider', uri, position);
+        return typeFromHoverText(hoverPlain(hovers), ident);
     } catch {
         return '';
     }
@@ -413,6 +462,8 @@ export class CallRelationModel {
     private incomingHint: vscode.CallHierarchyItem | undefined;
     /** Variables use Find All References on the left; functions use call hierarchy. */
     private relationMode: 'call' | 'reference' = 'call';
+    /** Type shown on the References center tip. */
+    private rootTypeName = '';
     /** When true, keep only compactKinds from incoming and outgoing. */
     private compactFilter = false;
     private compactKinds = kindsFromIds(DEFAULT_SLIM_KIND_IDS);
@@ -466,6 +517,7 @@ export class CallRelationModel {
         this.centerIndex = -1;
         this.incomingHint = undefined;
         this.relationMode = 'call';
+        this.rootTypeName = '';
         this.cacheEpoch++;
         this.fileGen.clear();
         this.inflightIn.clear();
@@ -695,6 +747,15 @@ export class CallRelationModel {
         this.resetCenter(this.root);
         const rootKey = itemKey(this.root);
         this.outgoing.set(rootKey, []);
+        const sel = this.root.selectionRange?.start ?? this.root.range.start;
+        this.rootTypeName = await resolveValueType(
+            this.root.uri,
+            sel,
+            identFromToken(this.root.name) || name
+        );
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
         this.paintNow(seq);
         const locations = (refs || [])
             .map(loc => this.asLocation(loc))
@@ -1428,6 +1489,9 @@ export class CallRelationModel {
             return this.emptyGraph('No call hierarchy at this position.');
         }
         const rootNode = toSymbolNode(this.root, 0, undefined, false);
+        if (this.rootTypeName) {
+            rootNode.typeName = this.rootTypeName;
+        }
         const nodes: RelationNode[] = [rootNode];
         const edges: RelationEdge[] = [];
         this.addSide(nodes, edges, rootNode, -1);

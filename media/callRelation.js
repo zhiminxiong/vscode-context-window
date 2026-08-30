@@ -2081,6 +2081,12 @@ function fillNodeTip(tip, node) {
     name.className = 'cr-node-tip-name';
     name.textContent = node.name || '';
     tip.appendChild(name);
+    if (node.typeName) {
+        const typeEl = document.createElement('div');
+        typeEl.className = 'cr-node-tip-type';
+        typeEl.textContent = `type: ${node.typeName}`;
+        tip.appendChild(typeEl);
+    }
     if (node.kind === 'more') {
         const detail = document.createElement('div');
         detail.className = 'cr-node-tip-detail';

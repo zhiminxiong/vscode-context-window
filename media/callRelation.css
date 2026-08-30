@@ -1407,6 +1407,13 @@ body.is-loading .cr-bar {
     white-space: pre-wrap;
     word-break: break-word;
 }
+.cr-node-tip-type {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--vscode-symbolIcon-interfaceForeground, var(--vscode-charts-blue, #75beff));
+    white-space: pre-wrap;
+    word-break: break-word;
+}
 .cr-node-tip.is-label {
     padding: 5px 8px;
     font-size: 12px;
