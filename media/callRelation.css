@@ -398,6 +398,22 @@ body.vscode-high-contrast {
     display: flex;
 }
 
+.cr-notice {
+    display: none;
+    flex-shrink: 0;
+    padding: 6px 12px;
+    box-sizing: border-box;
+    background: var(--vscode-inputValidation-infoBackground, var(--vscode-editorWidget-background));
+    border-bottom: 1px solid var(--vscode-inputValidation-infoBorder, var(--vscode-editorWidget-border));
+    color: var(--vscode-inputValidation-infoForeground, var(--vscode-foreground));
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.cr-notice:not([hidden]) {
+    display: block;
+}
+
 .cr-centers-sep {
     flex-shrink: 0;
     width: 16px;

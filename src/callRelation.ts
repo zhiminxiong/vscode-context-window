@@ -53,6 +53,7 @@ export interface RelationGraph {
     nodes: RelationNode[];
     edges: RelationEdge[];
     empty?: string;
+    notice?: string;
     centerTrail?: RelationCenter[];
     centerIndex?: number;
 }
@@ -68,6 +69,16 @@ export interface RelationOpenTarget {
 
 function identFromToken(name: string): string {
     return (name || '').replace(/\(.*\)$/, '').split(/::|\./).pop() || name;
+}
+
+async function tokenAt(uri: vscode.Uri, position: vscode.Position): Promise<string> {
+    try {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const range = doc.getWordRangeAtPosition(position);
+        return range ? identFromToken(doc.getText(range)) : '';
+    } catch {
+        return '';
+    }
 }
 
 function escapeRegExp(value: string): string {
@@ -552,7 +563,8 @@ export class CallRelationModel {
         position: vscode.Position,
         seq: number,
         t0: number,
-        opened: vscode.CallHierarchyItem
+        opened: vscode.CallHierarchyItem | undefined,
+        openedName: string
     ): Promise<{ graph: RelationGraph; seq: number } | undefined> {
         const enclosing = await enclosingCallable(uri, position.line);
         if (!enclosing || !this.isCurrent(seq)) {
@@ -573,7 +585,7 @@ export class CallRelationModel {
         }
         const caller = prepared.find(item => rangeContains(item.range, enclosing.selectionRange.start))
             || prepared[0];
-        if (itemKey(caller) === itemKey(opened)) {
+        if (opened && itemKey(caller) === itemKey(opened)) {
             return this.lspEmptyGraph(seq);
         }
         const callerGraph = await this.adoptPreparedRoot(caller, seq, t0);
@@ -584,13 +596,16 @@ export class CallRelationModel {
             costLog('caller hierarchy empty', Date.now() - t0, itemLabel(caller));
             return this.lspEmptyGraph(seq);
         }
-        const want = identFromToken(opened.name);
-        const kids = (this.outgoing.get(itemKey(caller)) || []).filter(item => (
-            identFromToken(item.name) === want
-        ));
+        const want = identFromToken(openedName || opened?.name || '');
+        const kids = want
+            ? (this.outgoing.get(itemKey(caller)) || []).filter(item => identFromToken(item.name) === want)
+            : [];
         if (!kids.length) {
-            costLog('callee not in caller outgoing', Date.now() - t0, opened.name);
-            return this.lspEmptyGraph(seq);
+            costLog('callee not in caller outgoing', Date.now() - t0, openedName || opened?.name || '');
+            callerGraph.notice = want
+                ? `No call hierarchy for “${want}”. It was not found among the callees of ${caller.name}.`
+                : 'No call hierarchy at this position.';
+            return { graph: callerGraph, seq };
         }
         let best = kids[0];
         let bestN = -1;
@@ -691,7 +706,14 @@ export class CallRelationModel {
         }
         if (!prepared?.length) {
             costLog('loadRoot empty', Date.now() - t0, loc);
-            return this.lspEmptyGraph(seqPrepare);
+            const name = await tokenAt(uri, position);
+            if (!this.isCurrent(seqPrepare)) {
+                return undefined;
+            }
+            if (!name) {
+                return this.lspEmptyGraph(seqPrepare);
+            }
+            return this.recenterViaCallerOutgoing(uri, position, seqPrepare, t0, undefined, name);
         }
 
         const next = prepared.find(item => rangeContains(item.range, position)) || prepared[0];
@@ -699,7 +721,7 @@ export class CallRelationModel {
             this.prevRoot = undefined;
             this.incomingHint = undefined;
             if (this.openedFromCallSite(uri, position, next) && this.sideEmpty(next, -1)) {
-                return this.recenterViaCallerOutgoing(uri, position, seqPrepare, t0, next);
+                return this.recenterViaCallerOutgoing(uri, position, seqPrepare, t0, next, next.name);
             }
             costLog('loadRoot same', Date.now() - t0, itemLabel(next));
             return { graph: this.buildGraph(), seq: seqPrepare };
@@ -717,7 +739,7 @@ export class CallRelationModel {
                 return undefined;
             }
             if (this.sideEmpty(next, -1)) {
-                return this.recenterViaCallerOutgoing(uri, position, seq, t0, next);
+                return this.recenterViaCallerOutgoing(uri, position, seq, t0, next, next.name);
             }
         }
         const graph = await this.adoptPreparedRoot(next, seq, t0);

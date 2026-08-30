@@ -563,6 +563,7 @@ export class CallRelationPanel {
     </div>
   </header>
   <div class="cr-centers" id="cr-centers" hidden></div>
+  <div class="cr-notice" id="cr-notice" hidden></div>
   <div class="cr-hint" id="cr-hint" hidden>
     <p>Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click the canvas to expand or collapse all nodes; right-click the trail to copy the call chain.</p>
     <p>Keys: arrows move focus (↑↓ siblings, ←→ parent/child; outward expands if needed), Enter opens, Shift+Enter expands/collapses, Backspace steps back on the center trail.</p>

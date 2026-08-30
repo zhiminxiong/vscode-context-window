@@ -1474,6 +1474,16 @@ function paintCenters(el, items, current, visible) {
     }
 }
 
+function renderNotice(graph) {
+    const host = document.getElementById('cr-notice');
+    if (!host) {
+        return;
+    }
+    const text = (graph && graph.notice) || '';
+    host.textContent = text;
+    host.hidden = !text;
+}
+
 function renderCenters(graph) {
     const host = document.getElementById('cr-centers');
     if (!host) {
@@ -2355,6 +2365,7 @@ function render(graph) {
         titleEl.textContent = graph.title ? `Call Relation — ${graph.title}` : 'Call Relation';
     }
     renderCenters(graph);
+    renderNotice(graph);
     if (!graph.nodes || !graph.nodes.length) {
         lastPos = null;
         canvasEl = null;
