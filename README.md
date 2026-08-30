@@ -12,30 +12,70 @@ Please check out that extension if you just want documentation in the panel or s
 
 ## Features
 
-![feature](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature.gif?raw=true)
+This extension implements Source Insight’s Context Window, plus Relation’s Calls and Callers.
 
-- Like Source Insight, it automatically displays the context of the code at the cursor position.
-- Language independent. Works in any language.
-- The "Context" view shows in the panel by default. Move to other views or the panel just by dragging.
-- Supports syntax highlighting in the context view.
+- General Context Window
 
-![feature2](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature2.gif?raw=true)
-- Floating windows are supported—you can trigger them via a keyboard shortcut or by right-clicking and selecting "Float".
+  ![feature](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature.gif?raw=true)
 
-![tokenStyle](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/tokenStyle.gif?raw=true)
+  - Click a symbol in the VS Code editor and the Context Window jumps to its definition. You can keep jumping from inside the Context Window to inspect source.
 
-- For custom token parsing and adding a right-click context menu to adjust the style of the selected token, you must first uncheck `useDefaultTokenizer`.
+  - Every jump inside the Context Window is shown as a breadcrumb **jump trail** at the top. Click a trail item to return the Context Window to that definition.
+  - The Context Window is built on Monaco. Monaco’s built-in colors are limited and look quite different from VS Code, so this extension uses VS Code’s **TextMate** and **semantic** highlighting so the Context Window matches the main editor. You can also customize colors inside the Context Window.
+
+- Context Window extras
+
+  ![feature2](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature2.gif?raw=true)
+
+  - Git line blame: click a non-word area (line number or empty end of line) to show a trailing git summary. The detailed hover can be enabled in settings; when it is off, hold **Alt** over the annotation to open it.
+  - Right-click to select the word under the cursor.
+  - Source Insight–style double-click to select a whole bracket/quote pair (in the Context Window, use a right-button double-click). A setting can enable the same behavior in the VS Code editor; it differs from VS Code’s default double-click selection.
+  - Source Insight–style double-click on a line number to select the whole function. A setting can enable the same behavior in the VS Code editor.
+  - Floating window: open another Context Window in a separate view, including a fully independent window.
+
+- Relation
+
+  Currently only Calls and Callers are supported.
+
+  ![feature3](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature3.gif?raw=true)
+
+  Right-click in the VS Code editor and choose **Show Call Relation**. This feature depends entirely on the language server (LSP).
 
 ## Configuration
 
-- `contextView.contextWindow.updateMode` — Controls how the documentation view is updated when the cursor moves. Possible values:
-    - `live` — (default) The context always tracks the current cursor position.
-    - `sticky` — The context tracks the current cursor position. However if there is no symbol at the current position, it continues showing the previous context.
-- `contextView.contextWindow.useDefaultTokenizer` — Selects how tokens are highlighted in the context view.
-    - Checked by default: Monaco Editor's built-in (Monarch) tokenizer is used for syntax highlighting.
-    - When unchecked: the base syntax layer is highlighted by real **TextMate** grammars (harvested from your installed VS Code language extensions, so it matches the main editor), with VS Code **semantic** tokens (resolved from the language server) overlaid on top for precise identifier classification. Semantic highlighting honors your `editor.semanticHighlighting.enabled` setting, including per-language overrides such as `"[csharp]": { "editor.semanticHighlighting.enabled": false }` — languages with it disabled fall back to TextMate only, exactly like the main editor. In this mode you can also use `lightThemeRules` / `darkThemeRules` to customize colors.
-- `contextView.contextWindow.lightThemeRules` — Color rules for the light theme
-    - Default colors are provided—modify them as needed; leaving the fields empty will fall back to the default tokenizer.
+#### Context Window
+
+- `contextView.contextWindow.updateMode` — Controls how the Context Window is updated when the cursor moves. Possible values:
+    - `live` — (default) Always tracks the current cursor position. Shows empty content if no symbol is found.
+    - `sticky` — Tracks the current cursor position, but if there is no symbol at the current position it keeps showing the previous context.
+- `contextView.contextWindow.jumpMode` — What a click in the Context Window jumps to. Change it from the pull-up at the right of the Context footer. Possible values:
+    - `definition` — (default) Go to Definition.
+    - `typeDefinition` — Go to Type Definition (the type of a variable, not where it is declared).
+    - `implementation` — Go to Implementation of an interface or virtual function.
+    - `references` — Find References. Click a symbol to list references in Context, then click one to open that location in the panel (not the main editor).
+- `contextView.contextWindow.useDefaultTokenizer` — Selects how tokens are highlighted in the Context Window. Takes effect when VS Code starts.
+    - Unchecked by default: the base syntax layer is highlighted by real **TextMate** grammars (harvested from your installed VS Code language extensions, so it matches the main editor), with VS Code **semantic** tokens (resolved from the language server) overlaid on top for precise identifier classification. Semantic highlighting honors your `editor.semanticHighlighting.enabled` setting, including per-language overrides such as `"[csharp]": { "editor.semanticHighlighting.enabled": false }` — languages with it disabled fall back to TextMate only, exactly like the main editor. In this mode you can also use `lightThemeRules` / `darkThemeRules` to customize colors (right-click a token and pick a style).
+    - When checked: Monaco Editor’s built-in (Monarch) tokenizer is used for syntax highlighting.
+- `contextView.contextWindow.lightThemeRules` / `contextView.contextWindow.darkThemeRules` — Token color rules for the light / dark theme, saved from the right-click token style picker. Empty by default.
+- `contextView.contextWindow.fixToken` — Treat `#include`, `#pragma`, `#region`, and `#endregion` as distinct tokens, separate from `#directive`. Off by default. Takes effect when VS Code starts.
+- `contextView.contextWindow.selectionBackground` — Selection background color. Default `#07c2db71`.
+- `contextView.contextWindow.inactiveSelectionBackground` — Inactive selection background color. Default `#07c2db71`.
+- `contextView.contextWindow.selectionHighlightBackground` — Selection highlight background color. Default `#5bdb0771`.
+- `contextView.contextWindow.selectionHighlightBorder` — Selection highlight border color. Default `#5bdb0791`.
+- `contextView.contextWindow.minimap` — Show the Context Window minimap. Default `true`.
+- `contextView.contextWindow.fontSize` — Font size. Default `14`.
+- `contextView.contextWindow.fontFamily` — Font family. Default `Consolas, monospace`.
+- `contextView.contextWindow.enableHover` — Show hover tooltips (parameter signatures, JSDoc, etc.) in the Context Window. Hover requests are forwarded to the active language servers of the main editor. Off by default.
+- `contextView.contextWindow.occurrencesHighlight` — Highlight every occurrence of the word under the cursor, like `editor.occurrencesHighlight` in the main editor. Off by default: the cursor in the Context Window is placed programmatically when jumping or navigating back, so this highlight can land on a neighbouring identifier instead of the token you clicked. The token you jumped out from is always highlighted on its own, regardless of this setting.
+- `contextView.contextWindow.stickyScroll` — Show sticky scroll (pinned function/class headers) in the Context Window. Default `null` — follows the main editor’s `editor.stickyScroll.enabled`. Toggling it from the right-click menu writes this setting explicitly, which then takes precedence over the main editor.
+- `contextView.contextWindow.fixStickyScroll` — Extend sticky scroll parsing for C, C++, and C#. Off by default. Takes effect when VS Code starts.
+- `contextView.contextWindow.jumpTrail` — Show the jump trail (definition hop breadcrumbs) at the top of the Context Window. On by default. Can be toggled from the right-click menu.
+- `contextView.contextWindow.jumpTrailMaxItems` — Maximum number of named items shown on the jump trail. Default `8`, minimum `2`. Extra hops collapse into the `…` dropdown. The first and current items are always kept.
+- `contextView.contextWindow.lineBlame` — After clicking a line in the Context Window, show a gray git summary (author, time, commit subject) at the end of that line. Jumping does not show it. On by default. Can be toggled from the right-click menu.
+- `contextView.contextWindow.lineBlameHover` — Automatically show the git line-blame hover when the pointer is over the annotation. Off by default: hold **Alt** over the annotation to open it. Releasing Alt does not close it. Has no effect unless Git Line Blame is on and an annotation is visible.
+- `contextView.contextWindow.doubleClickSelectsBracketPair` — Double-clicking next to a bracket `(` `[` `{` `<` or a quote `"` `'` `` ` `` selects the whole matching pair including the delimiters. Complements VS Code’s built-in `editor.doubleClickSelectsBlock`, which selects only the content inside. Off by default. Toggle from the status bar (`{si}`), the editor right-click menu, or the keyboard shortcut.
+- `contextView.contextWindow.doubleClickSelectsSymbol` — In the main editor, double-clicking a line number selects the smallest enclosing function, method, class, or namespace. Off by default.
+- `contextView.contextWindow.contextDoubleClickSelectsSymbol` — In the Context Window, double-clicking a line number selects the smallest enclosing function, method, class, or namespace. On by default. Replaces jumping to the same location in the main editor.
 - `contextView.contextWindow.cacheSizeLimit` — Maximum number of files cached in the frontend (webview). Default `30`.
     - Every visited definition file is cached. When the limit is exceeded, eviction uses a size-aware recency score: larger files (more expensive to reload) are kept longer, but no file lives forever.
 - `contextView.contextWindow.backendLargeFileSize` — Size threshold in **KB** for caching a file in the extension host (backend). Default `100` (≈ 3000 lines).
@@ -43,14 +83,31 @@ Please check out that extension if you just want documentation in the panel or s
     - Note: setting it too large means almost no file qualifies and the backend cache stays empty (no effect); setting it too small lets small files take up the limited backend slots and crowd out the truly large files. Recommended range: ~50KB to ~300KB.
 - `contextView.contextWindow.backendCacheSize` — Maximum number of large files cached in the extension host (backend). Default `20`. The least recently used file is evicted when exceeded.
 
-## Commands
+#### Floating / independent window
+
+- `contextView.independentWindowAlwaysOnTop` — When opening Context or Call Relation in an independent window, turn on Always on Top. Off by default.
+
+#### Call Relation
+
+- `contextView.callRelation.updateMode` — Controls how Call Relation is updated when the cursor moves. Possible values:
+    - `live` — (default) Follow the cursor. If the language server finds no call hierarchy, show an empty message.
+    - `sticky` — Keep the last graph until the language server returns a new call hierarchy.
+- `contextView.callRelation.edgeStyle` — Connector style. Can be switched from the Call Relation toolbar. Possible values:
+    - `elbow` — Orthogonal bus lines with arrows.
+    - `direct` — Straight single-arrow links from the right edge of the caller to the left edge of the callee.
+    - `arc` — (default) Curved single-arrow links using the same attachment points as Direct.
+- `contextView.callRelation.nodeFontSize` — Font size in pixels for node names. Default `13` (range 8–32). Other node text scales in proportion. Change it from the Call Relation toolbar.
+- `contextView.callRelation.compactFilter` — When on, keep only the symbol kinds checked in `compactKinds`. Off by default. Toggle from the Call Relation toolbar (**Slim**).
+- `contextView.callRelation.compactKinds` — Symbol kinds kept when Slim is on. Default: `function`, `method`, `constructor`, `class`, `struct`, `variable`, `constant`, `property`. Change them from the list beside the Slim button.
+
+#### Commands
 
 - `Pin current Context` — Stop live updating of the context view. Keeps the currently visible context. 
 - `Unpin current Context` — Make the context view start tracking the cursor again.
 - `Show Context Window` — Show context view by Keyboard Shortcuts.
 - `Display the floating Context Window` — Show floating window by Keyboard Shortcuts.
 
-## Build
+#### Build
 
 - npm install
 - vsce package
