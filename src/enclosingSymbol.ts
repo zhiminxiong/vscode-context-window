@@ -52,8 +52,20 @@ const VALUE_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
     vscode.SymbolKind.EnumMember
 ]);
 
+const TYPE_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
+    vscode.SymbolKind.Interface,
+    vscode.SymbolKind.Class,
+    vscode.SymbolKind.Struct,
+    vscode.SymbolKind.Enum,
+    vscode.SymbolKind.TypeParameter
+]);
+
 export function isValueRelationKind(kind: vscode.SymbolKind): boolean {
     return VALUE_KINDS.has(kind);
+}
+
+export function isReferenceRelationKind(kind: vscode.SymbolKind): boolean {
+    return VALUE_KINDS.has(kind) || TYPE_KINDS.has(kind);
 }
 
 /** Call signatures in .d.ts are often named "()". */

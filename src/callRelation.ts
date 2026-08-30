@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { enclosingCallable, isAnonymousSymbolName, isValueRelationKind, symbolAtPosition } from './enclosingSymbol';
+import { enclosingCallable, isAnonymousSymbolName, isReferenceRelationKind, symbolAtPosition } from './enclosingSymbol';
 
 export const CALL_PAGE = 12;
 export const CALL_MAX_HOP = 8;
@@ -852,7 +852,7 @@ export class CallRelationModel {
         if (!this.isCurrent(seqPrepare)) {
             return undefined;
         }
-        if (valueSym && isValueRelationKind(valueSym.kind)) {
+        if (valueSym && isReferenceRelationKind(valueSym.kind)) {
             return this.loadReferenceRoot(uri, position, seqPrepare, t0);
         }
 
