@@ -132,7 +132,7 @@ export class CallRelationPanel {
         }
         this.panel = vscode.window.createWebviewPanel(
             CALL_RELATION_VIEW_TYPE,
-            'Call Relation',
+            'Relation',
             column,
             {
                 enableScripts: true,
@@ -284,15 +284,11 @@ export class CallRelationPanel {
                 const nodeId = String(message.nodeId || '');
                 const target = this.model.getOpenTarget(nodeId, this.graph.nodes);
                 if (target) {
-                    const line = target.line + 1;
-                    const character = Math.max(1, target.character + 1);
+                    const range = await callSiteIdentRange(target);
                     await vscode.commands.executeCommand(
                         'vscode-context-window.navigateUri',
                         target.uri,
-                        {
-                            start: { line, character },
-                            end: { line, character }
-                        },
+                        range,
                         target.name,
                         false
                     );
@@ -425,7 +421,7 @@ export class CallRelationPanel {
                 title: '',
                 nodes: [],
                 edges: [],
-                empty: 'Open a source file and place the cursor on a function.'
+                empty: 'Open a source file and place the cursor on a function or variable.'
             };
             this.postGraph();
             return;
@@ -444,7 +440,8 @@ export class CallRelationPanel {
             return;
         }
         this.graph = graph;
-        this.panel.title = graph.title ? `Call Relation — ${graph.title}` : 'Call Relation';
+        const kind = graph.mode === 'reference' ? 'References' : 'Call';
+        this.panel.title = graph.title ? `Relation (${kind}) — ${graph.title}` : `Relation (${kind})`;
         this.postGraph();
     }
 
@@ -538,11 +535,11 @@ export class CallRelationPanel {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${n}'; img-src data: ${webview.cspSource};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${style}" rel="stylesheet">
-  <title>Call Relation</title>
+  <title>Relation</title>
 </head>
 <body tabindex="-1">
   <header class="cr-bar">
-    <div class="cr-title" id="cr-title">Call Relation</div>
+    <div class="cr-title" id="cr-title">Relation</div>
     <div class="cr-actions">
       <div class="cr-style-wrap" id="cr-style-wrap">
         <button type="button" id="cr-style" class="cr-btn" title="Connector style">Arc</button>
@@ -567,7 +564,7 @@ export class CallRelationPanel {
   <div class="cr-centers" id="cr-centers" hidden></div>
   <div class="cr-notice" id="cr-notice" hidden></div>
   <div class="cr-hint" id="cr-hint" hidden>
-    <p>Click a node to select it and open its definition. Double-click to make it the center. Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click the canvas to expand or collapse all nodes; right-click the trail to copy the call chain.</p>
+    <p>On a function, Relation shows the call hierarchy. On a variable or field, it shows Find All References grouped by enclosing function (right side empty). Click a node to select it and open its definition. Double-click to make it the center (Call mode only). Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click the canvas to expand or collapse all nodes; right-click the trail to copy the call chain.</p>
     <p>Keys: arrows move focus (↑↓ siblings, ←→ parent/child; outward expands if needed), Enter opens, Shift+Enter expands/collapses, Backspace steps back on the center trail.</p>
     <p>Esc: with Find open closes Find only; otherwise dismisses menu, pin, then selection. Find uses the editor Find shortcut.</p>
     <p>Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path, blue ×N = the same function on other call paths (click to jump). Hover a node to highlight it; hold Alt to highlight its other copies. The highlight clears when the pointer leaves. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. The bubble button turns node tips on (hover) or off (hold Alt to show). Slim keeps the kinds checked in the list beside Slim. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</p>
@@ -585,7 +582,7 @@ export class CallRelationPanel {
       <button type="button" class="cr-find-action" id="cr-find-close" title="Close (Escape)">${iconClose}</button>
     </div>
     <div class="cr-stage" id="cr-stage">
-      <div class="cr-empty" id="cr-empty">Place the cursor on a function, then open Call Relation.</div>
+      <div class="cr-empty" id="cr-empty">Place the cursor on a function or variable, then open Relation.</div>
     </div>
   </div>
   <div class="progress-container">

@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { enclosingCallable } from './enclosingSymbol';
+import { enclosingCallable, isAnonymousSymbolName, isValueRelationKind, symbolAtPosition } from './enclosingSymbol';
 
 export const CALL_PAGE = 12;
 export const CALL_MAX_HOP = 8;
@@ -54,6 +54,7 @@ export interface RelationGraph {
     edges: RelationEdge[];
     empty?: string;
     notice?: string;
+    mode?: 'call' | 'reference';
     centerTrail?: RelationCenter[];
     centerIndex?: number;
 }
@@ -67,8 +68,11 @@ export interface RelationOpenTarget {
     snippet?: string;
 }
 
+/** TS names anonymous functions "setTimeout() callback"; keep the callee ident. */
 function identFromToken(name: string): string {
-    return (name || '').replace(/\(.*\)$/, '').split(/::|\./).pop() || name;
+    const callback = /^(.*?)\(\)\s+callback$/i.exec((name || '').trim());
+    const base = (callback?.[1] || name || '').trim();
+    return base.replace(/\(.*\)$/, '').split(/::|\./).pop() || base;
 }
 
 async function tokenAt(uri: vscode.Uri, position: vscode.Position): Promise<string> {
@@ -341,6 +345,8 @@ export class CallRelationModel {
     private centerIndex = -1;
     /** Shown on the left until root incoming lands (focus from a callee). */
     private incomingHint: vscode.CallHierarchyItem | undefined;
+    /** Variables use Find All References on the left; functions use call hierarchy. */
+    private relationMode: 'call' | 'reference' = 'call';
     /** When true, keep only compactKinds from incoming and outgoing. */
     private compactFilter = false;
     private compactKinds = kindsFromIds(DEFAULT_SLIM_KIND_IDS);
@@ -392,6 +398,7 @@ export class CallRelationModel {
         this.centerTrail = [];
         this.centerIndex = -1;
         this.incomingHint = undefined;
+        this.relationMode = 'call';
         this.cacheEpoch++;
         this.fileGen.clear();
         this.inflightIn.clear();
@@ -495,6 +502,7 @@ export class CallRelationModel {
     private attachCenterTrail(graph: RelationGraph): RelationGraph {
         graph.centerTrail = this.centerSnapshot();
         graph.centerIndex = Math.max(0, this.centerIndex);
+        graph.mode = this.relationMode;
         return graph;
     }
 
@@ -524,6 +532,149 @@ export class CallRelationModel {
         };
     }
 
+    private asLocation(raw: unknown): vscode.Location | undefined {
+        if (!raw || typeof raw !== 'object') {
+            return undefined;
+        }
+        const loc = raw as vscode.Location & vscode.LocationLink;
+        if (loc.uri && loc.range) {
+            return loc;
+        }
+        const uri = loc.targetUri;
+        const range = loc.targetSelectionRange ?? loc.targetRange;
+        if (uri && range) {
+            return new vscode.Location(uri, range);
+        }
+        return undefined;
+    }
+
+    private isDeclSite(root: vscode.CallHierarchyItem, loc: vscode.Location): boolean {
+        if (loc.uri.toString() !== root.uri.toString()) {
+            return false;
+        }
+        const decl = root.selectionRange ?? root.range;
+        return !!decl.intersection(loc.range);
+    }
+
+    private async referenceRootItem(
+        uri: vscode.Uri,
+        position: vscode.Position,
+        name: string
+    ): Promise<vscode.CallHierarchyItem> {
+        const found = await symbolAtPosition(uri, position);
+        if (found) {
+            return new vscode.CallHierarchyItem(
+                found.kind,
+                found.name,
+                found.detail,
+                found.uri ?? uri,
+                found.range,
+                found.selectionRange
+            );
+        }
+        const word = name || 'symbol';
+        const range = new vscode.Range(position, position);
+        return new vscode.CallHierarchyItem(vscode.SymbolKind.Variable, word, '', uri, range, range);
+    }
+
+    private async loadReferenceRoot(
+        uri: vscode.Uri,
+        position: vscode.Position,
+        seq: number,
+        t0: number
+    ): Promise<{ graph: RelationGraph; seq: number } | undefined> {
+        const name = await tokenAt(uri, position);
+        const refs = await this.execLsp<vscode.Location[]>(
+            seq,
+            'vscode.executeReferenceProvider',
+            uri,
+            position
+        );
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
+        const root = await this.referenceRootItem(uri, position, name);
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
+        if (this.root && this.relationMode === 'reference' && itemKey(this.root) === itemKey(root)) {
+            this.prevRoot = undefined;
+            this.incomingHint = undefined;
+            return { graph: this.buildGraph(), seq };
+        }
+        this.shown.clear();
+        this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.collapseLock.clear();
+        this.prevRoot = undefined;
+        this.incomingHint = undefined;
+        this.relationMode = 'reference';
+        this.root = root;
+        this.remember(this.root);
+        this.resetCenter(this.root);
+        const rootKey = itemKey(this.root);
+        this.outgoing.set(rootKey, []);
+        const locations = (refs || [])
+            .map(loc => this.asLocation(loc))
+            .filter((loc): loc is vscode.Location => !!loc && !this.isDeclSite(root, loc));
+        const groups = new Map<string, { item: vscode.CallHierarchyItem; sites: vscode.Range[] }>();
+        const chunk = 12;
+        for (let i = 0; i < locations.length; i += chunk) {
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            await Promise.all(locations.slice(i, i + chunk).map(async loc => {
+                if (isLibPath(loc.uri.fsPath)) {
+                    return;
+                }
+                const enc = await enclosingCallable(loc.uri, loc.range.start.line, root.name);
+                const caller = enc
+                    ? new vscode.CallHierarchyItem(
+                        enc.kind,
+                        enc.name,
+                        enc.detail,
+                        loc.uri,
+                        enc.range,
+                        enc.selectionRange
+                    )
+                    : new vscode.CallHierarchyItem(
+                        vscode.SymbolKind.File,
+                        fileLabel(loc.uri),
+                        '',
+                        loc.uri,
+                        new vscode.Range(0, 0, 0, 0),
+                        new vscode.Range(0, 0, 0, 0)
+                    );
+                const key = itemKey(caller);
+                const group = groups.get(key);
+                if (group) {
+                    group.sites.push(loc.range);
+                    return;
+                }
+                groups.set(key, { item: caller, sites: [loc.range] });
+            }));
+        }
+        const callers: vscode.CallHierarchyItem[] = [];
+        for (const group of groups.values()) {
+            const key = this.remember(group.item);
+            callers.push(this.items.get(key)!);
+            this.rememberCallSite(rootKey, -1, group.item, group.item.uri, group.sites, root.name);
+        }
+        this.incoming.set(rootKey, callers);
+        const graph = await this.buildVisible(seq, true);
+        if (!graph || !this.isCurrent(seq)) {
+            return undefined;
+        }
+        if (!callers.length) {
+            graph.notice = name
+                ? `No references for “${name}” outside its declaration.`
+                : 'No references at this position.';
+        }
+        costLog('reference root', Date.now() - t0, `${itemLabel(root)} n=${callers.length}`);
+        return { graph, seq };
+    }
+
     private async adoptPreparedRoot(
         next: vscode.CallHierarchyItem,
         seq: number,
@@ -536,6 +687,7 @@ export class CallRelationModel {
         this.collapseLock.clear();
         this.prevRoot = undefined;
         this.incomingHint = undefined;
+        this.relationMode = 'call';
         this.root = next;
         this.remember(this.root);
         this.resetCenter(this.root);
@@ -674,11 +826,12 @@ export class CallRelationModel {
             return undefined;
         }
         const sel = item.selectionRange?.start ?? item.range.start;
+        const name = item.name || node.name;
         return {
             uri: item.uri.toString(),
             line: sel.line,
             character: sel.character,
-            name: item.name || node.name
+            name: identFromToken(name) || name
         };
     }
 
@@ -693,6 +846,14 @@ export class CallRelationModel {
         }
         const seqPrepare = this.seq;
         costLog('loadRoot begin', 0, loc);
+
+        const valueSym = await symbolAtPosition(uri, position);
+        if (!this.isCurrent(seqPrepare)) {
+            return undefined;
+        }
+        if (valueSym && isValueRelationKind(valueSym.kind)) {
+            return this.loadReferenceRoot(uri, position, seqPrepare, t0);
+        }
 
         const prepared = await this.execLsp<vscode.CallHierarchyItem[]>(
             seqPrepare,
@@ -717,6 +878,15 @@ export class CallRelationModel {
         }
 
         const next = prepared.find(item => rangeContains(item.range, position)) || prepared[0];
+        if (isAnonymousSymbolName(next.name)) {
+            const name = await tokenAt(uri, position);
+            if (!this.isCurrent(seqPrepare)) {
+                return undefined;
+            }
+            if (name) {
+                return this.loadReferenceRoot(uri, position, seqPrepare, t0);
+            }
+        }
         if (this.root && itemKey(this.root) === itemKey(next)) {
             this.prevRoot = undefined;
             this.incomingHint = undefined;
@@ -889,6 +1059,9 @@ export class CallRelationModel {
     }
 
     async focusNode(nodeId: string, nodes: RelationNode[]): Promise<RelationLoad | undefined> {
+        if (this.relationMode === 'reference') {
+            return { graph: this.buildGraph(), seq: this.seq };
+        }
         this.cancel();
         const seq = this.seq;
         const t0 = Date.now();
@@ -960,25 +1133,39 @@ export class CallRelationModel {
             ancestor = ancestor.parentId ? nodes.find(n => n.id === ancestor?.parentId) : undefined;
         }
 
-        this.root = item;
-        this.remember(item);
-        this.recordCenter(item);
+        this.relationMode = 'call';
+        const sel = item.selectionRange?.start ?? item.range.start;
+        const prepared = await this.execLsp<vscode.CallHierarchyItem[]>(
+            seq,
+            'vscode.prepareCallHierarchy',
+            item.uri,
+            sel
+        );
+        const resolved = prepared?.length
+            ? (prepared.find(it => rangeContains(it.range, sel)) || prepared[0])
+            : item;
+        this.root = resolved;
+        this.remember(resolved);
+        this.recordCenter(resolved);
         this.syncPrevFromTrail();
         this.shown.clear();
         this.incomingHint = focus.hop > 0 ? this.prevRoot : undefined;
         const tWarm = Date.now();
-        await this.ensureOutgoing(item, seq);
-        costLog('focusNode warm', Date.now() - tWarm, itemLabel(item));
+        await this.ensureOutgoing(resolved, seq);
+        costLog('focusNode warm', Date.now() - tWarm, itemLabel(resolved));
         if (!this.isCurrent(seq)) {
-            costLog('focusNode cancelled', Date.now() - t0, itemLabel(item));
+            costLog('focusNode cancelled', Date.now() - t0, itemLabel(resolved));
             return undefined;
         }
-        const graph = await this.completeRootSides(seq, t0, itemLabel(item));
-        costLog('focusNode', Date.now() - t0, itemLabel(item));
+        const graph = await this.completeRootSides(seq, t0, itemLabel(resolved));
+        costLog('focusNode', Date.now() - t0, itemLabel(resolved));
         return graph ? { graph, seq } : undefined;
     }
 
     async focusTrail(index: number, nodes: RelationNode[]): Promise<RelationLoad | undefined> {
+        if (this.relationMode === 'reference') {
+            return { graph: this.buildGraph(), seq: this.seq };
+        }
         if (index < 0 || index >= this.centerTrail.length) {
             return { graph: this.buildGraph(), seq: this.seq };
         }
@@ -998,6 +1185,7 @@ export class CallRelationModel {
         const t0 = Date.now();
         this.centerIndex = index;
         this.syncPrevFromTrail();
+        this.relationMode = 'call';
         this.root = item;
         this.remember(item);
         this.shown.clear();
@@ -1154,7 +1342,9 @@ export class CallRelationModel {
         const nodes: RelationNode[] = [rootNode];
         const edges: RelationEdge[] = [];
         this.addSide(nodes, edges, rootNode, -1);
-        this.addSide(nodes, edges, rootNode, 1);
+        if (this.relationMode !== 'reference') {
+            this.addSide(nodes, edges, rootNode, 1);
+        }
         const prevKey = this.prevRoot ? itemKey(this.prevRoot) : '';
         if (prevKey) {
             const prevNode = nodes.find(n => n.kind === 'symbol' && n.itemKey === prevKey);
@@ -1515,6 +1705,9 @@ export class CallRelationModel {
     }
 
     private canExpand(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {
+        if (this.relationMode === 'reference' && this.root && itemKey(item) === itemKey(this.root) && dir > 0) {
+            return false;
+        }
         const key = itemKey(item);
         const peeked = dir < 0 ? this.incoming.has(key) : this.outgoing.has(key);
         if (!peeked) {

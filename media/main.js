@@ -705,11 +705,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             },
                             { type: 'separator' },
                             {
-                                label: 'Show Call Relation',
+                                label: 'Show Relation',
                                 action: () => vscode.postMessage({ type: 'showCallRelation', independent: false, ...loc })
                             },
                             {
-                                label: 'Show Call Relation (Independent Window)',
+                                label: 'Show Relation (Independent Window)',
                                 action: () => vscode.postMessage({ type: 'showCallRelation', independent: true, ...loc })
                             }
                         ]);

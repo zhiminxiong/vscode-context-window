@@ -21,6 +21,40 @@ const TIP_GAP = 6;
 /** @type {{ postMessage: (msg: any) => void, getState: () => any, setState: (s: any) => void }} */
 const vscode = acquireVsCodeApi();
 
+/** visualId / itemKey contain \0; HTML data-* truncates at NUL. */
+function encodeNodeId(id) {
+    return encodeURIComponent(id || '');
+}
+
+function decodeNodeId(raw) {
+    if (!raw) {
+        return '';
+    }
+    try {
+        return decodeURIComponent(raw);
+    } catch {
+        return raw;
+    }
+}
+
+function elNodeId(el) {
+    return decodeNodeId(el && el.dataset ? el.dataset.nodeId : '');
+}
+
+function setElNodeId(el, id) {
+    el.dataset.nodeId = encodeNodeId(id);
+}
+
+function isReferenceGraph(graph) {
+    return !!(graph && graph.mode === 'reference');
+}
+
+function relationTitle(graph) {
+    const name = graph && graph.title;
+    const kind = isReferenceGraph(graph) ? 'References' : 'Call';
+    return name ? `Relation (${kind}) — ${name}` : `Relation (${kind})`;
+}
+
 const titleEl = document.getElementById('cr-title');
 const stage = document.getElementById('cr-stage');
 const emptyEl = document.getElementById('cr-empty');
@@ -616,7 +650,7 @@ function paintTwins() {
         return;
     }
     canvas.querySelectorAll('.cr-node').forEach(el => {
-        const n = graphNode(el.dataset.nodeId);
+        const n = graphNode(elNodeId(el));
         el.classList.toggle('is-twin', isTwinHighlight(n));
     });
 }
@@ -748,7 +782,7 @@ function applyPathFocus() {
     const focus = !!(pinnedNodeId && ids);
     canvas.classList.toggle('is-focus', focus);
     canvas.querySelectorAll('.cr-node').forEach(el => {
-        const id = el.dataset.nodeId || '';
+        const id = elNodeId(el);
         const onPath = !!(focus && ids && ids.has(id));
         const isPin = !!(focus && id === pinnedNodeId);
         el.classList.toggle('is-on-path', onPath);
@@ -763,8 +797,8 @@ function applyPathFocus() {
         }
     });
     canvas.querySelectorAll('.cr-edge-group').forEach(g => {
-        const from = g.getAttribute('data-from') || '';
-        const to = g.getAttribute('data-to') || '';
+        const from = decodeNodeId(g.getAttribute('data-from') || '');
+        const to = decodeNodeId(g.getAttribute('data-to') || '');
         g.classList.toggle('is-on-path', !!(focus && ids && ids.has(from) && ids.has(to)));
     });
 }
@@ -860,7 +894,7 @@ function nodeElById(id) {
     if (!canvasEl || !id) {
         return null;
     }
-    return [...canvasEl.querySelectorAll('.cr-node')].find(e => e.dataset.nodeId === id) || null;
+    return [...canvasEl.querySelectorAll('.cr-node')].find(e => elNodeId(e) === id) || null;
 }
 
 /** 平移画布，让目标节点（或子控件）上的同一点击点仍落在指针下。 */
@@ -948,7 +982,7 @@ function paintSelection() {
     }
     resolveSelection();
     canvas.querySelectorAll('.cr-node').forEach(el => {
-        const n = graphNode(el.dataset.nodeId);
+        const n = graphNode(elNodeId(el));
         el.classList.toggle('is-selected', !!(n && isNodeSelected(n)));
     });
     paintTwins();
@@ -1409,7 +1443,7 @@ function paintCenters(el, items, current, visible) {
             crumb.className = 'cr-centers-item' + (i === current ? ' is-current' : '');
             crumb.textContent = items[i].name || '?';
             crumb.title = centerItemTitle(items[i]);
-            if (i !== current) {
+            if (i !== current && !isReferenceGraph(lastGraph)) {
                 const index = i;
                 crumb.addEventListener('click', e => {
                     e.preventDefault();
@@ -1452,6 +1486,9 @@ function paintCenters(el, items, current, visible) {
                     row.addEventListener('click', ev => {
                         ev.stopPropagation();
                         hideCenterOverflow();
+                        if (isReferenceGraph(lastGraph)) {
+                            return;
+                        }
                         clearPathPin();
                         vscode.postMessage({ type: 'focusTrail', index: h.index });
                     });
@@ -1511,7 +1548,7 @@ function renderCenters(graph) {
 }
 
 function focusPrevCenter() {
-    if (!lastGraph) {
+    if (!lastGraph || isReferenceGraph(lastGraph)) {
         return;
     }
     const trail = lastGraph.centerTrail || [];
@@ -1585,7 +1622,7 @@ function paintFindClasses() {
     const hitSet = new Set(findHits);
     canvas.classList.toggle('is-find', findHits.length > 0);
     canvas.querySelectorAll('.cr-node').forEach(el => {
-        const id = el.dataset.nodeId || '';
+        const id = elNodeId(el);
         const hit = hitSet.has(id);
         el.classList.toggle('is-find-hit', hit);
         el.classList.toggle('is-find-current', hit && id === current);
@@ -2362,7 +2399,7 @@ function render(graph) {
         return;
     }
     if (titleEl) {
-        titleEl.textContent = graph.title ? `Call Relation — ${graph.title}` : 'Call Relation';
+        titleEl.textContent = relationTitle(graph);
     }
     renderCenters(graph);
     renderNotice(graph);
@@ -2468,8 +2505,8 @@ function render(graph) {
         const live = !!(edge.sites && edge.sites.length) && edge.style !== 'anchor';
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.setAttribute('class', 'cr-edge-group' + (live ? ' is-live' : ''));
-        g.setAttribute('data-from', edge.from);
-        g.setAttribute('data-to', edge.to);
+        g.setAttribute('data-from', encodeNodeId(edge.from));
+        g.setAttribute('data-to', encodeNodeId(edge.to));
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('class', 'cr-edge' + (edge.style === 'anchor' ? ' is-anchor' : ''));
         path.setAttribute('d', d);
@@ -2544,7 +2581,7 @@ function render(graph) {
         if (isCyclicNode(graph, node)) {
             el.classList.add('is-cycle');
         }
-        el.dataset.nodeId = node.id;
+        setElNodeId(el, node.id);
         el.style.left = p.x + 'px';
         el.style.top = p.y + 'px';
         el.style.width = nodeW(p) + 'px';
@@ -2660,6 +2697,9 @@ function render(graph) {
             el.addEventListener('dblclick', ev => {
                 ev.preventDefault();
                 ev.stopPropagation();
+                if (isReferenceGraph(graph)) {
+                    return;
+                }
                 selectNode(node, false);
                 clearPathPin();
                 vscode.postMessage({ type: 'focusNode', nodeId: node.id });
@@ -2732,7 +2772,7 @@ function render(graph) {
     applyPendingHop();
     if (lastTipNodeId && canvas) {
         const n = graph.nodes.find(x => x.id === lastTipNodeId);
-        const el = [...canvas.querySelectorAll('.cr-node')].find(e => e.dataset.nodeId === lastTipNodeId);
+        const el = [...canvas.querySelectorAll('.cr-node')].find(e => elNodeId(e) === lastTipNodeId);
         if (usesNodeTip(n) && el) {
             showNodeTip(n, el);
         } else {

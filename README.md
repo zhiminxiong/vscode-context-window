@@ -35,11 +35,11 @@ This extension implements Source Insight’s Context Window, plus Relation’s C
 
 - Relation
 
-  Currently only Calls and Callers are supported.
+  Functions show Calls and Callers. Variables and fields show Find All References grouped by enclosing function (right side empty).
 
   ![feature3](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature3.gif?raw=true)
 
-  Right-click in the VS Code editor and choose **Show Call Relation**. This feature depends entirely on the language server (LSP).
+  Right-click in the VS Code editor and choose **Show Relation**. This feature depends entirely on the language server (LSP).
 
 ## Configuration
 

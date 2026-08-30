@@ -34,6 +34,242 @@ export interface EnclosingCallable {
     range: vscode.Range;
     selectionRange: vscode.Range;
     detail: string;
+    uri?: vscode.Uri;
+}
+
+const VALUE_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
+    vscode.SymbolKind.Variable,
+    vscode.SymbolKind.Field,
+    vscode.SymbolKind.Property,
+    vscode.SymbolKind.Constant,
+    vscode.SymbolKind.EnumMember
+]);
+
+export function isValueRelationKind(kind: vscode.SymbolKind): boolean {
+    return VALUE_KINDS.has(kind);
+}
+
+/** Call signatures in .d.ts are often named "()". */
+export function isAnonymousSymbolName(name: string): boolean {
+    const n = (name || '').trim();
+    return !n || n === '()' || /^<?anonymous>?$/i.test(n);
+}
+
+function rangeContainsPosition(range: vscode.Range, position: vscode.Position): boolean {
+    if (position.line < range.start.line || position.line > range.end.line) {
+        return false;
+    }
+    if (position.line === range.start.line && position.character < range.start.character) {
+        return false;
+    }
+    if (position.line === range.end.line && position.character > range.end.character) {
+        return false;
+    }
+    return true;
+}
+
+function collectNamedSymbols(symbols: readonly unknown[] | undefined, out: EnclosingCallable[]): void {
+    if (!symbols) {
+        return;
+    }
+    for (const raw of symbols) {
+        const s = raw as vscode.DocumentSymbol & vscode.SymbolInformation;
+        const range = asRange(s.range) ?? asRange(s.location?.range);
+        const named = asRange(s.selectionRange);
+        const selectionRange = named ?? range;
+        if (range && selectionRange && s.name) {
+            out.push({
+                name: s.name,
+                kind: s.kind,
+                range,
+                selectionRange,
+                detail: (s.detail || '').trim()
+            });
+        }
+        if (Array.isArray(s.children) && s.children.length) {
+            collectNamedSymbols(s.children, out);
+        }
+    }
+}
+
+async function documentSymbols(uri: vscode.Uri): Promise<EnclosingCallable[]> {
+    let symbols: unknown;
+    try {
+        symbols = await vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', uri);
+    } catch {
+        return [];
+    }
+    const found: EnclosingCallable[] = [];
+    collectNamedSymbols(Array.isArray(symbols) ? symbols : undefined, found);
+    return found;
+}
+
+function identFromName(name: string): string {
+    const callback = /^(.*?)\(\)\s+callback$/i.exec((name || '').trim());
+    const base = (callback?.[1] || name || '').trim();
+    return base.replace(/\(.*\)$/, '').split(/::|\./).pop() || base;
+}
+
+async function wordAt(uri: vscode.Uri, position: vscode.Position): Promise<string> {
+    try {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const range = doc.getWordRangeAtPosition(position);
+        return range ? identFromName(doc.getText(range)) : '';
+    } catch {
+        return '';
+    }
+}
+
+function pickNamedAt(found: EnclosingCallable[], position: vscode.Position): EnclosingCallable | undefined {
+    let best: EnclosingCallable | undefined;
+    for (const item of found) {
+        if (!rangeContainsPosition(item.selectionRange, position)) {
+            continue;
+        }
+        if (!best || isSmallerRange(item.selectionRange, best.selectionRange)) {
+            best = item;
+        }
+    }
+    return best;
+}
+
+function pickNamedOverlapping(found: EnclosingCallable[], range: vscode.Range): EnclosingCallable | undefined {
+    const mid = new vscode.Position(
+        range.start.line,
+        Math.floor((range.start.character + range.end.character) / 2)
+    );
+    return pickNamedAt(found, range.start) || pickNamedAt(found, mid);
+}
+
+/**
+ * Symbol for the identifier under the cursor. Prefer Go to Definition so a
+ * field use inside a constructor is not classified as the constructor itself.
+ * Event / callable-type defs often land on a call signature named "()"; keep
+ * the word under the cursor as a property instead.
+ */
+export async function symbolAtPosition(
+    uri: vscode.Uri,
+    position: vscode.Position
+): Promise<EnclosingCallable | undefined> {
+    const word = await wordAt(uri, position);
+    const fromDef = await resolveViaDefinition(uri, position, word);
+    if (fromDef && !isAnonymousSymbolName(fromDef.name)
+        && (!word || identFromName(fromDef.name) === word)) {
+        return fromDef;
+    }
+    const local = pickNamedAt(await documentSymbols(uri), position);
+    if (local && word && identFromName(local.name) === word) {
+        return { ...local, uri };
+    }
+    if (word && fromDef && (isAnonymousSymbolName(fromDef.name) || identFromName(fromDef.name) !== word)) {
+        const wr = await wordRangeAt(uri, position);
+        if (wr) {
+            return {
+                name: word,
+                kind: vscode.SymbolKind.Property,
+                range: wr,
+                selectionRange: wr,
+                detail: '',
+                uri
+            };
+        }
+    }
+    return fromDef && !isAnonymousSymbolName(fromDef.name)
+        ? fromDef
+        : undefined;
+}
+
+async function wordRangeAt(
+    uri: vscode.Uri,
+    position: vscode.Position
+): Promise<vscode.Range | undefined> {
+    try {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        return doc.getWordRangeAtPosition(position);
+    } catch {
+        return undefined;
+    }
+}
+
+function symbolFromDefLink(
+    found: EnclosingCallable[],
+    raw: unknown,
+    word: string
+): EnclosingCallable | undefined {
+    if (!raw || typeof raw !== 'object') {
+        return undefined;
+    }
+    const link = raw as vscode.Location & vscode.LocationLink;
+    const defUri = link.targetUri ?? link.uri;
+    const defRange = asRange(link.targetSelectionRange)
+        ?? asRange(link.targetRange)
+        ?? asRange(link.range);
+    if (!defUri || !defRange) {
+        return undefined;
+    }
+    const atDef = pickNamedOverlapping(found, defRange);
+    if (!atDef || isAnonymousSymbolName(atDef.name)) {
+        return undefined;
+    }
+    if (word && identFromName(atDef.name) !== word) {
+        return undefined;
+    }
+    return { ...atDef, uri: defUri };
+}
+
+async function resolveViaDefinition(
+    uri: vscode.Uri,
+    position: vscode.Position,
+    word: string
+): Promise<EnclosingCallable | undefined> {
+    let defs: unknown;
+    try {
+        defs = await vscode.commands.executeCommand('vscode.executeDefinitionProvider', uri, position);
+    } catch {
+        return undefined;
+    }
+    const list = Array.isArray(defs) ? defs : [];
+    const byUri = new Map<string, EnclosingCallable[]>();
+    let fallback: EnclosingCallable | undefined;
+    let anonymous: EnclosingCallable | undefined;
+    for (const raw of list) {
+        if (!raw || typeof raw !== 'object') {
+            continue;
+        }
+        const link = raw as vscode.Location & vscode.LocationLink;
+        const defUri = link.targetUri ?? link.uri;
+        if (!defUri) {
+            continue;
+        }
+        const key = defUri.toString();
+        let found = byUri.get(key);
+        if (!found) {
+            found = await documentSymbols(defUri);
+            byUri.set(key, found);
+        }
+        const matched = symbolFromDefLink(found, raw, word);
+        if (matched) {
+            return matched;
+        }
+        const defRange = asRange(link.targetSelectionRange)
+            ?? asRange(link.targetRange)
+            ?? asRange(link.range);
+        if (!defRange) {
+            continue;
+        }
+        const atDef = pickNamedOverlapping(found, defRange);
+        if (!atDef) {
+            continue;
+        }
+        if (isAnonymousSymbolName(atDef.name)) {
+            anonymous = anonymous || { ...atDef, uri: defUri };
+            continue;
+        }
+        if (!fallback) {
+            fallback = { ...atDef, uri: defUri };
+        }
+    }
+    return fallback || anonymous;
 }
 
 function rangeContainsLine(range: vscode.Range, line: number): boolean {
@@ -115,8 +351,15 @@ function collectCallables(symbols: readonly unknown[] | undefined, out: Enclosin
 /**
  * 当前行所属的最小函数 / 方法 / 构造函数（不含 class / namespace）。
  * @param line 0-based
+ * @param skipIdent skip innermost symbols whose name is this ident (e.g. do not
+ *   group a reference to onDidChangeTextEditorSelection under
+ *   "onDidChangeTextEditorSelection() callback")
  */
-export async function enclosingCallable(uri: vscode.Uri, line: number): Promise<EnclosingCallable | undefined> {
+export async function enclosingCallable(
+    uri: vscode.Uri,
+    line: number,
+    skipIdent?: string
+): Promise<EnclosingCallable | undefined> {
     let symbols: unknown;
     try {
         symbols = await vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', uri);
@@ -126,9 +369,13 @@ export async function enclosingCallable(uri: vscode.Uri, line: number): Promise<
     const list = Array.isArray(symbols) ? symbols : undefined;
     const found: EnclosingCallable[] = [];
     collectCallables(list, found);
+    const skip = (skipIdent || '').trim().toLowerCase();
     let best: EnclosingCallable | undefined;
     for (const item of found) {
         if (!rangeContainsLine(item.range, line)) {
+            continue;
+        }
+        if (skip && identFromName(item.name).toLowerCase() === skip) {
             continue;
         }
         if (!best || isSmallerRange(item.range, best.range)) {

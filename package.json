@@ -98,29 +98,29 @@
       },
       {
         "command": "contextView.callRelation.show",
-        "title": "Show Call Relation",
+        "title": "Show Relation",
         "icon": "$(type-hierarchy)",
         "category": "Context View"
       },
       {
         "command": "contextView.callRelation.showIndependent",
-        "title": "Show Call Relation (Independent Window)",
+        "title": "Show Relation (Independent Window)",
         "icon": "$(type-hierarchy)",
         "category": "Context View"
       },
       {
         "command": "contextView.callRelation.find",
-        "title": "Find in Call Relation",
+        "title": "Find in Relation",
         "category": "Context View"
       },
       {
         "command": "contextView.callRelation.findNext",
-        "title": "Find Next in Call Relation",
+        "title": "Find Next in Relation",
         "category": "Context View"
       },
       {
         "command": "contextView.callRelation.findPrevious",
-        "title": "Find Previous in Call Relation",
+        "title": "Find Previous in Relation",
         "category": "Context View"
       }
     ],
