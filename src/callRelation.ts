@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { enclosingCallable } from './enclosingSymbol';
 
 export const CALL_PAGE = 12;
 export const CALL_MAX_HOP = 8;
@@ -491,6 +492,163 @@ export class CallRelationModel {
         this.prevRoot = this.centerIndex > 0 ? this.centerTrail[this.centerIndex - 1] : undefined;
     }
 
+    private openedFromCallSite(uri: vscode.Uri, position: vscode.Position, item: vscode.CallHierarchyItem): boolean {
+        return item.uri.toString() !== uri.toString() || !rangeContains(item.range, position);
+    }
+
+    private sideEmpty(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {
+        const list = dir < 0 ? this.incoming.get(itemKey(item)) : this.outgoing.get(itemKey(item));
+        return !!list && list.length === 0;
+    }
+
+    private sideHas(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {
+        const list = dir < 0 ? this.incoming.get(itemKey(item)) : this.outgoing.get(itemKey(item));
+        return (list?.length ?? 0) > 0;
+    }
+
+    private lspEmptyGraph(seq: number): { graph: RelationGraph; seq: number } {
+        return {
+            graph: this.emptyGraph('The language server returned no call hierarchy.'),
+            seq
+        };
+    }
+
+    private async adoptPreparedRoot(
+        next: vscode.CallHierarchyItem,
+        seq: number,
+        t0: number
+    ): Promise<RelationGraph | undefined> {
+        this.shown.clear();
+        this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.collapseLock.clear();
+        this.prevRoot = undefined;
+        this.incomingHint = undefined;
+        this.root = next;
+        this.remember(this.root);
+        this.resetCenter(this.root);
+        const rootName = itemLabel(this.root);
+        const tRoot = Date.now();
+        await this.ensureOutgoing(this.root, seq);
+        costLog('root outgoing', Date.now() - tRoot, rootName);
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
+        const tVisible = Date.now();
+        const graph = await this.completeRootSides(seq, t0, rootName);
+        costLog('buildVisible', Date.now() - tVisible, rootName);
+        return graph;
+    }
+
+    /**
+     * Call-site open whose own incoming is empty: load the enclosing caller as
+     * center, find the opened name among its outgoing children, then switch
+     * center to that child (same as a manual focus). Different .d.ts copies of
+     * the same name can have different incoming.
+     */
+    private async recenterViaCallerOutgoing(
+        uri: vscode.Uri,
+        position: vscode.Position,
+        seq: number,
+        t0: number,
+        opened: vscode.CallHierarchyItem
+    ): Promise<{ graph: RelationGraph; seq: number } | undefined> {
+        const enclosing = await enclosingCallable(uri, position.line);
+        if (!enclosing || !this.isCurrent(seq)) {
+            return this.isCurrent(seq) ? this.lspEmptyGraph(seq) : undefined;
+        }
+        const prepared = await this.execLsp<vscode.CallHierarchyItem[]>(
+            seq,
+            'vscode.prepareCallHierarchy',
+            uri,
+            enclosing.selectionRange.start
+        );
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
+        if (!prepared?.length) {
+            costLog('caller prepare empty', Date.now() - t0, enclosing.name);
+            return this.lspEmptyGraph(seq);
+        }
+        const caller = prepared.find(item => rangeContains(item.range, enclosing.selectionRange.start))
+            || prepared[0];
+        if (itemKey(caller) === itemKey(opened)) {
+            return this.lspEmptyGraph(seq);
+        }
+        const callerGraph = await this.adoptPreparedRoot(caller, seq, t0);
+        if (!callerGraph || !this.isCurrent(seq)) {
+            return undefined;
+        }
+        if (!this.sideHas(caller, 1) && !this.sideHas(caller, -1)) {
+            costLog('caller hierarchy empty', Date.now() - t0, itemLabel(caller));
+            return this.lspEmptyGraph(seq);
+        }
+        const want = identFromToken(opened.name);
+        const kids = (this.outgoing.get(itemKey(caller)) || []).filter(item => (
+            identFromToken(item.name) === want
+        ));
+        if (!kids.length) {
+            costLog('callee not in caller outgoing', Date.now() - t0, opened.name);
+            return this.lspEmptyGraph(seq);
+        }
+        let best = kids[0];
+        let bestN = -1;
+        for (const kid of kids) {
+            await this.ensureIncoming(kid, seq);
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            const n = this.incoming.get(itemKey(kid))?.length ?? 0;
+            if (n > bestN) {
+                best = kid;
+                bestN = n;
+            }
+        }
+        const graph = await this.recenterToOutgoingCallee(caller, best, seq, t0);
+        if (!graph || !this.isCurrent(seq)) {
+            return undefined;
+        }
+        costLog('center callee via caller', Date.now() - t0, `${itemLabel(best)} via ${itemLabel(caller)}`);
+        return { graph, seq };
+    }
+
+    /** Same as focusing an outgoing child after the caller was the center. */
+    private async recenterToOutgoingCallee(
+        caller: vscode.CallHierarchyItem,
+        callee: vscode.CallHierarchyItem,
+        seq: number,
+        t0: number
+    ): Promise<RelationGraph | undefined> {
+        this.shown.clear();
+        this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.collapseLock.clear();
+        this.keepExpand.add(`self\0${itemKey(caller)}`);
+        this.root = callee;
+        this.remember(callee);
+        this.remember(caller);
+        this.centerTrail = [caller, callee];
+        this.centerIndex = 1;
+        this.syncPrevFromTrail();
+        this.incomingHint = caller;
+        await this.ensureOutgoing(callee, seq);
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
+        const graph = await this.completeRootSides(seq, t0, itemLabel(callee));
+        if (!graph || !this.isCurrent(seq) || !this.root) {
+            return undefined;
+        }
+        if (this.sideEmpty(this.root, -1)) {
+            this.incoming.set(itemKey(this.root), [caller]);
+            this.incomingHint = undefined;
+            return this.buildVisible(seq, true);
+        }
+        return graph;
+    }
+
     getOpenTarget(nodeId: string, nodes: RelationNode[]): RelationOpenTarget | undefined {
         const node = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
         if (!node) {
@@ -533,13 +691,16 @@ export class CallRelationModel {
         }
         if (!prepared?.length) {
             costLog('loadRoot empty', Date.now() - t0, loc);
-            return { graph: this.emptyGraph('No call hierarchy at this position. The language server may not support it.'), seq: seqPrepare };
+            return this.lspEmptyGraph(seqPrepare);
         }
 
         const next = prepared.find(item => rangeContains(item.range, position)) || prepared[0];
         if (this.root && itemKey(this.root) === itemKey(next)) {
             this.prevRoot = undefined;
             this.incomingHint = undefined;
+            if (this.openedFromCallSite(uri, position, next) && this.sideEmpty(next, -1)) {
+                return this.recenterViaCallerOutgoing(uri, position, seqPrepare, t0, next);
+            }
             costLog('loadRoot same', Date.now() - t0, itemLabel(next));
             return { graph: this.buildGraph(), seq: seqPrepare };
         }
@@ -549,32 +710,22 @@ export class CallRelationModel {
             this.cancel();
             seq = this.seq;
         }
-        this.shown.clear();
-        this.expanded.clear();
-        this.keepExpand.clear();
-        this.keepGroups.clear();
-        this.collapseLock.clear();
-        this.prevRoot = undefined;
-        this.incomingHint = undefined;
-        this.root = next;
-        this.remember(this.root);
-        this.resetCenter(this.root);
-        const rootName = itemLabel(this.root);
-        const tRoot = Date.now();
-        await this.ensureOutgoing(this.root, seq);
-        costLog('root outgoing', Date.now() - tRoot, rootName);
-        if (!this.isCurrent(seq)) {
-            costLog('loadRoot cancelled', Date.now() - t0, `${rootName} after root outgoing`);
-            return undefined;
+        if (this.openedFromCallSite(uri, position, next)) {
+            this.remember(next);
+            await this.ensureIncoming(next, seq);
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            if (this.sideEmpty(next, -1)) {
+                return this.recenterViaCallerOutgoing(uri, position, seq, t0, next);
+            }
         }
-        const tVisible = Date.now();
-        const graph = await this.completeRootSides(seq, t0, rootName);
-        costLog('buildVisible', Date.now() - tVisible, rootName);
+        const graph = await this.adoptPreparedRoot(next, seq, t0);
         if (!graph || !this.isCurrent(seq)) {
-            costLog('loadRoot cancelled', Date.now() - t0, `${rootName} after buildVisible`);
+            costLog('loadRoot cancelled', Date.now() - t0, `${itemLabel(next)} after buildVisible`);
             return undefined;
         }
-        costLog('loadRoot done', Date.now() - t0, rootName);
+        costLog('loadRoot done', Date.now() - t0, itemLabel(next));
         return { graph, seq };
     }
 

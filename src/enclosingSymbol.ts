@@ -11,10 +11,14 @@ const GUTTER_DOUBLE_CLICK_MS = 700;
  * 方法体内 → 该函数；类成员属性 → 外层 class；namespace 级声明 → namespace。
  * 始终取包含当前行的最小（嵌套最深）容器。
  */
-const CONTAINER_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
+const CALLABLE_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
     vscode.SymbolKind.Function,
     vscode.SymbolKind.Method,
     vscode.SymbolKind.Constructor,
+]);
+
+const CONTAINER_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
+    ...CALLABLE_KINDS,
     vscode.SymbolKind.Class,
     vscode.SymbolKind.Struct,
     vscode.SymbolKind.Interface,
@@ -23,6 +27,14 @@ const CONTAINER_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
     vscode.SymbolKind.Module,
     vscode.SymbolKind.Package,
 ]);
+
+export interface EnclosingCallable {
+    name: string;
+    kind: vscode.SymbolKind;
+    range: vscode.Range;
+    selectionRange: vscode.Range;
+    detail: string;
+}
 
 function rangeContainsLine(range: vscode.Range, line: number): boolean {
     return range.start.line <= line && line <= range.end.line;
@@ -75,6 +87,55 @@ function collectContainers(symbols: readonly unknown[] | undefined, out: vscode.
             collectContainers(s.children, out);
         }
     }
+}
+
+function collectCallables(symbols: readonly unknown[] | undefined, out: EnclosingCallable[]): void {
+    if (!symbols) {
+        return;
+    }
+    for (const raw of symbols) {
+        const s = raw as vscode.DocumentSymbol & vscode.SymbolInformation;
+        const range = asRange(s.range) ?? asRange(s.location?.range);
+        const selectionRange = asRange(s.selectionRange) ?? range;
+        if (CALLABLE_KINDS.has(s.kind) && range && selectionRange) {
+            out.push({
+                name: s.name,
+                kind: s.kind,
+                range,
+                selectionRange,
+                detail: (s.detail || '').trim()
+            });
+        }
+        if (Array.isArray(s.children) && s.children.length) {
+            collectCallables(s.children, out);
+        }
+    }
+}
+
+/**
+ * 当前行所属的最小函数 / 方法 / 构造函数（不含 class / namespace）。
+ * @param line 0-based
+ */
+export async function enclosingCallable(uri: vscode.Uri, line: number): Promise<EnclosingCallable | undefined> {
+    let symbols: unknown;
+    try {
+        symbols = await vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', uri);
+    } catch {
+        return undefined;
+    }
+    const list = Array.isArray(symbols) ? symbols : undefined;
+    const found: EnclosingCallable[] = [];
+    collectCallables(list, found);
+    let best: EnclosingCallable | undefined;
+    for (const item of found) {
+        if (!rangeContainsLine(item.range, line)) {
+            continue;
+        }
+        if (!best || isSmallerRange(item.range, best.range)) {
+            best = item;
+        }
+    }
+    return best;
 }
 
 /**
