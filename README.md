@@ -1,4 +1,4 @@
-# Context Window
+# Context View
 
 VS Code extension that displays the full code context of the current symbol in the sidebar or panel, similar to the context window in Source Insight.
 
