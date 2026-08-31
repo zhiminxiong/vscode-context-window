@@ -162,7 +162,10 @@ body.has-jump-trail #container {
     max-width: min(720px, calc(100vw - 24px));
     min-width: 520px;
     width: max-content;
-    overflow: visible;
+    max-height: calc(100vh - 16px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 12px 14px 10px;
     background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
     color: var(--vscode-editorHoverWidget-foreground, var(--vscode-editorWidget-foreground, #cccccc));
@@ -315,6 +318,24 @@ body.has-jump-trail #container {
     flex: 0 0 auto;
     min-height: 0;
     overflow: visible;
+}
+
+.cw-line-blame-hover::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.cw-line-blame-hover::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.cw-line-blame-hover::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
+    border-radius: 4px;
+}
+
+.cw-line-blame-hover::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
 }
 
 .cw-line-blame-hover-summary {

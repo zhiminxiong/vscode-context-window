@@ -640,13 +640,17 @@ export function createLineBlame(ctx) {
         }
         const rect = getAnchorLineRect();
         const pad = 8;
+        const minH = 120;
         hoverEl.style.maxHeight = '';
         const hw = hoverEl.offsetWidth;
-        const hh = hoverEl.offsetHeight;
         const availAbove = Math.max(0, rect.top - pad);
         const availBelow = Math.max(0, window.innerHeight - rect.bottom - pad);
         // 只按哪边空间大选边，不看当前高度。否则没 diff 时变矮会往下，diff 到了再翻上去。
         const placeBelow = availBelow > availAbove;
+        const avail = placeBelow ? availBelow : availAbove;
+        const cap = Math.max(minH, avail || (window.innerHeight - pad * 2));
+        hoverEl.style.maxHeight = cap + 'px';
+        const hh = hoverEl.offsetHeight;
         let left = rect.left;
         if (left + hw > window.innerWidth - pad) {
             left = window.innerWidth - hw - pad;
@@ -679,6 +683,7 @@ export function createLineBlame(ctx) {
             hoverEl.addEventListener('mouseenter', cancelHideHover);
             hoverEl.addEventListener('mouseleave', scheduleHideHover);
             hoverEl.addEventListener('mousedown', ev => ev.stopPropagation());
+            hoverEl.addEventListener('wheel', ev => ev.stopPropagation(), { passive: true });
             document.body.appendChild(hoverEl);
         }
         hoverEl.innerHTML = '';
