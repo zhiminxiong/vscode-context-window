@@ -400,13 +400,6 @@
           ],
           "description": "Call Relation connector style. Can be switched from the Call Relation toolbar."
         },
-        "contextView.callRelation.nodeFontSize": {
-          "type": "number",
-          "default": 13,
-          "minimum": 8,
-          "maximum": 32,
-          "description": "Font size in pixels for Call Relation node names. Other node text scales in proportion. Change it from the Call Relation toolbar."
-        },
         "contextView.callRelation.compactFilter": {
           "type": "boolean",
           "default": false,

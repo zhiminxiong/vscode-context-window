@@ -96,7 +96,6 @@ This extension implements Source Insight’s Context Window, plus Relation’s C
     - `elbow` — Orthogonal bus lines with arrows.
     - `direct` — Straight single-arrow links from the right edge of the caller to the left edge of the callee.
     - `arc` — (default) Curved single-arrow links using the same attachment points as Direct.
-- `contextView.callRelation.nodeFontSize` — Font size in pixels for node names. Default `13` (range 8–32). Other node text scales in proportion. Change it from the Call Relation toolbar.
 - `contextView.callRelation.compactFilter` — When on, keep only the symbol kinds checked in `compactKinds`. Off by default. Toggle from the Call Relation toolbar (**Slim**).
 - `contextView.callRelation.compactKinds` — Symbol kinds kept when Slim is on. Default: `function`, `method`, `constructor`, `class`, `struct`, `variable`, `constant`, `property`. Change them from the list beside the Slim button.
 
