@@ -6,6 +6,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [unReleased] 2026.08.31
 
+#### Fixed
+
+- **Double Click Selects Symbol** no longer disturbs line-number selection. Dragging from a line number keeps the start line in both directions, holding still before dragging works, a small move inside one line no longer clears the selection, and press-and-drag is no longer mistaken for a double click. The caret is nudged with `cursorMove` instead of writing the selection, which preserves the editor's line-selection anchor, and the symbol expands only after a short confirmation with no further mouse movement.
 
 ## [1.1.0] 2026.08.31
 

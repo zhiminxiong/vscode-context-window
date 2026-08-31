@@ -5,6 +5,14 @@ const CONFIG_VSCODE = 'doubleClickSelectsSymbol';
 
 /** 行号栏双击：两次整行选区的最大间隔（略宽于常见系统双击阈值）。 */
 const GUTTER_DOUBLE_CLICK_MS = 700;
+/** 与第一击至少相隔这么久才算第二击，滤掉按下瞬间的轻微拖动。 */
+const GUTTER_MIN_SECOND_CLICK_MS = 100;
+/**
+ * 候选第二击先等这么久再扩选：期间若又来鼠标选区事件，说明是在拖行号，放弃。
+ * 「按住不放拖动」的第一次同行移动与真正的第二击写出的选区完全相同，只能靠后续有没有
+ * 继续变化来区分——拖动会一直来事件，双击不会。
+ */
+const GUTTER_CONFIRM_MS = 120;
 
 /**
  * 行号双击要扩选的「容器」符号。
@@ -502,23 +510,53 @@ function isMouseLike(kind: vscode.TextEditorSelectionChangeKind | undefined): bo
 /**
  * VSCode 主编辑器：行号栏双击选中当前行所属的最小容器符号。
  *
- * 扩展 API 拿不到鼠标落点。行号单击会选出整行；双击往往再次写出同一选区，
- * 第二次可能不触发 onDidChangeTextEditorSelection。做法：
- * 第一次整行选区后，立刻把选区方向反转（视觉仍是整行），使第二击必然产生变化。
+ * 扩展 API 既没有行号栏鼠标事件也没有点击计数，只能从 onDidChangeTextEditorSelection
+ * 判断「同一行的整行选区在双击间隔内出现两次」。难点是第二击写出的选区与第一击完全相同，
+ * VSCode 认为光标状态没变、不再发事件，所以第一击之后必须先把状态改成别的样子。
+ *
+ * 改法只能用 cursorMove，不能写 editor.selection：
+ * 点行号时光标的 selectionStart 是一条整行 Range（L 行 1 列 → L+1 行 1 列）、kind 为 Line，
+ * 向下拖用它的起点、向上拖用它的终点，所以两个方向都能包住起始行。写 editor.selection 会把
+ * selectionStart 塌缩成一个点、kind 降为 Simple，于是向上拖丢起始行、按住再拖丢首行、
+ * 在同一行内微动还会算出空选区。cursorMove 的 select:true 只移动 position、保留 selectionStart，
+ * 拖选仍由 VSCode 原生计算。
+ *
+ * 这里把 position 移到行首：选区范围不变（只是变成反向），视觉上仍是整行，
+ * 但与第二击写出的状态不同，第二击必定发事件。
+ *
+ * 最后一道：按住不放后在同一行内的第一次移动，写出的选区与第二击一模一样，无法当场区分，
+ * 因此候选第二击要等 GUTTER_CONFIRM_MS，期间再来事件就当拖动放弃。
  * 配置 doubleClickSelectsSymbol 默认关闭。
  */
 export function registerLineNumberSymbolSelection(context: vscode.ExtensionContext): void {
     let lastGutter: { uri: string; line: number; time: number } | undefined;
     let busy = false;
-    let ignoreUntil = 0;
+    let echo: vscode.Selection | undefined;
+    let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+
+    /** 丢掉我们自己改出来的那次选区变化。 */
+    const isEcho = (sel: vscode.Selection): boolean => {
+        if (echo && echo.anchor.isEqual(sel.anchor) && echo.active.isEqual(sel.active)) {
+            echo = undefined;
+            return true;
+        }
+        return false;
+    };
+
+    /** 返回是否确实取消了一次待确认的扩选。 */
+    const cancelConfirm = (): boolean => {
+        if (confirmTimer === undefined) {
+            return false;
+        }
+        clearTimeout(confirmTimer);
+        confirmTimer = undefined;
+        return true;
+    };
 
     context.subscriptions.push(
+        { dispose: cancelConfirm },
         vscode.window.onDidChangeTextEditorSelection(async (e) => {
             if (busy) {
-                return;
-            }
-            // 反转选区的回声可能是 Command / undefined，短窗口内丢掉；真鼠标第二击不能丢。
-            if (Date.now() < ignoreUntil && e.kind !== vscode.TextEditorSelectionChangeKind.Mouse) {
                 return;
             }
             const editor = e.textEditor;
@@ -530,11 +568,17 @@ export function registerLineNumberSymbolSelection(context: vscode.ExtensionConte
             const uri = doc.uri.toString();
             const sel = e.selections[0];
 
+            if (isEcho(sel)) {
+                return;
+            }
+            // 还在等待确认时又有新变化 = 手还按着在拖，不是双击。
+            if (cancelConfirm()) {
+                lastGutter = undefined;
+            }
             if (sel.isEmpty) {
                 lastGutter = undefined;
                 return;
             }
-
             if (e.kind === vscode.TextEditorSelectionChangeKind.Keyboard
                 || e.kind === vscode.TextEditorSelectionChangeKind.Command) {
                 return;
@@ -551,69 +595,64 @@ export function registerLineNumberSymbolSelection(context: vscode.ExtensionConte
                 return;
             }
 
-            const now = Date.now();
-            const fullLine = isSingleFullLineSelection(doc, sel);
-            const line = sel.start.line;
-
-            if (!fullLine) {
-                if (sel.start.line !== sel.end.line) {
-                    lastGutter = undefined;
-                    return;
-                }
-                if (
-                    lastGutter
-                    && lastGutter.uri === uri
-                    && lastGutter.line === line
-                    && now - lastGutter.time < GUTTER_DOUBLE_CLICK_MS
-                ) {
-                    lastGutter = undefined;
-                    await applyEnclosingSelection(editor, line);
-                }
+            // 多行或非整行：行号拖选、选词等，交给 VSCode，本次判定作废。
+            if (!isSingleFullLineSelection(doc, sel)) {
+                lastGutter = undefined;
                 return;
             }
+
+            const now = Date.now();
+            const line = sel.start.line;
 
             if (
                 lastGutter
                 && lastGutter.uri === uri
                 && lastGutter.line === line
+                && now - lastGutter.time >= GUTTER_MIN_SECOND_CLICK_MS
                 && now - lastGutter.time < GUTTER_DOUBLE_CLICK_MS
             ) {
                 lastGutter = undefined;
-                await applyEnclosingSelection(editor, line);
+                confirmTimer = setTimeout(() => {
+                    confirmTimer = undefined;
+                    void applyEnclosingSelection(editor, line);
+                }, GUTTER_CONFIRM_MS);
                 return;
             }
 
             lastGutter = { uri, line, time: now };
-            reverseLineSelection(editor, sel);
+            await primeSecondClick(editor, sel, line);
         })
     );
 
-    /**
-     * 反转整行选区的锚点/活动端。视觉不变，但 Selection 不相等，
-     * 下一击行号写出默认方向时一定能再收到 selection 事件。
-     * 若编辑器把方向折回，再改「是否含换行」作为兜底。
-     */
-    function reverseLineSelection(editor: vscode.TextEditor, sel: vscode.Selection): void {
+    /** 把光标移到该行行首，让第二击必定产生 selection 事件。理由见上方函数注释。 */
+    async function primeSecondClick(
+        editor: vscode.TextEditor,
+        sel: vscode.Selection,
+        line: number
+    ): Promise<void> {
+        if (vscode.window.activeTextEditor !== editor) {
+            return;
+        }
+        const active = sel.active;
+        if (active.line === line && active.character === 0) {
+            return;
+        }
+        // 非末行的整行选区停在下一行行首，上移一个模型行即到本行行首；
+        // 末行没有下一行、选到行尾，改为左移回行首。
+        const args = active.line === line + 1
+            ? { to: 'up', by: 'line', value: 1, select: true }
+            : active.character > 0
+                ? { to: 'left', by: 'character', value: active.character, select: true }
+                : undefined;
+        if (!args) {
+            return;
+        }
         busy = true;
-        ignoreUntil = Date.now() + 80;
         try {
-            const reversed = new vscode.Selection(sel.active, sel.anchor);
-            editor.selection = reversed;
-            const after = editor.selection;
-            if (!after.anchor.isEqual(sel.anchor) || !after.active.isEqual(sel.active)) {
-                return;
-            }
-            const line = sel.start.line;
-            const lineLen = editor.document.lineAt(line).text.length;
-            if (lineLen <= 0) {
-                return;
-            }
-            const withNl = sel.end.line === line + 1 && sel.end.character === 0;
-            editor.selection = withNl
-                ? new vscode.Selection(line, 0, line, lineLen)
-                : (line + 1 < editor.document.lineCount
-                    ? new vscode.Selection(line, 0, line + 1, 0)
-                    : reversed);
+            await vscode.commands.executeCommand('cursorMove', args);
+            echo = editor.selection;
+        } catch (err) {
+            console.error('[context-window] gutter double-click prime failed:', err);
         } finally {
             busy = false;
         }
@@ -627,6 +666,7 @@ export function registerLineNumberSymbolSelection(context: vscode.ExtensionConte
                 return;
             }
             editor.selection = new vscode.Selection(range.start, range.end);
+            echo = editor.selection;
             editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
         } catch (err) {
             console.error('[context-window] line-number symbol selection failed:', err);
