@@ -1,6 +1,6 @@
 # Context View
 
-VS Code extension that displays the full code context of the current symbol in the sidebar or panel, similar to the context window in Source Insight.
+Source Insight–style Context Window and Relation (calls/callers) in VS Code. The Context Window shows the full code context of the current symbol in the sidebar or panel; Relation shows who calls a symbol and what it calls.
 
 ## Special Thanks To
 
