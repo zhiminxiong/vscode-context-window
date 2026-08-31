@@ -385,6 +385,19 @@
           ],
           "description": "What a click in the Context Window jumps to. Change it from the pull-up at the right of the Context footer."
         },
+        "contextView.callRelation.childSort": {
+          "type": "string",
+          "default": "name",
+          "enum": [
+            "name",
+            "order"
+          ],
+          "enumDescriptions": [
+            "A–Z by symbol name (last identifier).",
+            "Callees: first call in the function. Callers: same file by call line, different files by file name."
+          ],
+          "description": "How Call Relation orders children of a node. Can be switched from the Call Relation toolbar."
+        },
         "contextView.callRelation.edgeStyle": {
           "type": "string",
           "default": "arc",

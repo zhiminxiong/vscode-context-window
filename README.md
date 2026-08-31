@@ -92,6 +92,9 @@ This extension implements Source Insight’s Context Window, plus Relation’s C
 - `contextView.callRelation.updateMode` — Controls how Call Relation is updated when the cursor moves. Possible values:
     - `live` — (default) Follow the cursor. If the language server finds no call hierarchy, show an empty message.
     - `sticky` — Keep the last graph until the language server returns a new call hierarchy.
+- `contextView.callRelation.childSort` — How children of a node are ordered. Click **Name** / **Order** on the Call Relation toolbar. Possible values:
+    - `name` — (default) A–Z by symbol name (last identifier).
+    - `order` — Callees: first call in the function. Callers: same file by call line, different files by file name.
 - `contextView.callRelation.edgeStyle` — Connector style. Can be switched from the Call Relation toolbar. Possible values:
     - `elbow` — Orthogonal bus lines with arrows.
     - `direct` — Straight single-arrow links from the right edge of the caller to the left edge of the callee.

@@ -64,6 +64,7 @@ const slimBtn = document.getElementById('cr-slim');
 const slimKindsBtn = document.getElementById('cr-slim-kinds');
 const slimWrap = document.getElementById('cr-slim-wrap');
 const styleBtn = document.getElementById('cr-style');
+const sortBtn = document.getElementById('cr-sort');
 const zoomInBtn = document.getElementById('cr-zoom-in');
 const zoomOutBtn = document.getElementById('cr-zoom-out');
 const zoomLabel = document.getElementById('cr-zoom-label');
@@ -102,6 +103,8 @@ let selectedRootId = '';
 let pinnedNodeId = '';
 /** @type {'elbow' | 'direct' | 'arc'} */
 let edgeStyle = 'arc';
+/** @type {'name' | 'order'} */
+let childSort = 'name';
 /** @type {Set<string>} */
 let nameOnlyIds = new Set();
 /** Hover tips on by default; off = hold Alt to show. */
@@ -125,6 +128,10 @@ try {
 
 function normalizeEdgeStyle(value) {
     return value === 'direct' || value === 'elbow' ? value : 'arc';
+}
+
+function normalizeChildSort(value) {
+    return value === 'order' ? 'order' : 'name';
 }
 
 function isSpreadStyle(value) {
@@ -284,10 +291,23 @@ function layout(graph, viewW, viewH) {
             const parentH = group.parent && pos[group.parent.id] ? pos[group.parent.id].h : NODE_H;
             const first = group.kids[0];
             const prevFirst = first && prevRoot && lastPos[first.id];
+            let prevColumnFirstId = '';
+            if (first && lastPos) {
+                let bestY = Infinity;
+                for (const [id, p] of Object.entries(lastPos)) {
+                    if (p.hop === hop && p.parentId === first.parentId && p.y < bestY) {
+                        bestY = p.y;
+                        prevColumnFirstId = id;
+                    }
+                }
+            }
+            // Sticky Y is for expand / show more (same first child). Reorder (sort)
+            // changes who is first; keep centering on the parent or the column drops.
             const sameSlot = !!(columnGrew
                 && prevFirst
                 && prevFirst.hop === first.hop
-                && prevFirst.parentId === first.parentId);
+                && prevFirst.parentId === first.parentId
+                && prevColumnFirstId === first.id);
             let y = sameSlot
                 ? lastPos[first.id].y - prevRoot.y
                 : parentY + parentH / 2 - block / 2;
@@ -1748,6 +1768,39 @@ function applyEdgeStyle(next) {
     if (lastGraph) {
         render(lastGraph);
     }
+}
+
+const CHILD_SORT_ITEMS = [
+    { id: 'name', label: 'Name', title: 'Sort children A–Z by symbol name' },
+    { id: 'order', label: 'Order', title: 'Callees: first call in the function. Callers: same file by call line, different files by file name' }
+];
+
+function childSortItem(value) {
+    return CHILD_SORT_ITEMS.find(s => s.id === value) || CHILD_SORT_ITEMS[0];
+}
+
+function syncSortBtn() {
+    if (!sortBtn) {
+        return;
+    }
+    const item = childSortItem(childSort);
+    const text = sortBtn.querySelector('.cr-sort-text');
+    if (text) {
+        text.textContent = item.label;
+    } else {
+        sortBtn.textContent = item.label;
+    }
+    sortBtn.title = item.title;
+}
+
+function applyChildSort(next) {
+    const value = normalizeChildSort(next);
+    if (value === childSort) {
+        syncSortBtn();
+        return;
+    }
+    childSort = value;
+    syncSortBtn();
 }
 
 function spreadY(y, h, index, count) {
@@ -3273,6 +3326,12 @@ styleBtn?.addEventListener('click', e => {
     openStyleMenu();
 });
 
+sortBtn?.addEventListener('click', () => {
+    const next = childSort === 'name' ? 'order' : 'name';
+    applyChildSort(next);
+    vscode.postMessage({ type: 'setChildSort', value: next });
+});
+
 function clampZoom(value) {
     return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 100) / 100));
 }
@@ -3389,6 +3448,7 @@ window.addEventListener('message', ev => {
         applyCompactFilter(!!msg.compactFilter);
         applyCompactKinds(msg.compactKinds, true);
         applyEdgeStyle(normalizeEdgeStyle(msg.edgeStyle));
+        applyChildSort(normalizeChildSort(msg.childSort));
         if (typeof msg.hoverDelay === 'number' && Number.isFinite(msg.hoverDelay) && msg.hoverDelay >= 0) {
             tipDelayMs = msg.hoverDelay;
         }

@@ -378,6 +378,32 @@ body.vscode-high-contrast {
     justify-content: center;
 }
 
+#cr-sort {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
+
+#cr-sort .cr-sort-label {
+    position: relative;
+    display: inline-block;
+}
+
+#cr-sort .cr-sort-sizer {
+    display: block;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+#cr-sort .cr-sort-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .cr-centers {
     display: none;
     align-items: center;

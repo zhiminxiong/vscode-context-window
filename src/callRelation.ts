@@ -2,6 +2,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { enclosingCallable, isAnonymousSymbolName, isReferenceRelationKind, symbolAtPosition } from './enclosingSymbol';
 
+export type ChildSort = 'name' | 'order';
+
 export const CALL_PAGE = 12;
 export const CALL_MAX_HOP = 8;
 /** Each Expand All adds at most this many nodes; run again to continue. */
@@ -467,6 +469,8 @@ export class CallRelationModel {
     /** When true, keep only compactKinds from incoming and outgoing. */
     private compactFilter = false;
     private compactKinds = kindsFromIds(DEFAULT_SLIM_KIND_IDS);
+    /** name = A–Z; order = first call (callees) / file then call line (callers). */
+    private childSort: ChildSort = 'name';
     private seq = 0;
     private cacheEpoch = 0;
     private readonly fileGen = new Map<string, number>();
@@ -534,6 +538,68 @@ export class CallRelationModel {
 
     setCompactKinds(ids: readonly string[]): void {
         this.compactKinds = kindsFromIds(ids);
+    }
+
+    setChildSort(sort: ChildSort): void {
+        this.childSort = sort === 'order' ? 'order' : 'name';
+    }
+
+    private firstCallLine(parentKey: string, dir: -1 | 1, child: vscode.CallHierarchyItem): number {
+        const sites = this.callSites.get(`${parentKey}\0${dir}\0${itemKey(child)}`);
+        if (sites?.length) {
+            let min = sites[0].line;
+            for (let i = 1; i < sites.length; i++) {
+                if (sites[i].line < min) {
+                    min = sites[i].line;
+                }
+            }
+            return min;
+        }
+        const start = child.selectionRange?.start ?? child.range.start;
+        return start?.line ?? Number.MAX_SAFE_INTEGER;
+    }
+
+    private filePathKey(item: vscode.CallHierarchyItem): string {
+        return (item.uri.fsPath || item.uri.toString()).replace(/\\/g, '/').toLowerCase();
+    }
+
+    private compareIncomingOrder(
+        parentKey: string,
+        a: vscode.CallHierarchyItem,
+        b: vscode.CallHierarchyItem
+    ): number {
+        const pathA = this.filePathKey(a);
+        const pathB = this.filePathKey(b);
+        if (pathA !== pathB) {
+            const byFile = fileLabel(a.uri).localeCompare(fileLabel(b.uri), undefined, { sensitivity: 'base' });
+            if (byFile !== 0) {
+                return byFile;
+            }
+            return pathA.localeCompare(pathB);
+        }
+        const byLine = this.firstCallLine(parentKey, -1, a) - this.firstCallLine(parentKey, -1, b);
+        if (byLine !== 0) {
+            return byLine;
+        }
+        return compareItems(a, b);
+    }
+
+    private compareChildren(
+        parentKey: string,
+        dir: -1 | 1,
+        a: vscode.CallHierarchyItem,
+        b: vscode.CallHierarchyItem
+    ): number {
+        if (this.childSort === 'order') {
+            if (dir < 0) {
+                return this.compareIncomingOrder(parentKey, a, b);
+            }
+            const byLine = this.firstCallLine(parentKey, dir, a) - this.firstCallLine(parentKey, dir, b);
+            if (byLine !== 0) {
+                return byLine;
+            }
+        }
+        return compareItems(a, b);
     }
 
     private keepCallItem(item: vscode.CallHierarchyItem): boolean {
@@ -1574,7 +1640,7 @@ export class CallRelationModel {
             seen.add(k);
             unique.push(child);
         }
-        unique.sort(compareItems);
+        unique.sort((a, b) => this.compareChildren(parent.itemKey, dir, a, b));
         const pageKeys = new Set(unique.slice(0, limit).map(child => itemKey(child)));
         const visibleKeys = new Set(pageKeys);
         for (const child of unique) {
@@ -1639,7 +1705,14 @@ export class CallRelationModel {
                 pendingExpand.push(childNode);
             }
         };
-        type EmitSlot = { sort: string; child?: vscode.CallHierarchyItem; file?: string };
+        type EmitSlot = {
+            sort: string;
+            fileName: string;
+            filePath: string;
+            line: number;
+            child?: vscode.CallHierarchyItem;
+            file?: string;
+        };
         const slots: EmitSlot[] = [];
         for (const child of visible) {
             const file = fileLabel(child.uri);
@@ -1648,12 +1721,46 @@ export class CallRelationModel {
                     continue;
                 }
                 seenGroup.add(file);
-                slots.push({ sort: file, file });
+                const bunch = libByFile.get(file) || [];
+                const line = bunch.reduce(
+                    (min, item) => Math.min(min, this.firstCallLine(parent.itemKey, dir, item)),
+                    Number.MAX_SAFE_INTEGER
+                );
+                slots.push({
+                    sort: file,
+                    fileName: file,
+                    filePath: this.filePathKey(bunch[0] || child),
+                    line,
+                    file
+                });
                 continue;
             }
-            slots.push({ sort: sortName(child), child });
+            slots.push({
+                sort: sortName(child),
+                fileName: file,
+                filePath: this.filePathKey(child),
+                line: this.firstCallLine(parent.itemKey, dir, child),
+                child
+            });
         }
-        slots.sort((a, b) => a.sort.localeCompare(b.sort, undefined, { sensitivity: 'base' }));
+        slots.sort((a, b) => {
+            if (this.childSort === 'order') {
+                if (dir < 0) {
+                    if (a.filePath !== b.filePath) {
+                        const byFile = a.fileName.localeCompare(b.fileName, undefined, { sensitivity: 'base' });
+                        if (byFile !== 0) {
+                            return byFile;
+                        }
+                        return a.filePath.localeCompare(b.filePath);
+                    }
+                }
+                const byLine = a.line - b.line;
+                if (byLine !== 0) {
+                    return byLine;
+                }
+            }
+            return a.sort.localeCompare(b.sort, undefined, { sensitivity: 'base' });
+        });
         for (const slot of slots) {
             if (!slot.file) {
                 if (slot.child) {
@@ -1662,7 +1769,8 @@ export class CallRelationModel {
                 continue;
             }
             const file = slot.file;
-            const bunch = (libByFile.get(file) || []).slice().sort(compareItems);
+            const bunch = (libByFile.get(file) || []).slice()
+                .sort((a, b) => this.compareChildren(parent.itemKey, dir, a, b));
             if (bunch.length < 2) {
                 for (const item of bunch) {
                     emitChild(item);

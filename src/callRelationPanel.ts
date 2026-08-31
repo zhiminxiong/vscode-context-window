@@ -3,6 +3,7 @@ import { showPanelInNewWindow } from './auxiliaryWindow';
 import {
     callSiteIdentRange,
     CallRelationModel,
+    ChildSort,
     DEFAULT_SLIM_KIND_IDS,
     parseSlimKindIds,
     RelationGraph
@@ -25,6 +26,7 @@ export class CallRelationPanel {
     private graph: RelationGraph = { rootId: '', title: '', nodes: [], edges: [] };
     private pinned = false;
     private edgeStyle: 'elbow' | 'direct' | 'arc' = 'arc';
+    private childSort: ChildSort = 'name';
     private updateMode: 'live' | 'sticky' = 'live';
     private compactFilter = false;
     private compactKinds: string[] = [...DEFAULT_SLIM_KIND_IDS];
@@ -34,17 +36,22 @@ export class CallRelationPanel {
 
     constructor(private readonly extensionUri: vscode.Uri) {
         this.edgeStyle = this.readEdgeStyle();
+        this.childSort = this.readChildSort();
         this.updateMode = this.readUpdateMode();
         this.compactFilter = this.readCompactFilter();
         this.compactKinds = this.readCompactKinds();
         this.model.setCompactFilter(this.compactFilter);
         this.model.setCompactKinds(this.compactKinds);
+        this.model.setChildSort(this.childSort);
         this.model.setGraphListener((graph, seq) => this.applyGraph(graph, seq));
         this.disposables.push(
             vscode.workspace.onDidChangeConfiguration(e => {
                 if (e.affectsConfiguration('contextView.callRelation.edgeStyle')) {
                     this.edgeStyle = this.readEdgeStyle();
                     this.postState();
+                }
+                if (e.affectsConfiguration('contextView.callRelation.childSort')) {
+                    this.applyChildSort(this.readChildSort());
                 }
                 if (e.affectsConfiguration('contextView.callRelation.updateMode')) {
                     this.updateMode = this.readUpdateMode();
@@ -261,6 +268,16 @@ export class CallRelationPanel {
                 this.postState();
                 break;
             }
+            case 'setChildSort': {
+                this.childSort = this.normalizeChildSort(message.value);
+                await vscode.workspace.getConfiguration('contextView.callRelation').update(
+                    'childSort',
+                    this.childSort,
+                    true
+                );
+                this.applyChildSort(this.childSort);
+                break;
+            }
             case 'setCompactFilter': {
                 await vscode.workspace.getConfiguration('contextView.callRelation').update(
                     'compactFilter',
@@ -454,6 +471,22 @@ export class CallRelationPanel {
         return value === 'direct' || value === 'elbow' ? value : 'arc';
     }
 
+    private normalizeChildSort(value: unknown): ChildSort {
+        return value === 'order' ? 'order' : 'name';
+    }
+
+    private readChildSort(): ChildSort {
+        return this.normalizeChildSort(
+            vscode.workspace.getConfiguration('contextView.callRelation').get<string>('childSort')
+        );
+    }
+
+    private applyChildSort(sort: ChildSort): void {
+        this.childSort = sort;
+        this.model.setChildSort(sort);
+        this.refreshCompactGraph();
+    }
+
     private readEdgeStyle(): 'elbow' | 'direct' | 'arc' {
         return this.normalizeEdgeStyle(
             vscode.workspace.getConfiguration('contextView.callRelation').get<string>('edgeStyle')
@@ -510,6 +543,7 @@ export class CallRelationPanel {
             type: 'state',
             pinned: this.pinned,
             edgeStyle: this.edgeStyle,
+            childSort: this.childSort,
             updateMode: this.updateMode,
             compactFilter: this.compactFilter,
             compactKinds: this.compactKinds,
@@ -544,6 +578,7 @@ export class CallRelationPanel {
       <div class="cr-style-wrap" id="cr-style-wrap">
         <button type="button" id="cr-style" class="cr-btn" title="Connector style">Arc</button>
       </div>
+      <button type="button" id="cr-sort" class="cr-btn" title="Sort children A–Z by symbol name"><span class="cr-sort-label"><span class="cr-sort-sizer" aria-hidden="true">Order</span><span class="cr-sort-text">Name</span></span></button>
       <div class="cr-zoom-chip" id="cr-zoom-chip">
         <button type="button" id="cr-zoom-out" class="cr-btn" title="Zoom out (Ctrl+scroll)">−</button>
         <button type="button" id="cr-zoom-label" class="cr-btn cr-zoom-label" title="Reset zoom to 100%">100%</button>
@@ -567,7 +602,7 @@ export class CallRelationPanel {
     <p>On a function, Relation shows the call hierarchy. On a variable or field, it shows Find All References grouped by enclosing function (right side empty). Click a node to select it and open its definition. Double-click to make it the center (Call mode only). Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click the canvas to expand or collapse all nodes; right-click the trail to copy the call chain.</p>
     <p>Keys: arrows move focus (↑↓ siblings, ←→ parent/child; outward expands if needed), Enter opens, Shift+Enter expands/collapses, Backspace steps back on the center trail.</p>
     <p>Esc: with Find open closes Find only; otherwise dismisses menu, pin, then selection. Find uses the editor Find shortcut.</p>
-    <p>Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path, blue ×N = the same function on other call paths (click to jump). Hover a node to highlight it; hold Alt to highlight its other copies. The highlight clears when the pointer leaves. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. The bubble button turns node tips on (hover) or off (hold Alt to show). Slim keeps the kinds checked in the list beside Slim. Pick Elbow / Direct / Arc from the style list. Drag empty space to pan. − / + or Ctrl+scroll to zoom.</p>
+    <p>Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path, blue ×N = the same function on other call paths (click to jump). Hover a node to highlight it; hold Alt to highlight its other copies. The highlight clears when the pointer leaves. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. The bubble button turns node tips on (hover) or off (hold Alt to show). Slim keeps the kinds checked in the list beside Slim. Pick Elbow / Direct / Arc from the style list. Click Name / Order to sort A–Z, or by first call (callees) / file then call line (callers). Drag empty space to pan. − / + or Ctrl+scroll to zoom.</p>
   </div>
   <div class="cr-main">
     <div class="cr-find" id="cr-find">
