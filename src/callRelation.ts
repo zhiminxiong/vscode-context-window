@@ -659,6 +659,21 @@ export class CallRelationModel {
         return key;
     }
 
+    /** Drop cached sides so a class References visit cannot starve constructor Call. */
+    private forgetSides(item: vscode.CallHierarchyItem): void {
+        const key = itemKey(item);
+        this.incoming.delete(key);
+        this.outgoing.delete(key);
+        this.inflightIn.delete(key);
+        this.inflightOut.delete(key);
+        const prefix = `${key}\0`;
+        for (const siteKey of [...this.callSites.keys()]) {
+            if (siteKey.startsWith(prefix)) {
+                this.callSites.delete(siteKey);
+            }
+        }
+    }
+
     private resetCenter(item: vscode.CallHierarchyItem): void {
         this.centerTrail = [item];
         this.centerIndex = 0;
@@ -1096,7 +1111,7 @@ export class CallRelationModel {
                 return this.loadReferenceRoot(uri, position, seqPrepare, t0);
             }
         }
-        if (this.root && itemKey(this.root) === itemKey(next)) {
+        if (this.root && itemKey(this.root) === itemKey(next) && this.relationMode === 'call') {
             this.prevRoot = undefined;
             this.incomingHint = undefined;
             if (this.openedFromCallSite(uri, position, next) && this.sideEmpty(next, -1)) {
@@ -1104,6 +1119,9 @@ export class CallRelationModel {
             }
             costLog('loadRoot same', Date.now() - t0, itemLabel(next));
             return { graph: this.buildGraph(), seq: seqPrepare };
+        }
+        if (this.root && itemKey(this.root) === itemKey(next) && this.relationMode === 'reference') {
+            this.forgetSides(next);
         }
 
         let seq = seqPrepare;

@@ -174,20 +174,26 @@ function pickNamedOverlapping(found: EnclosingCallable[], range: vscode.Range): 
  * field use inside a constructor is not classified as the constructor itself.
  * Event / callable-type defs often land on a call signature named "()"; keep
  * the word under the cursor as a property instead.
+ * `constructor` is a Call Hierarchy item — do not treat it as the class.
  */
 export async function symbolAtPosition(
     uri: vscode.Uri,
     position: vscode.Position
 ): Promise<EnclosingCallable | undefined> {
     const word = await wordAt(uri, position);
+    const onCtor = /^constructor$/i.test(word);
     const fromDef = await resolveViaDefinition(uri, position, word);
     if (fromDef && !isAnonymousSymbolName(fromDef.name)
-        && (!word || identFromName(fromDef.name) === word)) {
+        && (!word || identFromName(fromDef.name) === word)
+        && !onCtor) {
         return fromDef;
     }
     const local = pickNamedAt(await documentSymbols(uri), position);
-    if (local && word && identFromName(local.name) === word) {
+    if (local && word && identFromName(local.name) === word && !onCtor) {
         return { ...local, uri };
+    }
+    if (onCtor) {
+        return undefined;
     }
     if (word && fromDef && (isAnonymousSymbolName(fromDef.name) || identFromName(fromDef.name) !== word)) {
         const wr = await wordRangeAt(uri, position);
