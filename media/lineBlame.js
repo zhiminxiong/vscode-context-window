@@ -374,29 +374,39 @@ export function createLineBlame(ctx) {
         return badge;
     }
 
+    // Every hover rebuilds the card. A URL that already loaded starts visible, so the
+    // photo no longer flips through the letter badge and the browser serves it from
+    // memory. A 404 is not remembered: the author may register a Gravatar later.
+    const avatarLoaded = new Set();
+
     function makeAvatar(h) {
         const name = h.authorName || h.author || '?';
         const letter = makeLetterAvatar(name);
-        if (!h.avatarUrl) {
+        const url = h.avatarUrl;
+        if (!url) {
             return letter;
         }
+        const loaded = avatarLoaded.has(url);
         const wrap = document.createElement('span');
         wrap.className = 'cw-line-blame-hover-avatar-wrap';
+        letter.hidden = loaded;
         wrap.appendChild(letter);
         const img = document.createElement('img');
         img.className = 'cw-line-blame-hover-avatar';
         img.alt = '';
         img.referrerPolicy = 'no-referrer';
-        img.hidden = true;
+        img.hidden = !loaded;
         img.addEventListener('load', () => {
             img.hidden = false;
             letter.hidden = true;
+            avatarLoaded.add(url);
         });
         img.addEventListener('error', () => {
             img.remove();
             letter.hidden = false;
+            avatarLoaded.delete(url);
         });
-        img.src = h.avatarUrl;
+        img.src = url;
         wrap.appendChild(img);
         return wrap;
     }
