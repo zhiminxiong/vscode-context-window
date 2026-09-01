@@ -5,13 +5,14 @@
   "version": "1.1.0",
   "publisher": "zhiminxiong",
   "keywords": [
-    "context",
-    "definition",
     "source insight",
-    "docs",
-    "hover",
-    "sidebar",
-    "panel"
+    "call hierarchy",
+    "call graph",
+    "references",
+    "go to definition",
+    "git blame",
+    "navigation",
+    "context window"
   ],
   "galleryBanner": {
     "color": "4C4C4C",
@@ -22,8 +23,8 @@
     "vscode": "^1.50.0"
   },
   "categories": [
-    "Other",
-    "Programming Languages"
+    "Visualization",
+    "Other"
   ],
   "activationEvents": [
     "onView:contextView.context",
