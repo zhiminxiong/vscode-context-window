@@ -1063,54 +1063,63 @@ body.has-jump-trail #container {
     background: var(--vscode-menu-selectionBackground, #1d8705);
     color: var(--vscode-menu-selectionForeground, #fff);
 }
-/* 底部导航栏的开关指示器：纯文本。字体颜色与底部文件名（contextView.ts）一致。
-   显示策略：本会话「曾开启过」才显示（.revealed，见下）；关闭 = 暗淡，开启 = 全不透明 + 绿勾。 */
+/* 底部导航栏开关：Codicon 括号。曾开启过才显示；关闭红叉，开启绿勾。 */
 .si-indicator {
-    display: none; /* 默认隐藏；仅当底部有文件名显示（body.ctx-has-file）时才显示 */
-    position: relative; /* 供开启态右下角 ✓ 定位 */
+    display: none;
+    position: relative;
     margin: 0;
     align-items: center;
     justify-content: center;
     height: 24px;
-    padding: 0 4px 4px;
+    padding: 0 4px;
     border-radius: 3px;
     box-sizing: border-box;
     cursor: pointer;
     user-select: none;
     font-size: 15px;
-    /* 更细更瘦：用 UI 字体（支持细字重）+ 细字重 + 收紧字距，使 { } 笔画纤细、间距紧凑 */
-    font-family: var(--vscode-font-family, 'Segoe UI', system-ui, sans-serif);
-    font-weight: 400;
-    letter-spacing: -1px;
     line-height: 1;
     color: var(--vscode-descriptionForeground);
-    opacity: 0.45; /* 关闭态：暗淡 */
     transition: color 0.15s ease, opacity 0.15s ease;
 }
 .si-indicator.revealed {
-    display: flex; /* 与文件名显示无关：初始化时配置已开、或本会话曾开启过（.revealed）即显示 { } */
+    display: flex;
 }
-.si-indicator:hover {
+.si-indicator .si-indicator-braces {
+    opacity: 0.45;
+}
+.si-indicator:hover .si-indicator-braces {
     opacity: 0.8;
 }
-.si-indicator.enabled {
-    /* 开启态：全不透明（保持纤细，不加粗） */
+.si-indicator.enabled .si-indicator-braces {
     opacity: 1;
-    color: var(--vscode-descriptionForeground);
 }
-/* 开启态：在 { } 右下角叠加一个绿色对勾（仅对勾着色，其余透明），提高开/关辨识度 */
-.si-indicator.enabled::after {
-    content: '✓'; /* U+2713 文本型对勾，可被 color 染色，不会渲染成彩色表情方块 */
-    position: absolute;
-    right: 0;
-    bottom: 5px;
-    font-size: 10px;
-    font-weight: 900;
-    line-height: 1;
-    letter-spacing: 0;
-    color: #12e02f; /* 鲜绿对勾 */
-    -webkit-text-stroke: 0.3px #12e02f; /* 略加描边让对勾更粗更显眼 */
-    pointer-events: none;
+.si-indicator-icon {
+    display: block;
+    width: 16px;
+    height: 16px;
+}
+.si-indicator-badge circle {
+    fill: #c42b1c;
+}
+.si-badge-check {
+    display: none;
+}
+.si-indicator.enabled .si-badge-check {
+    display: block;
+}
+.si-indicator.enabled .si-badge-x {
+    display: none;
+}
+.si-indicator.enabled .si-indicator-badge circle {
+    fill: #16825D;
+}
+.vscode-dark .si-indicator-badge circle,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .si-indicator-badge circle {
+    fill: #f14c4c;
+}
+.vscode-dark .si-indicator.enabled .si-indicator-badge circle,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .si-indicator.enabled .si-indicator-badge circle {
+    fill: #2ea043;
 }
 /* 添加双击区域样式 */
 .double-click-area {
