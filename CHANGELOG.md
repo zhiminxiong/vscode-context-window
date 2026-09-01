@@ -8,6 +8,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Changed
 
+- Token Style picker keeps the new preview (word + scope) and the original color / Bold / Italic row. There is no OK button: closing, clicking outside, or leaving the webview applies the current choice; Esc cancels.
 - Sticky update-mode icon is a closed eye (same eye as Live, with a slash), so it pairs with Live instead of looking like Pin. The footer control keeps the width of “Sticky” in both states, and sits to the right of Jump mode so changing Definition / Type Definition / Implementation / References does not shift Sticky. The filename strip fills the gap left of those controls, so right-click and double-click work across that empty bar.
 - Line-blame hover: each SHA chip shows the git-commit node to its left. The icon uses the chip color, so the current commit stays green and the parent stays muted.
 - Line-blame hover: grow into the free space above or below the line. Only when the card is taller than that space does it lock its height and scroll inside the padding, so the first and last visible lines stay inset from the border.

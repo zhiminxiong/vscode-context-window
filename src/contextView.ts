@@ -1721,6 +1721,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         
         const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.js'));
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
+        const tokenPickerStyleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'tokenPicker.css'));
         const navigationScriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'navigation.js'));
 
         // 方案 B：oniguruma WASM 资源 URI + 语法/注入映射（启用时才下发，避免无谓收割与体积）
@@ -1764,6 +1765,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
             <link href="${styleUri}" rel="stylesheet">
+            <link href="${tokenPickerStyleUri}" rel="stylesheet">
             
             <title>Definition View</title>
         </head>
