@@ -1588,6 +1588,19 @@ function focusPrevCenter() {
     vscode.postMessage({ type: 'focusNode', nodeId: prev.id });
 }
 
+function focusNextCenter() {
+    if (!lastGraph || isReferenceGraph(lastGraph)) {
+        return;
+    }
+    const trail = lastGraph.centerTrail || [];
+    const idx = typeof lastGraph.centerIndex === 'number' ? lastGraph.centerIndex : trail.length - 1;
+    if (idx < 0 || idx + 1 >= trail.length) {
+        return;
+    }
+    clearPathPin();
+    vscode.postMessage({ type: 'focusTrail', index: idx + 1 });
+}
+
 function clearNavSelection() {
     selectedId = '';
     selectedKey = '';
@@ -3551,6 +3564,36 @@ document.addEventListener('mousedown', e => {
         hideCtxMenu();
     }
 });
+// Mouse back / forward (X1 / X2) walk the center trail. Swallow them on every phase,
+// otherwise the webview frame answers them with its own history navigation.
+const MOUSE_BACK = 3;
+const MOUSE_FORWARD = 4;
+document.addEventListener('mousedown', e => {
+    if (e.button !== MOUSE_BACK && e.button !== MOUSE_FORWARD) {
+        return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    hideCenterOverflow();
+    hideCtxMenu();
+    if (e.button === MOUSE_BACK) {
+        focusPrevCenter();
+    } else {
+        focusNextCenter();
+    }
+}, true);
+document.addEventListener('mouseup', e => {
+    if (e.button === MOUSE_BACK || e.button === MOUSE_FORWARD) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+}, true);
+document.addEventListener('auxclick', e => {
+    if (e.button === MOUSE_BACK || e.button === MOUSE_FORWARD) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+}, true);
 document.addEventListener('keydown', e => {
     if (isTypingTarget(e.target)) {
         return;
