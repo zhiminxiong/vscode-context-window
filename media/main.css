@@ -960,7 +960,7 @@ body.has-jump-trail #container {
 }
 /* 右侧三个芯片共用同一 gap，避免各自 margin/padding 把两段空隙拉开、对不齐。 */
 .nav-mode-cluster {
-    margin-left: auto;
+    margin-left: 0;
     margin-right: 10px;
     display: flex;
     align-items: center;
@@ -1076,9 +1076,9 @@ body.has-jump-trail #container {
     background: var(--vscode-menu-selectionBackground, #1d8705);
     color: var(--vscode-menu-selectionForeground, #fff);
 }
-/* 底部导航栏开关：Codicon 括号。曾开启过才显示；关闭红叉，开启绿勾。 */
+/* 底部导航栏开关：Codicon 括号。始终显示；关闭红叉，开启绿勾。 */
 .si-indicator {
-    display: none;
+    display: flex;
     position: relative;
     margin: 0;
     align-items: center;
@@ -1093,9 +1093,6 @@ body.has-jump-trail #container {
     line-height: 1;
     color: var(--vscode-descriptionForeground);
     transition: color 0.15s ease, opacity 0.15s ease;
-}
-.si-indicator.revealed {
-    display: flex;
 }
 .si-indicator .si-indicator-braces {
     opacity: 0.45;
@@ -1136,28 +1133,19 @@ body.has-jump-trail #container {
 }
 /* 添加双击区域样式 */
 .double-click-area {
-    position: fixed;
-    bottom: 0; /* 与导航栏高度一致 */
-    /* 文件名固定紧贴上箭头（{ } 指示器已移到导航栏最右端，不再占用此处空间）。
-       上箭头右缘约 108px，留出小间距。 */
-    left: 114px;
-    /* 给右侧「Update Mode + 跳转模式」让位，避免铺满的透明区挡住按钮 */
-    right: 210px;
+    flex: 1;
+    min-width: 0;
     height: 24px;
-    z-index: 1001;
     cursor: default;
-    background-color: transparent; /* 使用透明背景，与导航栏一致 */
+    background-color: transparent;
     display: flex;
-    align-items: left;
-    justify-content: left;
+    align-items: center;
+    justify-content: flex-start;
     color: var(--vscode-descriptionForeground);
     font-size: 14px;
     font-style: italic;
     padding-left: 6px;
-}
-/* { } 指示器显示时：文件名区再让出 { } 宽度，避免挡住跳转模式和 { } */
-body.si-revealed .double-click-area {
-    right: 240px;
+    box-sizing: border-box;
 }
 /* 添加文件名显示样式 */
 .filename-display {

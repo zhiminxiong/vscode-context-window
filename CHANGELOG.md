@@ -8,7 +8,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Changed
 
-- Sticky update-mode icon is a closed eye (same eye as Live, with a slash), so it pairs with Live instead of looking like Pin. The footer control keeps the width of “Sticky” in both states, and sits to the right of Jump mode so changing Definition / Type Definition / Implementation / References does not shift Sticky.
+- Sticky update-mode icon is a closed eye (same eye as Live, with a slash), so it pairs with Live instead of looking like Pin. The footer control keeps the width of “Sticky” in both states, and sits to the right of Jump mode so changing Definition / Type Definition / Implementation / References does not shift Sticky. The filename strip fills the gap left of those controls, so right-click and double-click work across that empty bar.
 - Line-blame hover: each SHA chip shows the git-commit node to its left. The icon uses the chip color, so the current commit stays green and the parent stays muted.
 - Line-blame hover: grow into the free space above or below the line. Only when the card is taller than that space does it lock its height and scroll inside the padding, so the first and last visible lines stay inset from the border.
 
@@ -21,7 +21,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 - **Double Click Selects Symbol** no longer disturbs line-number selection. Dragging from a line number keeps the start line in both directions, holding still before dragging works, a small move inside one line no longer clears the selection, and press-and-drag is no longer mistaken for a double click. The caret is nudged with `cursorMove` instead of writing the selection, which preserves the editor's line-selection anchor, and the symbol expands only after a short confirmation with no further mouse movement.
 - Relation: after a class is shown as References, opening `constructor` (TypeScript maps it to the same item as the class) reloads Call incoming/outgoing instead of reusing the empty-right reference graph.
-- Toggling `{ }` (double-click select bracket pair) no longer rebuilds the Monaco theme. The footer flips immediately; only the behavior flag is written.
+- Toggling `{ }` (double-click select bracket pair) no longer rebuilds the Monaco theme. The footer flips immediately; only the behavior flag is written. The `{ }` control stays visible even when the setting is off, and the footer context-menu row for it is removed.
 
 ## [1.1.0] 2026.08.31
 

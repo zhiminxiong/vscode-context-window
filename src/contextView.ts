@@ -1785,17 +1785,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 <div id="container"></div>
             </div>
 
-            <!-- 添加双击区域 -->
-            <div class="double-click-area" title="double-click: Jump to definition">
-                <span class="filename-display">
-                    <span class="filename-text"></span>
-                    <span class="filename-path">
-                        <span class="filename-icon"></span>
-                        <span class="filename-path-text"></span>
-                    </span>
-                </span>
-            </div>
-
             <div class="progress-container">
                 <div class="progress-bar"></div>
             </div>
@@ -1839,6 +1828,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 <button class="nav-button" id="nav-back" title="Go Back">  </button>
                 <button class="nav-button" id="nav-forward" title="Go Forward">  </button>
                 <button class="nav-jump" id="nav-jump" title="Jump to definition"></button>
+                <div class="double-click-area" title="double-click: Jump to definition">
+                    <span class="filename-display">
+                        <span class="filename-text"></span>
+                        <span class="filename-path">
+                            <span class="filename-icon"></span>
+                            <span class="filename-path-text"></span>
+                        </span>
+                    </span>
+                </div>
                 <div class="nav-mode-cluster">
                     <!-- 跳转模式：靠左，长度变化时不挤 Sticky / { }。点击上拉选择。 -->
                     <div class="jump-mode" id="jump-mode" title="Jump mode: Go to Definition">
