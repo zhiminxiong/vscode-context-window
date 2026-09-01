@@ -8,6 +8,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Changed
 
+- Line-blame hover: each SHA chip shows the git-commit node to its left. The icon uses the chip color, so the current commit stays green and the parent stays muted.
 - Line-blame hover: grow into the free space above or below the line. Only when the card is taller than that space does it lock its height and scroll inside the padding, so the first and last visible lines stay inset from the border.
 
 #### Added

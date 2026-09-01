@@ -319,7 +319,10 @@ export function createLineBlame(ctx) {
         const shaBtn = document.createElement('button');
         shaBtn.type = 'button';
         shaBtn.className = 'cw-line-blame-hover-sha' + (current ? ' cw-line-blame-hover-sha-current' : '');
-        shaBtn.textContent = label || '';
+        shaBtn.innerHTML = '<svg class="cw-line-blame-hover-sha-git" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="currentColor"><path transform="rotate(90 8 8)" d="M11.5 8C11.5 6.24 10.194 4.779 8.5 4.536V1.5C8.5 1.224 8.276 1 8 1C7.724 1 7.5 1.224 7.5 1.5V4.536C5.806 4.779 4.5 6.24 4.5 8C4.5 9.76 5.806 11.221 7.5 11.464V14.5C7.5 14.776 7.724 15 8 15C8.276 15 8.5 14.776 8.5 14.5V11.464C10.194 11.221 11.5 9.76 11.5 8ZM8 10.5C6.621 10.5 5.5 9.378 5.5 8C5.5 6.622 6.621 5.5 8 5.5C9.379 5.5 10.5 6.622 10.5 8C10.5 9.378 9.379 10.5 8 10.5Z"/></svg>';
+        const text = document.createElement('span');
+        text.textContent = label || '';
+        shaBtn.appendChild(text);
         shaBtn.title = 'Copy SHA';
         shaBtn.addEventListener('click', ev => {
             ev.preventDefault();

@@ -442,14 +442,24 @@ body.has-jump-trail #container {
 }
 
 .cw-line-blame-hover-sha {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-family: var(--vscode-editor-font-family, Consolas, monospace);
     font-size: 13px;
-    padding: 2px 8px;
+    padding: 3px 8px 3px 6px;
     border: none;
     border-radius: 3px;
     cursor: pointer;
     color: #16825D;
     background: color-mix(in srgb, #16825D 16%, transparent);
+}
+
+.cw-line-blame-hover-sha-git {
+    display: block;
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
 }
 
 .vscode-dark .cw-line-blame-hover-sha,
@@ -514,10 +524,14 @@ body.has-jump-trail #container {
 }
 
 .cw-line-blame-hover-sep {
+    display: inline-flex;
+    align-items: center;
     font-size: 18px;
     line-height: 1;
     font-weight: 600;
     padding: 0 2px;
+    /* ↔ sits low in the em box; lift it to the SHA pill midline. */
+    transform: translateY(-2px);
 }
 
 .cw-line-blame-hover-open-changes {
