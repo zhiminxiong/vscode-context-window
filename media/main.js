@@ -976,6 +976,15 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         }
                                     }
                                     break;
+                                case 'updateSelectBracketPair': {
+                                    const cfg = window.vsCodeEditorConfiguration.contextEditorCfg
+                                        || (window.vsCodeEditorConfiguration.contextEditorCfg = {});
+                                    cfg.doubleClickSelectsBracketPair = !!message.value;
+                                    if (typeof window.updateSiIndicator === 'function') {
+                                        window.updateSiIndicator();
+                                    }
+                                    break;
+                                }
                                 case 'updateContextEditorCfg':
                                     if (message.contextEditorCfg) {
                                         window.vsCodeEditorConfiguration.contextEditorCfg = message.contextEditorCfg;

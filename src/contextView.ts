@@ -129,6 +129,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 }
             }
             if (e.affectsConfiguration('contextView.contextWindow')) {
+                if (this._onlyBracketPairSettingChanged(e)) {
+                    this.postMessageToWebview({
+                        type: 'updateSelectBracketPair',
+                        value: vscode.workspace.getConfiguration('contextView.contextWindow')
+                            .get('doubleClickSelectsBracketPair', false)
+                    });
+                    return;
+                }
                 // 重新获取配置并发送给webview
                 const newConfig = this._getVSCodeEditorConfiguration();
                 this.postMessageToWebview({
@@ -381,6 +389,22 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         return !vscode.workspace
             .getConfiguration('contextView.contextWindow')
             .get<boolean>('useDefaultTokenizer', true);
+    }
+
+    /** doubleClickSelectsBracketPair is behavior-only; do not rebuild theme/editor chrome. */
+    private _onlyBracketPairSettingChanged(e: vscode.ConfigurationChangeEvent): boolean {
+        if (!e.affectsConfiguration('contextView.contextWindow.doubleClickSelectsBracketPair')) {
+            return false;
+        }
+        const other = [
+            'jumpMode', 'updateMode', 'stickyScroll', 'enableHover', 'jumpTrail',
+            'jumpTrailMaxItems', 'lineBlame', 'lineBlameHover', 'fontSize', 'fontFamily',
+            'minimap', 'useDefaultTokenizer', 'fixToken', 'fixStickyScroll',
+            'occurrencesHighlight', 'contextDoubleClickSelectsSymbol',
+            'selectionBackground', 'inactiveSelectionBackground',
+            'selectionHighlightBackground', 'selectionHighlightBorder', 'cacheSizeLimit'
+        ];
+        return other.every(key => !e.affectsConfiguration(`contextView.contextWindow.${key}`));
     }
 
     // 解析 Sticky Scroll 的有效开关值（三态 → 布尔）。
@@ -897,9 +921,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     await this.handleOpenLineBlameChanges(message);
                     break;
                 case 'toggleSelectBracketPair':
-                    // 底部导航栏 {si} 指示器点击：切换「双击选中整对括号/引号」开关。
-                    // 复用命令统一逻辑；配置变更会经 onDidChangeConfiguration 广播 updateContextEditorCfg 回推 webview 刷新指示器。
-                    await vscode.commands.executeCommand('contextView.contextWindow.toggleSelectBracketPair');
+                    // 只改行为开关，不回推主题。指示器已在 webview 里先翻转。
+                    await vscode.commands.executeCommand('contextView.contextWindow.toggleSelectBracketPair', { quiet: true });
                     break;
                 case 'doubleClick':
                     await this.handleDoubleClick(message);

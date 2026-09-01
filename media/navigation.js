@@ -239,9 +239,17 @@
                 : 'Double-click selects the whole bracket/quote pair (including delimiters): OFF — click to enable';
         };
 
+        window.flipSelectBracketPair = function() {
+            const root = window.vsCodeEditorConfiguration || (window.vsCodeEditorConfiguration = {});
+            const cfg = root.contextEditorCfg || (root.contextEditorCfg = {});
+            cfg.doubleClickSelectsBracketPair = !cfg.doubleClickSelectsBracketPair;
+            window.updateSiIndicator();
+            window.vscode.postMessage({ type: 'toggleSelectBracketPair' });
+        };
+
         if (siIndicator) {
             siIndicator.addEventListener('click', () => {
-                window.vscode.postMessage({ type: 'toggleSelectBracketPair' });
+                window.flipSelectBracketPair();
             });
             // 该指示器区域禁用浏览器原生右键菜单，避免误触
             siIndicator.addEventListener('contextmenu', e => {
@@ -435,7 +443,7 @@
             {
                 label: 'Select Bracket/Quote Pair (dbl-click)',
                 checked: window.selectBracketPairEnabled,
-                action: () => window.vscode.postMessage({ type: 'toggleSelectBracketPair' })
+                action: () => window.flipSelectBracketPair()
             },
             { type: 'separator' }, // 分割条
             {

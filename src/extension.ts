@@ -267,15 +267,17 @@ export function activate(context: vscode.ExtensionContext) {
  */
 function registerBracketPairSelectionToggle(context: vscode.ExtensionContext) {
     context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.toggleSelectBracketPair', async () => {
+        vscode.commands.registerCommand('contextView.contextWindow.toggleSelectBracketPair', async (opts?: { quiet?: boolean }) => {
             const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
             const next = !cfg.get<boolean>(CONFIG_SELECT_BRACKET_PAIR, false);
             await cfg.update(CONFIG_SELECT_BRACKET_PAIR, next, vscode.ConfigurationTarget.Global);
-            vscode.window.setStatusBarMessage(
-                next ? 'Double-click selects the whole bracket/quote pair (including delimiters): ON — click to disable'
-                : 'Double-click selects the whole bracket/quote pair (including delimiters): OFF — click to enable',
-                1500
-            );
+            if (!opts?.quiet) {
+                vscode.window.setStatusBarMessage(
+                    next ? 'Double-click selects the whole bracket/quote pair (including delimiters): ON — click to disable'
+                    : 'Double-click selects the whole bracket/quote pair (including delimiters): OFF — click to enable',
+                    1500
+                );
+            }
         })
     );
 }
