@@ -9,7 +9,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 #### Added
 
 - Relation (Call): the mouse back / forward buttons walk the center trail, the same stack the top breadcrumb and Backspace use. They do nothing in References mode, where the center cannot move.
-- Line-blame hover: a Gravatar that already loaded is remembered, so a later hover on the same author opens on the photo instead of flipping through the letter badge. Authors without one are still looked up each time, in case they register one.
+- Line-blame hover: an author's Gravatar is downloaded once and kept for the session, so a later hover paints it straight from memory instead of going back to the network (Gravatar only allows five minutes of browser caching) and no longer flips through the letter badge. Authors without one are still looked up each time, in case they register one.
 
 #### Fixed
 

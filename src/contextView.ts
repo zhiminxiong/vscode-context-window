@@ -1733,8 +1733,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 script-src 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' ${webview.cspSource};
                 worker-src ${webview.cspSource} blob:;
                 child-src ${webview.cspSource} blob:;
-                connect-src ${webview.cspSource};
-                img-src data: https: ${webview.cspSource};
+                connect-src ${webview.cspSource} https://www.gravatar.com;
+                img-src data: blob: https: ${webview.cspSource};
                 font-src ${webview.cspSource} data:;
                 ">
 

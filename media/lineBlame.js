@@ -374,10 +374,39 @@ export function createLineBlame(ctx) {
         return badge;
     }
 
-    // Every hover rebuilds the card. A URL that already loaded starts visible, so the
-    // photo no longer flips through the letter badge and the browser serves it from
-    // memory. A 404 is not remembered: the author may register a Gravatar later.
-    const avatarLoaded = new Set();
+    // Gravatar only sends max-age=300, so leaving it to the browser means going back to
+    // the network every few minutes. Hold the bytes for the session instead: one blob URL
+    // per author, painted straight from memory on later hovers. A 404 is not remembered,
+    // so an author who registers a Gravatar later still gets picked up.
+    /** @type {Map<string, string>} */
+    const avatarBlobs = new Map();
+    /** @type {Map<string, Promise<string>>} */
+    const avatarLoads = new Map();
+
+    function loadAvatar(url) {
+        const done = avatarBlobs.get(url);
+        if (done) {
+            return Promise.resolve(done);
+        }
+        let pending = avatarLoads.get(url);
+        if (!pending) {
+            pending = fetch(url, { referrerPolicy: 'no-referrer' })
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error(`avatar ${res.status}`);
+                    }
+                    return res.blob();
+                })
+                .then(blob => {
+                    const src = URL.createObjectURL(blob);
+                    avatarBlobs.set(url, src);
+                    return src;
+                })
+                .finally(() => avatarLoads.delete(url));
+            avatarLoads.set(url, pending);
+        }
+        return pending;
+    }
 
     function makeAvatar(h) {
         const name = h.authorName || h.author || '?';
@@ -386,28 +415,29 @@ export function createLineBlame(ctx) {
         if (!url) {
             return letter;
         }
-        const loaded = avatarLoaded.has(url);
+        const cached = avatarBlobs.get(url);
         const wrap = document.createElement('span');
         wrap.className = 'cw-line-blame-hover-avatar-wrap';
-        letter.hidden = loaded;
+        letter.hidden = !!cached;
         wrap.appendChild(letter);
         const img = document.createElement('img');
         img.className = 'cw-line-blame-hover-avatar';
         img.alt = '';
         img.referrerPolicy = 'no-referrer';
-        img.hidden = !loaded;
-        img.addEventListener('load', () => {
+        img.hidden = !cached;
+        wrap.appendChild(img);
+        if (cached) {
+            img.src = cached;
+            return wrap;
+        }
+        loadAvatar(url).then(src => {
+            img.src = src;
             img.hidden = false;
             letter.hidden = true;
-            avatarLoaded.add(url);
-        });
-        img.addEventListener('error', () => {
+        }).catch(() => {
             img.remove();
             letter.hidden = false;
-            avatarLoaded.delete(url);
         });
-        img.src = url;
-        wrap.appendChild(img);
         return wrap;
     }
 
