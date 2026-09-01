@@ -6,6 +6,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [unReleased] 2026.08.31
 
+#### Changed
+
+- Line-blame hover: Open Changes uses the VS Code Codicon `git-compare` (the same glyph as Compare Changes), so it matches the editor and follows light / dark icon color.
+
 #### Added
 
 - Relation (Call): the mouse back / forward buttons walk the center trail, the same stack the top breadcrumb and Backspace use. They do nothing in References mode, where the center cannot move.
