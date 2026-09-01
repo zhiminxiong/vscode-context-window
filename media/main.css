@@ -1009,12 +1009,25 @@ body.has-jump-trail #container {
     display: flex;
     align-items: center;
 }
-.jump-mode > .nav-mode-icon,
-.update-mode:not(.is-sticky) > .nav-mode-icon {
-    transform: none;
+.update-mode-label {
+    position: relative;
+    display: inline-block;
 }
-.update-mode.is-sticky > .nav-mode-icon {
-    transform: translateY(2px);
+.update-mode-sizer {
+    display: block;
+    visibility: hidden;
+    pointer-events: none;
+}
+.update-mode-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.jump-mode > .nav-mode-icon,
+.update-mode > .nav-mode-icon {
+    transform: none;
 }
 .nav-mode-icon {
     display: flex;

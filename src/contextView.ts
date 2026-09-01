@@ -1817,14 +1817,17 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 <button class="nav-button" id="nav-forward" title="Go Forward">  </button>
                 <button class="nav-jump" id="nav-jump" title="Jump to definition"></button>
                 <div class="nav-mode-cluster">
-                    <div class="update-mode" id="update-mode" title="Update mode: Live">
-                        <span class="nav-mode-icon" id="update-mode-icon"></span>
-                        <span class="update-mode-label" id="update-mode-label">Live</span>
-                    </div>
-                    <!-- 跳转模式：停在底栏右侧、{ } 左侧。点击上拉选择。 -->
+                    <!-- 跳转模式：靠左，长度变化时不挤 Sticky / { }。点击上拉选择。 -->
                     <div class="jump-mode" id="jump-mode" title="Jump mode: Go to Definition">
                         <span class="nav-mode-icon" id="jump-mode-icon"></span>
                         <span class="jump-mode-label" id="jump-mode-label">Definition</span>
+                    </div>
+                    <div class="update-mode" id="update-mode" title="Update mode: Live">
+                        <span class="nav-mode-icon" id="update-mode-icon"></span>
+                        <span class="update-mode-label" id="update-mode-label">
+                            <span class="update-mode-sizer" aria-hidden="true">Sticky</span>
+                            <span class="update-mode-text" id="update-mode-text">Live</span>
+                        </span>
                     </div>
                     <!-- 开关指示器：本会话曾开启过才显示，标识「双击选中整对括号/引号（含定界符）」是否开启，点击可切换 -->
                     <div class="si-indicator" id="si-indicator" title="Double-click selects the whole bracket/quote pair (including delimiters)"><svg class="si-indicator-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path class="si-indicator-braces" fill="currentColor" d="M5 2C3.89543 2 3 2.89543 3 4V6.00469C3 6.53494 2.99231 6.79889 2.91088 7.00209C2.84826 7.15835 2.71576 7.33309 2.2764 7.55276C2.10701 7.63745 2 7.81058 2 7.99997C2 8.18935 2.10699 8.36249 2.27638 8.44719C2.71569 8.66685 2.84809 8.84151 2.91076 8.99819C2.99233 9.20211 3 9.46732 3 10L3 12C3 13.1046 3.89543 14 5 14C5.27614 14 5.5 13.7761 5.5 13.5C5.5 13.2239 5.27614 13 5 13C4.44772 13 4 12.5523 4 12L4.00003 9.94145C4.00033 9.49235 4.00065 9.03033 3.83924 8.6268C3.74212 8.384 3.59654 8.17962 3.40072 8.00002C3.59646 7.82057 3.74199 7.61645 3.83912 7.37408C4.00065 6.971 4.00033 6.51001 4.00003 6.063L4 4C4 3.44772 4.44772 3 5 3C5.27614 3 5.5 2.77614 5.5 2.5C5.5 2.22386 5.27614 2 5 2ZM11 2C12.1046 2 13 2.89543 13 4V6.00469C13 6.53494 13.0077 6.79889 13.0891 7.00209C13.1517 7.15835 13.2842 7.33309 13.7236 7.55276C13.893 7.63745 14 7.81058 14 7.99997C14 8.18935 13.893 8.36249 13.7236 8.44719C13.2843 8.66685 13.1519 8.84151 13.0892 8.99819C13.0077 9.20211 13 9.46732 13 10V12C13 13.1046 12.1046 14 11 14C10.7239 14 10.5 13.7761 10.5 13.5C10.5 13.2239 10.7239 13 11 13C11.5523 13 12 12.5523 12 12L12 9.94145C11.9997 9.49235 11.9994 9.03033 12.1608 8.6268C12.2579 8.384 12.4035 8.17962 12.5993 8.00002C12.4035 7.82057 12.258 7.61645 12.1609 7.37408C11.9993 6.971 11.9997 6.51001 12 6.063L12 4C12 3.44772 11.5523 3 11 3C10.7239 3 10.5 2.77614 10.5 2.5C10.5 2.22386 10.7239 2 11 2Z"/><g class="si-indicator-badge"><circle cx="12.2" cy="12.2" r="3.9"/><path class="si-badge-check" d="M10.3 12.25 L11.55 13.55 L14.15 10.45" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path class="si-badge-x" d="M10.55 10.55 L13.85 13.85 M13.85 10.55 L10.55 13.85" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></g></svg></div>

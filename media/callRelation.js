@@ -3071,7 +3071,7 @@ function applyUpdateMode(value) {
             ? 'Update mode: Sticky — keep last graph until new results'
             : 'Update mode: Live — empty graph when no call hierarchy';
         updateBtn.innerHTML = (sticky
-            ? '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M10.2 1.5 9.5 2.2l.3 3.5L12 8.2V9H9v5H7V9H4V8.2l2.2-2.5.3-3.5-.7-.7L6.5 1h3.7z"/></svg>'
+            ? '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 3C4.67 3 1.82 5.07 1 8c.82 2.93 3.67 5 7 5s6.18-2.07 7-5c-.82-2.93-3.67-5-7-5zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-1.5A1.5 1.5 0 1 0 8 6a1.5 1.5 0 0 0 0 3z"/><path fill="currentColor" d="M1.15 2.85 13.15 14.85l.7-.7L1.85 2.15l-.7.7z"/></svg>'
             : '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 3C4.67 3 1.82 5.07 1 8c.82 2.93 3.67 5 7 5s6.18-2.07 7-5c-.82-2.93-3.67-5-7-5zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-1.5A1.5 1.5 0 1 0 8 6a1.5 1.5 0 0 0 0 3z"/></svg>')
             + '<span class="cr-update-label">'
             + '<span class="cr-update-sizer" aria-hidden="true">Sticky</span>'

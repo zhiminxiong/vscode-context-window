@@ -17,7 +17,7 @@
 
     const NAV_ICONS = {
         live: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 3C4.67 3 1.82 5.07 1 8c.82 2.93 3.67 5 7 5s6.18-2.07 7-5c-.82-2.93-3.67-5-7-5zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-1.5A1.5 1.5 0 1 0 8 6a1.5 1.5 0 0 0 0 3z"/></svg>',
-        sticky: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M10.2 1.5 9.5 2.2l.3 3.5L12 8.2V9H9v5H7V9H4V8.2l2.2-2.5.3-3.5-.7-.7L6.5 1h3.7z"/></svg>',
+        sticky: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 3C4.67 3 1.82 5.07 1 8c.82 2.93 3.67 5 7 5s6.18-2.07 7-5c-.82-2.93-3.67-5-7-5zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0-1.5A1.5 1.5 0 1 0 8 6a1.5 1.5 0 0 0 0 3z"/><path fill="currentColor" d="M1.15 2.85 13.15 14.85l.7-.7L1.85 2.15l-.7.7z"/></svg>',
         definition: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3 2h7v1H4v9h9V8h1v5H3V2zm6.15 0H14v4.85h-1V3.7L7.85 8.85l-.7-.7L12.3 3h-3.15V2z"/></svg>',
         typeDefinition: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3 2h10v12H3V2zm1 1v2.2h8V3H4zm0 3.2V13h8V6.2H4zM6.2 8h3.6v1H6.2V8z"/></svg>',
         implementation: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 4h8v10H2V4zm1 1v8h6V5H3zm3-2h8v10h-1V4H6V3z"/></svg>',
@@ -179,9 +179,9 @@
 
         function paintUpdateMode(sticky) {
             const btn = document.getElementById('update-mode');
-            const label = document.getElementById('update-mode-label');
-            if (label) {
-                label.textContent = sticky ? 'Sticky' : 'Live';
+            const text = document.getElementById('update-mode-text');
+            if (text) {
+                text.textContent = sticky ? 'Sticky' : 'Live';
             }
             setNavIcon(document.getElementById('update-mode-icon'), sticky ? 'sticky' : 'live');
             if (btn) {
