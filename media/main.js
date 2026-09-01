@@ -27,12 +27,13 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
     window.vscode = vscode;
     window.isPinned = false;
     window.pickTokenStyle = false;
-    window.stickyScroll = false;
     // Hover Tips 初值：从后端下发的 contextEditorCfg.enableHover 读取，不存在时默认 false。
     // 右键菜单 "Hover Tips" 切换后反转该值，同时以 'setEnableHover' 消息告知后端持久化。
     {
         const cfg0 = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
         window.enableHover = (cfg0 && typeof cfg0.enableHover === 'boolean') ? cfg0.enableHover : false;
+        // 与 jumpTrail / lineBlame 一样先用下发的有效值，避免底栏图标在 Monaco 起来前按 false 画一帧。
+        window.stickyScroll = (cfg0 && typeof cfg0.stickyScroll === 'boolean') ? cfg0.stickyScroll : true;
         window.jumpTrailEnabled = (cfg0 && typeof cfg0.jumpTrail === 'boolean') ? cfg0.jumpTrail : true;
         window.jumpTrailMaxItems = (cfg0 && typeof cfg0.jumpTrailMaxItems === 'number')
             ? Math.max(2, Math.floor(cfg0.jumpTrailMaxItems))
@@ -316,6 +317,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         const cfgSticky = contextEditorCfg.stickyScroll;
                         window.stickyScroll = (typeof cfgSticky === 'boolean') ? cfgSticky : !!currentStickyScroll?.enabled;
                         editor.updateOptions({ stickyScroll: { enabled: window.stickyScroll } });
+                        if (typeof window.updateViewToggles === 'function') {
+                            window.updateViewToggles();
+                        }
                     }
                     // sticky scroll 的 defaultModel 由 editorContent.js 的 refreshStickyScroll 按当前文件语言动态切换：
                     // TS/JS 用 foldingProviderModel（其 outline 在 webview 中不可用，缩进模型又处理不了「{ 独占一行」），
@@ -936,11 +940,17 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     window.jumpTrailEnabled = !window.jumpTrailEnabled;
                                     jumpTrail.setEnabled(window.jumpTrailEnabled);
                                     vscode.postMessage({ type: 'setJumpTrail', value: window.jumpTrailEnabled });
+                                    if (typeof window.updateViewToggles === 'function') {
+                                        window.updateViewToggles();
+                                    }
                                     break;
                                 case 'LineBlame':
                                     window.lineBlameEnabled = !window.lineBlameEnabled;
                                     lineBlame.setEnabled(window.lineBlameEnabled);
                                     vscode.postMessage({ type: 'setLineBlame', value: window.lineBlameEnabled });
+                                    if (typeof window.updateViewToggles === 'function') {
+                                        window.updateViewToggles();
+                                    }
                                     break;
                                 case 'StickyScroll':
                                     window.stickyScroll = !window.stickyScroll;
@@ -951,6 +961,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     // 持久化到插件自身配置（覆盖「跟随 VSCode」的默认行为）：
                                     // 否则右键取消只是运行时临时生效，重启后又回到 VSCode 全局 sticky scroll 值。
                                     vscode.postMessage({ type: 'setStickyScroll', value: window.stickyScroll });
+                                    if (typeof window.updateViewToggles === 'function') {
+                                        window.updateViewToggles();
+                                    }
                                     break;
                                 case 'PickTokenStyle':
                                     window.pickTokenStyle = !window.pickTokenStyle;
@@ -982,6 +995,37 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     cfg.doubleClickSelectsBracketPair = !!message.value;
                                     if (typeof window.updateSiIndicator === 'function') {
                                         window.updateSiIndicator();
+                                    }
+                                    break;
+                                }
+                                case 'updateViewFlags': {
+                                    const cfg = window.vsCodeEditorConfiguration.contextEditorCfg
+                                        || (window.vsCodeEditorConfiguration.contextEditorCfg = {});
+                                    if (typeof message.doubleClickSelectsBracketPair === 'boolean') {
+                                        cfg.doubleClickSelectsBracketPair = message.doubleClickSelectsBracketPair;
+                                        if (typeof window.updateSiIndicator === 'function') {
+                                            window.updateSiIndicator();
+                                        }
+                                    }
+                                    if (typeof message.jumpTrail === 'boolean'
+                                        && window.jumpTrailEnabled !== message.jumpTrail) {
+                                        window.jumpTrailEnabled = message.jumpTrail;
+                                        jumpTrail.setEnabled(window.jumpTrailEnabled);
+                                    }
+                                    if (typeof message.lineBlame === 'boolean'
+                                        && window.lineBlameEnabled !== message.lineBlame) {
+                                        window.lineBlameEnabled = message.lineBlame;
+                                        lineBlame.setEnabled(window.lineBlameEnabled);
+                                    }
+                                    if (typeof message.stickyScroll === 'boolean'
+                                        && window.stickyScroll !== message.stickyScroll) {
+                                        window.stickyScroll = message.stickyScroll;
+                                        if (editor) {
+                                            editor.updateOptions({ stickyScroll: { enabled: window.stickyScroll } });
+                                        }
+                                    }
+                                    if (typeof window.updateViewToggles === 'function') {
+                                        window.updateViewToggles();
                                     }
                                     break;
                                 }
@@ -1042,6 +1086,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         // 配置变更都会广播到这里，刷新底部导航栏 {si} 指示器的开/关外观。
                                         if (typeof window.updateSiIndicator === 'function') {
                                             window.updateSiIndicator();
+                                        }
+                                        if (typeof window.updateViewToggles === 'function') {
+                                            window.updateViewToggles();
                                         }
                                         if (typeof window.updateJumpMode === 'function') {
                                             window.updateJumpMode();

@@ -999,8 +999,37 @@ body.has-jump-trail #container {
 .update-mode:hover,
 .jump-mode:hover,
 .jump-mode.open,
-.si-indicator:hover {
+.si-indicator:hover,
+.nav-view-toggle:hover {
     background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+}
+.nav-view-toggles {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    height: 24px;
+    flex-shrink: 0;
+}
+.nav-view-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 24px;
+    padding: 0 4px;
+    border-radius: 3px;
+    box-sizing: border-box;
+    cursor: pointer;
+    user-select: none;
+    color: var(--vscode-descriptionForeground);
+}
+.nav-view-toggle svg {
+    display: block;
+    width: 14px;
+    height: 14px;
+    opacity: 0.4;
+}
+.nav-view-toggle.is-on svg {
+    opacity: 1;
 }
 .update-mode-label,
 .jump-mode-label {

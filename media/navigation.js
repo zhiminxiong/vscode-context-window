@@ -13,6 +13,7 @@
         setupJumpMode();
         setupUpdateMode();
         setupSiIndicator();
+        setupViewToggles();
     }
 
     const NAV_ICONS = {
@@ -21,7 +22,10 @@
         definition: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3 2h7v1H4v9h9V8h1v5H3V2zm6.15 0H14v4.85h-1V3.7L7.85 8.85l-.7-.7L12.3 3h-3.15V2z"/></svg>',
         typeDefinition: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3 2h10v12H3V2zm1 1v2.2h8V3H4zm0 3.2V13h8V6.2H4zM6.2 8h3.6v1H6.2V8z"/></svg>',
         implementation: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 4h8v10H2V4zm1 1v8h6V5H3zm3-2h8v10h-1V4H6V3z"/></svg>',
-        references: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.25H2V3zm0 4.4h12v1.25H2V7.4zm0 4.35h8v1.25H2v-1.25z"/></svg>'
+        references: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.25H2V3zm0 4.4h12v1.25H2V7.4zm0 4.35h8v1.25H2v-1.25z"/></svg>',
+        jumpTrail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg>',
+        lineBlame: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/></svg>',
+        stickyScroll: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h14"/><path d="m8 12 4-4 4 4"/><path d="m8 16 4 4 4-4"/></svg>'
     };
 
     function setNavIcon(el, key) {
@@ -252,6 +256,67 @@
 
         // 用初始下发的配置渲染一次
         window.updateSiIndicator();
+    }
+
+    function setupViewToggles() {
+        const items = [
+            {
+                id: 'toggle-jump-trail',
+                icon: 'jumpTrail',
+                on: () => !!window.jumpTrailEnabled,
+                title: on => on
+                    ? 'Jump Trail: ON — click to hide the hop trail'
+                    : 'Jump Trail: OFF — click to show the hop trail',
+                flip: () => window.postMessage({ type: 'JumpTrail' })
+            },
+            {
+                id: 'toggle-sticky-scroll',
+                icon: 'stickyScroll',
+                on: () => !!window.stickyScroll,
+                title: on => on
+                    ? 'Sticky Scroll: ON — click to hide sticky lines'
+                    : 'Sticky Scroll: OFF — click to show sticky lines',
+                flip: () => window.postMessage({ type: 'StickyScroll' })
+            },
+            {
+                id: 'toggle-line-blame',
+                icon: 'lineBlame',
+                on: () => !!window.lineBlameEnabled,
+                title: on => on
+                    ? 'Git Line Blame: ON — click to hide line summaries'
+                    : 'Git Line Blame: OFF — click to show line summaries',
+                flip: () => window.postMessage({ type: 'LineBlame' })
+            }
+        ];
+
+        window.updateViewToggles = function() {
+            for (const item of items) {
+                const el = document.getElementById(item.id);
+                if (!el) {
+                    continue;
+                }
+                const on = item.on();
+                el.classList.toggle('is-on', on);
+                el.title = item.title(on);
+                el.setAttribute('aria-pressed', on ? 'true' : 'false');
+            }
+        };
+
+        for (const item of items) {
+            const el = document.getElementById(item.id);
+            if (!el) {
+                continue;
+            }
+            setNavIcon(el, item.icon);
+            el.addEventListener('click', () => {
+                item.flip();
+            });
+            el.addEventListener('contextmenu', e => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        }
+        window.updateViewToggles();
     }
 
     function setupNavigation() {
