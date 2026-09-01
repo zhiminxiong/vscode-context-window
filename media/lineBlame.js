@@ -683,8 +683,11 @@ export function createLineBlame(ctx) {
         const rect = getAnchorLineRect();
         const pad = 8;
         const minH = 120;
+        hoverEl.classList.remove('is-clip');
+        hoverEl.style.height = '';
         hoverEl.style.maxHeight = '';
         const hw = hoverEl.offsetWidth;
+        const natural = hoverEl.offsetHeight;
         const availAbove = Math.max(0, rect.top - pad);
         const availBelow = Math.max(0, window.innerHeight - rect.bottom - pad);
         // 只按哪边空间大选边，不看当前高度。否则没 diff 时变矮会往下，diff 到了再翻上去。
@@ -692,6 +695,11 @@ export function createLineBlame(ctx) {
         const avail = placeBelow ? availBelow : availAbove;
         const cap = Math.max(minH, avail || (window.innerHeight - pad * 2));
         hoverEl.style.maxHeight = cap + 'px';
+        // 只有内容比空位还高才锁高度、在内边距里滚。否则按内容长高，避免再缩成小框。
+        if (natural > cap) {
+            hoverEl.style.height = cap + 'px';
+            hoverEl.classList.add('is-clip');
+        }
         const hh = hoverEl.offsetHeight;
         let left = rect.left;
         if (left + hw > window.innerWidth - pad) {
@@ -729,6 +737,9 @@ export function createLineBlame(ctx) {
             document.body.appendChild(hoverEl);
         }
         hoverEl.innerHTML = '';
+
+        const scroll = document.createElement('div');
+        scroll.className = 'cw-line-blame-hover-scroll';
 
         const tips = document.createElement('div');
         tips.className = 'cw-line-blame-hover-tips';
@@ -785,7 +796,7 @@ export function createLineBlame(ctx) {
             () => formatTipsCopy(lastShown && lastShown.hover),
             'Copy'
         ));
-        hoverEl.appendChild(tips);
+        scroll.appendChild(tips);
 
         const detail = document.createElement('div');
         detail.className = 'cw-line-blame-hover-detail';
@@ -858,7 +869,8 @@ export function createLineBlame(ctx) {
             () => formatDiffCopy(lastShown && lastShown.hover),
             'Copy'
         ));
-        hoverEl.appendChild(detail);
+        scroll.appendChild(detail);
+        hoverEl.appendChild(scroll);
 
         hoverEl.style.visibility = 'hidden';
         positionHover();

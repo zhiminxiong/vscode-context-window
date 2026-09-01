@@ -163,10 +163,8 @@ body.has-jump-trail #container {
     min-width: 520px;
     width: max-content;
     max-height: calc(100vh - 16px);
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 12px 14px 10px;
+    overflow: hidden;
+    padding: 16px 16px 14px;
     background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
     color: var(--vscode-editorHoverWidget-foreground, var(--vscode-editorWidget-foreground, #cccccc));
     border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-editorWidget-border, #454545));
@@ -175,6 +173,19 @@ body.has-jump-trail #container {
     font-size: 14px;
     line-height: 1.45;
     font-family: var(--vscode-font-family, "Segoe UI", sans-serif);
+}
+
+.cw-line-blame-hover-scroll {
+    flex: 0 0 auto;
+}
+
+/* Parent has an explicit height only when content is taller than the free space. */
+.cw-line-blame-hover.is-clip .cw-line-blame-hover-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .cw-line-blame-hover-tips {
@@ -219,7 +230,7 @@ body.has-jump-trail #container {
     padding-right: 26px;
 }
 
-.cw-line-blame-hover:hover:not(:has(.cw-line-blame-hover-detail:hover)) > .cw-line-blame-hover-tips > .cw-line-blame-hover-copy,
+.cw-line-blame-hover:hover:not(:has(.cw-line-blame-hover-detail:hover)) .cw-line-blame-hover-tips > .cw-line-blame-hover-copy,
 .cw-line-blame-hover-detail:hover > .cw-line-blame-hover-copy {
     opacity: 1;
     visibility: visible;
@@ -320,21 +331,21 @@ body.has-jump-trail #container {
     overflow: visible;
 }
 
-.cw-line-blame-hover::-webkit-scrollbar {
+.cw-line-blame-hover-scroll::-webkit-scrollbar {
     width: 8px;
     height: 8px;
 }
 
-.cw-line-blame-hover::-webkit-scrollbar-track {
+.cw-line-blame-hover-scroll::-webkit-scrollbar-track {
     background: transparent;
 }
 
-.cw-line-blame-hover::-webkit-scrollbar-thumb {
+.cw-line-blame-hover-scroll::-webkit-scrollbar-thumb {
     background: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
     border-radius: 4px;
 }
 
-.cw-line-blame-hover::-webkit-scrollbar-thumb:hover {
+.cw-line-blame-hover-scroll::-webkit-scrollbar-thumb:hover {
     background: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
 }
 

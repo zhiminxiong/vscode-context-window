@@ -8,7 +8,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Changed
 
-- Line-blame hover: Open Changes uses the VS Code Codicon `git-compare` (the same glyph as Compare Changes), so it matches the editor and follows light / dark icon color.
+- Line-blame hover: grow into the free space above or below the line. Only when the card is taller than that space does it lock its height and scroll inside the padding, so the first and last visible lines stay inset from the border.
 
 #### Added
 
