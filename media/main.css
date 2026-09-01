@@ -230,8 +230,18 @@ body.has-jump-trail #container {
     padding-right: 26px;
 }
 
-.cw-line-blame-hover:hover:not(:has(.cw-line-blame-hover-detail:hover)) .cw-line-blame-hover-tips > .cw-line-blame-hover-copy,
-.cw-line-blame-hover-detail:hover > .cw-line-blame-hover-copy {
+.cw-line-blame-hover-rule {
+    flex: 0 0 auto;
+    align-self: stretch;
+    height: 0;
+    margin: 0;
+    border: none;
+    border-top: 1px solid var(--vscode-editorHoverWidget-border, rgba(128, 128, 128, 0.35));
+    pointer-events: none;
+}
+
+.cw-line-blame-hover:hover:not(.is-copy-below) .cw-line-blame-hover-tips > .cw-line-blame-hover-copy,
+.cw-line-blame-hover.is-copy-below .cw-line-blame-hover-detail > .cw-line-blame-hover-copy {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
@@ -384,7 +394,6 @@ body.has-jump-trail #container {
     align-self: stretch;
     box-sizing: border-box;
     border: none;
-    border-top: 1px solid var(--vscode-editorHoverWidget-border, rgba(128, 128, 128, 0.35));
     border-radius: 0;
     font-family: var(--vscode-editor-font-family, Consolas, monospace);
     font-size: 12px;
@@ -515,6 +524,9 @@ body.has-jump-trail #container {
     color: var(--vscode-descriptionForeground, #999);
     font-size: 13px;
     padding-top: 6px;
+    /* Stretch the rule to the card edge; detail keeps 26px for the copy button. */
+    margin-right: -26px;
+    padding-right: 26px;
     border-top: 1px solid var(--vscode-editorHoverWidget-border, rgba(128, 128, 128, 0.35));
 }
 

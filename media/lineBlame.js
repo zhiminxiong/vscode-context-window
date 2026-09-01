@@ -54,6 +54,7 @@ export function createLineBlame(ctx) {
     let widget = null;
     /** @type {HTMLDivElement | null} */
     let hoverEl = null;
+    let copyZoneY = 0;
     let hoverHideTimer = 0;
     let hoverShowTimer = 0;
     // 对齐本面板 Monaco hover（main.js delay: 300），也给 git diff 一点拉取时间。
@@ -179,6 +180,22 @@ export function createLineBlame(ctx) {
             hoverEl.parentNode.removeChild(hoverEl);
         }
         hoverEl = null;
+        copyZoneY = 0;
+    }
+
+    function updateCopyZone(clientY) {
+        if (!hoverEl) {
+            return;
+        }
+        if (typeof clientY === 'number') {
+            copyZoneY = clientY;
+        }
+        const rule = hoverEl.querySelector('.cw-line-blame-hover-rule');
+        if (!rule) {
+            hoverEl.classList.remove('is-copy-below');
+            return;
+        }
+        hoverEl.classList.toggle('is-copy-below', copyZoneY >= rule.getBoundingClientRect().top);
     }
 
     function cancelHideHover() {
@@ -735,6 +752,7 @@ export function createLineBlame(ctx) {
             hoverEl.className = 'cw-line-blame-hover';
             hoverEl.addEventListener('mouseenter', cancelHideHover);
             hoverEl.addEventListener('mouseleave', scheduleHideHover);
+            hoverEl.addEventListener('pointermove', ev => updateCopyZone(ev.clientY));
             hoverEl.addEventListener('mousedown', ev => ev.stopPropagation());
             hoverEl.addEventListener('wheel', ev => ev.stopPropagation(), { passive: true });
             document.body.appendChild(hoverEl);
@@ -743,6 +761,7 @@ export function createLineBlame(ctx) {
 
         const scroll = document.createElement('div');
         scroll.className = 'cw-line-blame-hover-scroll';
+        scroll.addEventListener('scroll', () => updateCopyZone(), { passive: true });
 
         const tips = document.createElement('div');
         tips.className = 'cw-line-blame-hover-tips';
@@ -800,6 +819,10 @@ export function createLineBlame(ctx) {
             'Copy'
         ));
         scroll.appendChild(tips);
+        const rule = document.createElement('div');
+        rule.className = 'cw-line-blame-hover-rule';
+        rule.setAttribute('aria-hidden', 'true');
+        scroll.appendChild(rule);
 
         const detail = document.createElement('div');
         detail.className = 'cw-line-blame-hover-detail';
@@ -877,6 +900,7 @@ export function createLineBlame(ctx) {
 
         hoverEl.style.visibility = 'hidden';
         positionHover();
+        updateCopyZone(copyZoneY || undefined);
         const waitingDiff = lastShown.hover && !Array.isArray(lastShown.hover.diff);
         if (!waitingDiff) {
             hoverEl.style.visibility = 'visible';
