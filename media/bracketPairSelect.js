@@ -3,7 +3,7 @@
 // 「选中整对括号/引号（含定界符）」——webview 编辑器移植版。
 // 对应扩展主编辑器 registerBracketPairSelectionOnDoubleClick（src/extension.ts）里的选定算法，
 // 逻辑保持一致；差异仅在触发方式：VSCode 主编辑器是「左键双击」，此处由调用方约束为「严格右键双击」，
-// 且仅在「非 pick token」且「开关 doubleClickSelectsBracketPair 开启」时启用、不干扰右键单击选词。
+// 且仅在「开关 doubleClickSelectsBracketPair 开启」时启用、不干扰右键单击选词。
 //
 // 坐标：Monaco 的 lineNumber / column 都是 1 基；内部沿用扩展的 0 基 char 计算，映射 char = column - 1，
 // 选区回写时再 +1 转回 Monaco 列。
