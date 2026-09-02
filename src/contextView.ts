@@ -136,6 +136,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         doubleClickSelectsBracketPair: cw.get('doubleClickSelectsBracketPair', false),
                         jumpTrail: cw.get('jumpTrail', true),
                         lineBlame: cw.get('lineBlame', true),
+                        enableHover: cw.get('enableHover', false),
                         stickyScroll: this._resolveStickyScrollEnabled(
                             cw,
                             vscode.workspace.getConfiguration('editor')
@@ -403,7 +404,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return false;
         }
         const appearance = [
-            'jumpMode', 'updateMode', 'enableHover', 'jumpTrailMaxItems', 'lineBlameHover',
+            'jumpMode', 'updateMode', 'jumpTrailMaxItems', 'lineBlameHover',
             'fontSize', 'fontFamily', 'minimap', 'useDefaultTokenizer', 'fixToken',
             'fixStickyScroll', 'occurrencesHighlight', 'contextDoubleClickSelectsSymbol',
             'selectionBackground', 'inactiveSelectionBackground',
@@ -1364,7 +1365,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     // 持久化 Hover Tips 开关：底栏 tips 图标切换时由 webview 发来，此处写入用户全局配置；
-    // 写入后 onDidChangeConfiguration 回调会自动通过 updateContextEditorCfg 把最新值广播回 webview。
+    // 写入后 onDidChangeConfiguration 走 updateViewFlags，只同步开关，不重建主题。
     private async handleSetEnableHover(message: any) {
         try {
             const value = !!message?.value;

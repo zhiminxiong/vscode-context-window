@@ -1027,6 +1027,15 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                             editor.updateOptions({ stickyScroll: { enabled: window.stickyScroll } });
                                         }
                                     }
+                                    if (typeof message.enableHover === 'boolean'
+                                        && window.enableHover !== message.enableHover) {
+                                        window.enableHover = message.enableHover;
+                                        if (window.enableHover) {
+                                            ensureHoverProvider();
+                                        } else {
+                                            disposeHoverProvider();
+                                        }
+                                    }
                                     if (typeof window.updateViewToggles === 'function') {
                                         window.updateViewToggles();
                                     }
