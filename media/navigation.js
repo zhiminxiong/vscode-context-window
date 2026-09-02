@@ -23,9 +23,9 @@
         typeDefinition: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3 2h10v12H3V2zm1 1v2.2h8V3H4zm0 3.2V13h8V6.2H4zM6.2 8h3.6v1H6.2V8z"/></svg>',
         implementation: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 4h8v10H2V4zm1 1v8h6V5H3zm3-2h8v10h-1V4H6V3z"/></svg>',
         references: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.25H2V3zm0 4.4h12v1.25H2V7.4zm0 4.35h8v1.25H2v-1.25z"/></svg>',
-        jumpTrail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg>',
+        jumpTrail: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M.95 3.2 5.15 8 .95 12.8 0 11.6 3.85 8 0 4.4z"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><path fill="currentColor" d="M10.85 3.2 15.05 8 10.85 12.8 9.9 11.6 13.75 8 9.9 4.4z"/></svg>',
         lineBlame: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/></svg>',
-        stickyScroll: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h14"/><path d="m8 12 4-4 4 4"/><path d="m8 16 4 4 4-4"/></svg>'
+        stickyScroll: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.2" y="2.5" width="10.1" height="1.5" rx=".75" fill="currentColor"/><rect x="1.2" y="6.45" width="5.35" height="1.5" rx=".75" fill="currentColor"/><rect x="1.2" y="10.4" width="3.45" height="1.5" rx=".75" fill="currentColor"/><g fill="currentColor" transform="translate(10.75 9.2) rotate(40) scale(1.68)"><circle cx="0" cy="-2.25" r="1.55"/><path d="M-2 .25 2 .25 1.1-1.7h-2.2z"/><rect x="-.45" y=".2" width=".9" height="4.2" rx=".45"/></g></svg>'
     };
 
     function setNavIcon(el, key) {
