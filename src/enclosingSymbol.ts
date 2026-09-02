@@ -82,6 +82,26 @@ export function isAnonymousSymbolName(name: string): boolean {
     return !n || n === '()' || /^<?anonymous>?$/i.test(n);
 }
 
+/**
+ * TS names arrow callbacks after nearby tokens. A string argument such as
+ * `registerCommand('contextView.callRelation.find', () => {` becomes
+ * `find') callback`, which is not a real symbol.
+ */
+export function isUsableEnclosingName(name: string): boolean {
+    if (isAnonymousSymbolName(name)) {
+        return false;
+    }
+    const stripped = (name || '').replace(/^\((?:get|set)\)\s+/i, '').replace(/^(?:get|set)\s+/i, '').trim();
+    if (!stripped || /['"`]/.test(stripped)) {
+        return false;
+    }
+    const callback = /^(.*?)\(\)\s+callback$/i.exec(stripped);
+    if (callback) {
+        return /^[\w$.]+$/.test(callback[1].trim());
+    }
+    return !/\bcallback$/i.test(stripped);
+}
+
 function rangeContainsPosition(range: vscode.Range, position: vscode.Position): boolean {
     if (position.line < range.start.line || position.line > range.end.line) {
         return false;
@@ -383,7 +403,7 @@ function collectCallables(symbols: readonly unknown[] | undefined, out: Enclosin
 }
 
 /**
- * 当前行所属的最小函数 / 方法 / 构造函数 / getter / setter（不含 class / namespace）。
+ * 当前行所属的最小具名函数 / 方法 / getter（跳过 TS 的 `find') callback` 这类假名）。
  * @param line 0-based
  * @param skipIdent skip innermost symbols whose name is this ident (e.g. do not
  *   group a reference to onDidChangeTextEditorSelection under
@@ -404,7 +424,8 @@ export async function enclosingCallable(
     const found: EnclosingCallable[] = [];
     collectCallables(list, found);
     const skip = (skipIdent || '').trim().toLowerCase();
-    let best: EnclosingCallable | undefined;
+    let named: EnclosingCallable | undefined;
+    let innermost: EnclosingCallable | undefined;
     for (const item of found) {
         if (!rangeContainsLine(item.range, line)) {
             continue;
@@ -412,11 +433,17 @@ export async function enclosingCallable(
         if (skip && identFromName(item.name).toLowerCase() === skip) {
             continue;
         }
-        if (!best || isSmallerRange(item.range, best.range)) {
-            best = item;
+        if (!innermost || isSmallerRange(item.range, innermost.range)) {
+            innermost = item;
+        }
+        if (!isUsableEnclosingName(item.name)) {
+            continue;
+        }
+        if (!named || isSmallerRange(item.range, named.range)) {
+            named = item;
         }
     }
-    return best;
+    return named || innermost;
 }
 
 /**
