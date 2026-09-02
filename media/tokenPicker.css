@@ -86,3 +86,25 @@
     align-items: flex-end;
     gap: 15px;
 }
+
+.tp-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.tp-ok {
+    min-width: 56px;
+    height: 24px;
+    padding: 0 12px;
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 2px;
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    font-size: 12px;
+    font-family: var(--vscode-font-family);
+    cursor: pointer;
+}
+
+.tp-ok:hover {
+    background: var(--vscode-button-hoverBackground);
+}

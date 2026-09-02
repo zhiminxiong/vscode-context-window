@@ -1,6 +1,6 @@
 //@ts-check
 
-// Token style picker (color + bold + italic). Closing applies; Esc cancels.
+// Token style picker (color + bold + italic). Only OK applies; anything else closes without saving.
 
 let lastPickColorPosition = null;
 
@@ -216,9 +216,16 @@ export async function pickTokenStyle(options = {
                 styleContainer.appendChild(sourceBadge);
             }
 
+            const actions = el('div', 'tp-actions');
+            const okButton = el('button', 'tp-ok');
+            okButton.type = 'button';
+            okButton.textContent = 'OK';
+            actions.appendChild(okButton);
+
             container.appendChild(head);
             container.appendChild(preview);
             container.appendChild(styleContainer);
+            container.appendChild(actions);
 
             const colorCleared = () => disabledIndicator.style.display === 'flex';
 
@@ -350,7 +357,8 @@ export async function pickTokenStyle(options = {
                 resolve(result);
             };
 
-            closeButton.addEventListener('click', () => finish(true), { once: true });
+            okButton.addEventListener('click', () => finish(true));
+            closeButton.addEventListener('click', () => finish(false), { once: true });
 
             escHandler = e => {
                 if (e.key === 'Escape') {
@@ -364,13 +372,13 @@ export async function pickTokenStyle(options = {
                     colorPicking = false;
                     return;
                 }
-                finish(true);
+                finish(false);
             };
             window.addEventListener('blur', blurHandler);
 
             outsideClickHandler = e => {
                 if (!container.contains(/** @type {Node} */ (e.target))) {
-                    finish(true);
+                    finish(false);
                 }
             };
             setTimeout(() => {
