@@ -497,6 +497,7 @@
                 label: 'Float (Independent Window)',
                 action: () => window.vscode.postMessage({ type: 'floatIndependent' })
             },
+            { type: 'separator' },
             {
                 label: 'Pick Token Style',
                 checked: window.pickTokenStyle,
