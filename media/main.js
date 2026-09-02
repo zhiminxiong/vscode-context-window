@@ -28,7 +28,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
     window.isPinned = false;
     window.pickTokenStyle = false;
     // Hover Tips 初值：从后端下发的 contextEditorCfg.enableHover 读取，不存在时默认 false。
-    // 右键菜单 "Hover Tips" 切换后反转该值，同时以 'setEnableHover' 消息告知后端持久化。
+    // 底栏 tips 图标切换后反转该值，同时以 'setEnableHover' 消息告知后端持久化。
     {
         const cfg0 = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
         window.enableHover = (cfg0 && typeof cfg0.enableHover === 'boolean') ? cfg0.enableHover : false;
@@ -970,7 +970,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     resetPickColorPosition();
                                     break;
                                 case 'EnableHover':
-                                    // 右键菜单切换：反转状态、按需 register/dispose provider、并告知后端持久化。
+                                    // 底栏 tips 图标切换：反转状态、按需 register/dispose provider、并告知后端持久化。
                                     window.enableHover = !window.enableHover;
                                     if (window.enableHover) {
                                         ensureHoverProvider();
@@ -978,6 +978,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         disposeHoverProvider();
                                     }
                                     vscode.postMessage({ type: 'setEnableHover', value: window.enableHover });
+                                    if (typeof window.updateViewToggles === 'function') {
+                                        window.updateViewToggles();
+                                    }
                                     break;
                                 case 'pinState':
                                     window.isPinned = message.pinned;
@@ -1035,7 +1038,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         window.vsCodeEditorConfiguration.customThemeRules = message.customThemeRules;
 
                                         // Hover Tips 开关同步：用户在「设置」UI 改了 enableHover、或多窗口同步时，
-                                        // 这里需要按最新值调整 provider 的注册状态，并刷新 window.enableHover 以驱动右键菜单的勾选。
+                                        // 这里需要按最新值调整 provider 的注册状态，并刷新 window.enableHover 以驱动底栏图标。
                                         if (typeof message.contextEditorCfg.enableHover === 'boolean'
                                             && window.enableHover !== message.contextEditorCfg.enableHover) {
                                             window.enableHover = message.contextEditorCfg.enableHover;
