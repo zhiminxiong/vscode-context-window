@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 
-export function isVisualStudioCode(): boolean {
-    return /^visual studio code/i.test(vscode.env.appName || '');
+/** Cursor is the only host known to need the move-out path. */
+export function isCursor(): boolean {
+    return /cursor/i.test(vscode.env.appName || '') || vscode.env.uriScheme === 'cursor';
 }
 
 function delay(ms: number): Promise<void> {
@@ -63,7 +64,7 @@ export async function lockIfPanelActive(panel: vscode.WebviewPanel | undefined):
     // reveal() after a move can steal focus back to the main window on Cursor.
     if (!panel.active) {
         panel.reveal(undefined, false);
-        await waitForPanelActive(panel, isVisualStudioCode() ? 400 : 1000);
+        await waitForPanelActive(panel, isCursor() ? 1000 : 400);
     }
     if (!panel.active) {
         return;
@@ -75,7 +76,7 @@ const detachedPanels = new WeakSet<vscode.WebviewPanel>();
 
 async function focusDetachedPanel(panel: vscode.WebviewPanel): Promise<vscode.WebviewPanel> {
     panel.reveal(undefined, false);
-    await waitForPanelActive(panel, isVisualStudioCode() ? 400 : 1000);
+    await waitForPanelActive(panel, isCursor() ? 1000 : 400);
     await lockIfPanelActive(panel);
     await enableWindowAlwaysOnTop();
     return panel;
@@ -83,8 +84,8 @@ async function focusDetachedPanel(panel: vscode.WebviewPanel): Promise<vscode.We
 
 /**
  * createWebviewPanel cannot target an auxiliary window.
- * VS Code: open an empty floating window, then create in the active column.
- * Cursor / other forks: create beside, then move the tab out.
+ * Cursor: create beside, then move the tab out.
+ * Everything else: open an empty floating window, then create in the active column.
  * If the panel is already in an auxiliary window, only bring it to front.
  */
 export async function showPanelInNewWindow(
@@ -94,7 +95,7 @@ export async function showPanelInNewWindow(
     if (panel && detachedPanels.has(panel)) {
         return focusDetachedPanel(panel);
     }
-    if (!panel && isVisualStudioCode()) {
+    if (!panel && !isCursor()) {
         try {
             await vscode.commands.executeCommand('workbench.action.newEmptyEditorWindow');
             const created = create(vscode.ViewColumn.Active);
@@ -115,7 +116,7 @@ export async function showPanelInNewWindow(
         // Older VS Code / Cursor builds may not have auxiliary windows.
     }
     detachedPanels.add(existing);
-    if (!isVisualStudioCode()) {
+    if (isCursor()) {
         if (existing.viewColumn === columnBefore) {
             await delay(300);
         }
