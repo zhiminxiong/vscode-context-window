@@ -110,6 +110,12 @@
         "category": "Context View"
       },
       {
+        "command": "contextView.callRelation.quickOpen",
+        "title": "Search and Open Relation",
+        "icon": "$(search)",
+        "category": "Context View"
+      },
+      {
         "command": "contextView.callRelation.find",
         "title": "Find in Relation",
         "category": "Context View"

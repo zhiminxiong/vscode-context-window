@@ -15,6 +15,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Added
 
+- Relation: **Search and Open Relation** (`contextView.callRelation.quickOpen`) opens a VS Code Quick Pick, searches the workspace as you type, groups hits by file, and opens Relation on the selected line. Each file shows 20 matches; **... More** appends the next 20 and keeps the previous ones visible. It does not jump to the Search view.
 - Relation: export the graph from the canvas right-click menu. **Export as SVG / PNG** opens a save dialog (then Reveal); **Copy as Mermaid / DOT** goes straight to the clipboard, ready to paste into Markdown or a PR. SVG and PNG are snapshots of the current view — the same node positions, connector style, theme colors, call-site count bubbles, and name truncation, with the colors baked in so the file stands alone. Mermaid and DOT describe structure only and let the target renderer lay it out, so they drop the "show more" placeholders and carry the call-site count as an edge label.
 - Relation (Call): the mouse back / forward buttons walk the center trail, the same stack the top breadcrumb and Backspace use. They do nothing in References mode, where the center cannot move.
 - Line-blame hover: an author's Gravatar is downloaded once and kept for the session, so a later hover paints it straight from memory instead of going back to the network (Gravatar only allows five minutes of browser caching) and no longer flips through the letter badge. Authors without one are still looked up each time, in case they register one.

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ContextWindowProvider } from './contextView';
 import { CallRelationPanel, CALL_RELATION_VIEW_TYPE } from './callRelationPanel';
+import { registerRelationQuickSearch } from './relationQuickSearch';
 import { isSingleFullLineSelection, registerLineNumberSymbolSelection } from './enclosingSymbol';
 
 function parseRelationLoc(arg?: { uri?: string; line?: number; character?: number }):
@@ -76,6 +77,11 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('contextView.callRelation.showIndependent', (arg?: { uri?: string; line?: number; character?: number }) => {
             void callRelation.showInNewWindow(parseRelationLoc(arg));
+        }));
+
+    context.subscriptions.push(
+        registerRelationQuickSearch(context, loc => {
+            callRelation.show({ uri: loc.uri, position: loc.position });
         }));
 
     context.subscriptions.push(
