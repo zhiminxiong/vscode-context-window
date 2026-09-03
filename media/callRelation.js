@@ -190,7 +190,7 @@ function measureNameWidth(text, fontSize, bold) {
     const style = getComputedStyle(document.body);
     measureEl.style.fontFamily = style.fontFamily || 'sans-serif';
     measureEl.style.fontSize = fontSize + 'px';
-    measureEl.style.fontWeight = bold ? '700' : '600';
+    measureEl.style.fontWeight = bold ? '700' : '400';
     measureEl.textContent = text || '';
     return measureEl.getBoundingClientRect().width;
 }
@@ -374,7 +374,10 @@ function nodeById(graph, id) {
     return graph.nodes.find(n => n.id === id);
 }
 
-function drawGroupFrames(canvas, graph, pos) {
+// 展开后的库分组外框几何。渲染与导出共用，两边不能各算一遍。
+function groupFrameRects(graph, pos) {
+    /** @type {{ x: number, y: number, w: number, h: number }[]} */
+    const rects = [];
     const padX = 10;
     const stroke = 2;
     for (const group of graph.nodes) {
@@ -435,12 +438,24 @@ function drawGroupFrames(canvas, graph, pos) {
             : boxBottom + hug;
         const top = midTop - stroke / 2;
         const bottom = midBottom + stroke / 2;
+        rects.push({
+            x: left - padX,
+            y: top,
+            w: right - left + padX * 2,
+            h: bottom - top
+        });
+    }
+    return rects;
+}
+
+function drawGroupFrames(canvas, graph, pos) {
+    for (const rect of groupFrameRects(graph, pos)) {
         const frame = document.createElement('div');
         frame.className = 'cr-group-frame';
-        frame.style.left = (left - padX) + 'px';
-        frame.style.top = top + 'px';
-        frame.style.width = (right - left + padX * 2) + 'px';
-        frame.style.height = (bottom - top) + 'px';
+        frame.style.left = rect.x + 'px';
+        frame.style.top = rect.y + 'px';
+        frame.style.width = rect.w + 'px';
+        frame.style.height = rect.h + 'px';
         canvas.insertBefore(frame, canvas.firstChild);
     }
 }
@@ -1234,6 +1249,420 @@ function copyCallChain() {
     vscode.postMessage({ type: 'copyToClipboard', text, notify: 'Call chain copied' });
 }
 
+// ===== 导出 =====
+// 导出的颜色不能写死：面板跟随用户主题，而 CSS 变量在独立的 SVG 里无法解析。
+// 所以这里往画布挂一个隐藏探针，把渲染后的 computed style 读成具体颜色。
+// 探针按「实际 class 组合」缓存——一张图通常只有几种组合，比穷举变体准确得多。
+
+function cssColor(value, fallback) {
+    const v = String(value || '').trim();
+    if (!v || v === 'transparent' || v === 'rgba(0, 0, 0, 0)') {
+        return fallback;
+    }
+    return v;
+}
+
+function cssLen(value, fallback) {
+    const n = parseFloat(String(value || ''));
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function exportVariantClasses(graph, node, liveEl) {
+    if (liveEl) {
+        // 跟画布上的 class 走，但去掉选中 / 悬停 / 查找这些临时态。
+        return liveEl.className
+            .split(/\s+/)
+            .filter(c => c && c !== 'is-selected' && c !== 'is-twin'
+                && c !== 'is-find-hit' && c !== 'is-find-current'
+                && c !== 'is-path-pin' && c !== 'is-on-path')
+            .join(' ');
+    }
+    const cls = ['cr-node'];
+    if (node.id === graph.rootId) {
+        cls.push('is-root');
+    }
+    if (node.prevCenter) {
+        cls.push('is-prev');
+    }
+    if (node.kind === 'more') {
+        cls.push('is-more');
+    }
+    if (node.kind === 'group') {
+        cls.push('is-group');
+        if (node.expanded) {
+            cls.push('is-expanded');
+        }
+    }
+    if (node.compact) {
+        cls.push('is-compact');
+    }
+    if (nameOnlyIds.has(node.id)) {
+        cls.push('is-names');
+    }
+    return cls.join(' ');
+}
+
+function sampleVariant(host, classes) {
+    const el = document.createElement('div');
+    el.className = classes;
+    const isMore = classes.indexOf('is-more') >= 0;
+    const head = document.createElement('div');
+    head.className = 'cr-node-head';
+    const name = document.createElement('div');
+    name.className = 'cr-node-name';
+    name.textContent = 'Mg';
+    const meta = document.createElement('div');
+    meta.className = 'cr-node-meta';
+    meta.textContent = 'Mg';
+    if (isMore) {
+        // 「Show more」节点在画布上就是一段居中文本，没有 head / meta。
+        el.textContent = 'Mg';
+    } else {
+        head.appendChild(name);
+        el.appendChild(head);
+        el.appendChild(meta);
+    }
+    host.appendChild(el);
+
+    const box = getComputedStyle(el);
+    // has-short 把真字设成透明，可见颜色在 ::after 上。
+    const nameCs = isMore
+        ? getComputedStyle(el)
+        : (name.classList.contains('has-short')
+            ? getComputedStyle(name, '::after')
+            : getComputedStyle(name));
+    const metaCs = getComputedStyle(isMore ? el : meta);
+    const nameSize = cssLen(nameCs.fontSize, 13);
+    const subSize = cssLen(metaCs.fontSize, 11);
+    const variant = {
+        bg: cssColor(box.backgroundColor, 'none'),
+        // 展开后的库分组把边框设成 transparent，这里要如实变成「不描边」而不是补个灰边。
+        border: cssColor(box.borderTopColor, 'none'),
+        borderWidth: cssLen(box.borderTopWidth, 1),
+        dashed: box.borderTopStyle === 'dashed',
+        radius: cssLen(box.borderTopLeftRadius, 6),
+        padX: cssLen(box.paddingLeft, 8),
+        nameFg: cssColor(nameCs.color, '#ccc'),
+        nameSize,
+        nameWeight: nameCs.fontWeight || '700',
+        nameLine: cssLen(nameCs.lineHeight, nameSize * 1.4),
+        subFg: cssColor(metaCs.color, '#999'),
+        subSize,
+        subLine: cssLen(metaCs.lineHeight, subSize * 1.3),
+        subGap: isMore ? 0 : cssLen(metaCs.marginTop, 2),
+        centered: isMore
+    };
+    host.removeChild(el);
+    return variant;
+}
+
+function sampleExportTheme(canvas) {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;';
+    canvas.appendChild(host);
+
+    const edge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    edge.setAttribute('class', 'cr-edge');
+    const anchor = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    anchor.setAttribute('class', 'cr-edge is-anchor');
+    const count = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    count.setAttribute('class', 'cr-edge-count');
+    const countDot = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    const countText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    count.appendChild(countDot);
+    count.appendChild(countText);
+    const probeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    probeSvg.appendChild(edge);
+    probeSvg.appendChild(anchor);
+    probeSvg.appendChild(count);
+    host.appendChild(probeSvg);
+
+    const frame = document.createElement('div');
+    frame.className = 'cr-group-frame';
+    host.appendChild(frame);
+
+    const bodyCs = getComputedStyle(document.body);
+    const font = bodyCs.fontFamily || 'sans-serif';
+    const theme = {
+        bg: cssColor(bodyCs.backgroundColor, '#1e1e1e'),
+        font,
+        // Graphviz 只认单个字体名，不认 CSS 字体栈。
+        dotFont: (font.split(',')[0] || 'sans-serif').replace(/["']/g, '').trim(),
+        edge: cssColor(getComputedStyle(edge).stroke, '#888'),
+        anchorEdge: cssColor(getComputedStyle(anchor).stroke, '#888'),
+        sites: cssColor(getComputedStyle(countDot).fill, '#89d185'),
+        sitesFg: cssColor(getComputedStyle(countText).fill, '#fff'),
+        frame: cssColor(getComputedStyle(frame).borderTopColor, '#888'),
+        /** @type {Record<string, any>} */
+        variants: {}
+    };
+
+    return {
+        theme,
+        /** 按 class 组合取变体，取完记得 release。 */
+        variantOf: (classes) => {
+            if (!theme.variants[classes]) {
+                theme.variants[classes] = sampleVariant(host, classes);
+            }
+            return theme.variants[classes];
+        },
+        release: () => {
+            if (host.parentNode) {
+                host.parentNode.removeChild(host);
+            }
+        }
+    };
+}
+
+function liveExportNode(id) {
+    if (!canvasEl) {
+        return null;
+    }
+    const nodes = canvasEl.querySelectorAll('.cr-node');
+    for (let i = 0; i < nodes.length; i++) {
+        if (elNodeId(nodes[i]) === id) {
+            return nodes[i];
+        }
+    }
+    return null;
+}
+
+function nodeInnerWidth(el) {
+    const cs = getComputedStyle(el);
+    return Math.max(0, el.clientWidth - cssLen(cs.paddingLeft, 0) - cssLen(cs.paddingRight, 0));
+}
+
+function exportTextWidth(el, node) {
+    if (!el) {
+        return { name: undefined, sub: undefined };
+    }
+    if (node.kind === 'more') {
+        const w = nodeInnerWidth(el);
+        return { name: w, sub: w };
+    }
+    const head = el.querySelector('.cr-node-head');
+    const name = el.querySelector('.cr-node-name');
+    const meta = el.querySelector('.cr-node-meta');
+    // 名字是 flex: 0 1 auto，短名字会收成内容宽。不能拿 clientWidth 当裁剪上限，
+    // 否则同一节点的 file:line 会按「pin」那么窄来裁，变成 c...。
+    let nameW = nodeInnerWidth(el);
+    if (head && name) {
+        let used = 0;
+        let extras = 0;
+        const kids = head.children;
+        for (let i = 0; i < kids.length; i++) {
+            if (kids[i] === name) {
+                continue;
+            }
+            used += kids[i].offsetWidth;
+            extras++;
+        }
+        const gap = cssLen(getComputedStyle(head).columnGap || getComputedStyle(head).gap, 0);
+        nameW = Math.max(0, head.clientWidth - used - gap * extras);
+    }
+    const subW = meta && meta.clientWidth > 0 ? meta.clientWidth : nameW;
+    return { name: nameW, sub: subW };
+}
+
+function exportNodeBadges(el) {
+    if (!el) {
+        return [];
+    }
+    /** @type {any[]} */
+    const badges = [];
+    for (const sel of ['.cr-cycle', '.cr-twin']) {
+        const b = el.querySelector(sel);
+        if (!b) {
+            continue;
+        }
+        const cs = getComputedStyle(b);
+        badges.push({
+            text: (b.textContent || '').trim(),
+            x: el.offsetLeft + b.offsetLeft,
+            y: el.offsetTop + b.offsetTop,
+            w: b.offsetWidth,
+            h: b.offsetHeight,
+            bg: cssColor(cs.backgroundColor, '#888'),
+            fg: cssColor(cs.color, '#fff'),
+            radius: Math.max(cssLen(cs.borderTopLeftRadius, 8), b.offsetHeight / 2)
+        });
+    }
+    return badges;
+}
+
+function exportSiteCounts() {
+    if (!canvasEl) {
+        return [];
+    }
+    /** @type {any[]} */
+    const counts = [];
+    canvasEl.querySelectorAll('.cr-edge-count').forEach(wrap => {
+        const ellipse = wrap.querySelector('ellipse');
+        const label = wrap.querySelector('text');
+        const raw = wrap.getAttribute('transform') || '';
+        const m = /translate\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/.exec(raw);
+        if (!m || !ellipse || !label) {
+            return;
+        }
+        counts.push({
+            x: Number(m[1]),
+            y: Number(m[2]),
+            rx: cssLen(ellipse.getAttribute('rx'), 7),
+            ry: cssLen(ellipse.getAttribute('ry'), 6.5),
+            text: label.textContent || ''
+        });
+    });
+    return counts;
+}
+
+function exportNodeSub(node) {
+    if (node.kind === 'more') {
+        return '';
+    }
+    if (node.kind === 'group') {
+        const n = node.moreCount || 0;
+        return `${n} library symbol${n === 1 ? '' : 's'}`;
+    }
+    return node.file ? `${node.file}:${node.line}` : '';
+}
+
+function exportBaseName(graph) {
+    const raw = shortSymbolName((graph && graph.title) || '');
+    const safe = String(raw || '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '');
+    return 'relation-' + (safe || 'graph');
+}
+
+// 把当前图整理成不含 DOM 引用的导出模型，交给 graphExport.js 生成各种格式。
+function buildExportModel() {
+    const graph = lastGraph;
+    const pos = lastPos;
+    if (!graph || !pos || !canvasEl || !graph.nodes || !graph.nodes.length) {
+        return null;
+    }
+    const sampler = sampleExportTheme(canvasEl);
+    /** @type {any[]} */
+    const nodes = [];
+    try {
+        for (const node of graph.nodes) {
+            const p = pos[node.id];
+            if (!p) {
+                continue;
+            }
+            const live = liveExportNode(node.id);
+            const classes = exportVariantClasses(graph, node, live);
+            sampler.variantOf(classes);
+            const sub = exportNodeSub(node);
+            const textW = exportTextWidth(live, node);
+            nodes.push({
+                id: node.id,
+                label: nodeLabel(node),
+                full: node.name || '',
+                sub,
+                kind: node.kind || 'symbol',
+                isRoot: node.id === graph.rootId,
+                hop: node.hop,
+                x: p.x,
+                y: p.y,
+                w: nodeW(p),
+                h: p.h,
+                variant: classes,
+                maxNameW: textW.name,
+                maxSubW: textW.sub,
+                badges: exportNodeBadges(live),
+                // 名字模式的节点在画布上就不显示 file:line（CSS 里 meta 是 display:none）。
+                showSub: !!sub && !nameOnlyIds.has(node.id)
+            });
+        }
+    } finally {
+        sampler.release();
+    }
+
+    const ports = isSpreadStyle(edgeStyle) ? edgePorts(graph, pos) : {};
+    /** @type {any[]} */
+    const edges = [];
+    for (const edge of graph.edges || []) {
+        if (!pos[edge.from] || !pos[edge.to]) {
+            continue;
+        }
+        const d = edgePath(graph, edge, pos, ports);
+        if (!d) {
+            continue;
+        }
+        const sites = (edge.sites && edge.sites.length) || 0;
+        edges.push({
+            from: edge.from,
+            to: edge.to,
+            d,
+            anchor: edge.style === 'anchor',
+            live: sites > 0 && edge.style !== 'anchor',
+            sites
+        });
+    }
+
+    return {
+        title: relationTitle(graph),
+        baseName: exportBaseName(graph),
+        nodes,
+        edges,
+        groups: groupFrameRects(graph, pos),
+        siteCounts: exportSiteCounts(),
+        theme: sampler.theme,
+        measure: measureNameWidth
+    };
+}
+
+async function exportGraph(format) {
+    const api = /** @type {any} */ (window).crGraphExport;
+    const model = api ? buildExportModel() : null;
+    if (!model) {
+        return;
+    }
+    try {
+        if (format === 'mermaid' || format === 'dot') {
+            const text = format === 'mermaid' ? api.toMermaid(model) : api.toDot(model);
+            vscode.postMessage({
+                type: 'copyToClipboard',
+                text,
+                notify: format === 'mermaid' ? 'Mermaid copied' : 'DOT copied'
+            });
+            return;
+        }
+        const svg = api.toSvg(model);
+        if (format === 'svg') {
+            vscode.postMessage({
+                type: 'exportGraph',
+                encoding: 'utf8',
+                data: svg,
+                name: model.baseName + '.svg'
+            });
+            return;
+        }
+        // PNG 走 2x，贴进文档缩放后仍然清晰。
+        const dataUrl = await api.toPngDataUrl(svg, 2);
+        const comma = dataUrl.indexOf(',');
+        vscode.postMessage({
+            type: 'exportGraph',
+            encoding: 'base64',
+            data: comma >= 0 ? dataUrl.slice(comma + 1) : '',
+            name: model.baseName + '.png'
+        });
+    } catch (err) {
+        vscode.postMessage({
+            type: 'exportError',
+            message: (err && err.message) ? String(err.message) : String(err)
+        });
+    }
+}
+
+function exportMenuItems() {
+    return [
+        { label: 'Copy as Mermaid', run: () => void exportGraph('mermaid') },
+        { label: 'Copy as DOT', run: () => void exportGraph('dot') },
+        { label: 'Export as SVG…', run: () => void exportGraph('svg') },
+        { label: 'Export as PNG…', run: () => void exportGraph('png') }
+    ];
+}
+
 function showCtxMenu(e, items) {
     hideCtxMenu();
     hideCenterOverflow();
@@ -1248,6 +1677,13 @@ function showCtxMenu(e, items) {
     menu.style.visibility = 'hidden';
     menu.addEventListener('mousedown', ev => ev.stopPropagation());
     for (const entry of items) {
+        if (entry.separator) {
+            const sep = document.createElement('div');
+            sep.className = 'cr-ctx-menu-sep';
+            sep.setAttribute('aria-hidden', 'true');
+            menu.appendChild(sep);
+            continue;
+        }
         const item = document.createElement('div');
         item.className = 'cr-ctx-menu-item';
         item.textContent = entry.label;
@@ -1293,7 +1729,7 @@ function showCanvasMenu(e) {
     if (!lastGraph || !lastGraph.rootId) {
         return;
     }
-    /** @type {{ label: string, run: () => void }[]} */
+    /** @type {{ label?: string, run?: () => void, separator?: boolean }[]} */
     const items = [
         { label: 'Expand All', run: () => vscode.postMessage({ type: 'expandAll' }) },
         { label: 'Collapse All', run: () => vscode.postMessage({ type: 'collapseAll' }) },
@@ -1303,6 +1739,8 @@ function showCanvasMenu(e) {
     if (trail.length >= 2) {
         items.push({ label: 'Copy Call Chain', run: copyCallChain });
     }
+    items.push({ separator: true });
+    items.push(...exportMenuItems());
     showCtxMenu(e, items);
 }
 

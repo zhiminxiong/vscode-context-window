@@ -586,6 +586,12 @@ body.vscode-high-contrast {
     color: #ffffff;
 }
 
+.cr-ctx-menu-sep {
+    height: 0;
+    margin: 4px 0;
+    border-top: 1px solid #cccccc;
+}
+
 .cr-main {
     position: relative;
     flex: 1 1 auto;

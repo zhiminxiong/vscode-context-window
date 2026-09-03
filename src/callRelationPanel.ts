@@ -235,6 +235,14 @@ export class CallRelationPanel {
                     }
                 }
                 break;
+            case 'exportGraph':
+                await this.saveExport(message);
+                break;
+            case 'exportError':
+                vscode.window.showErrorMessage(
+                    `Relation export failed: ${String(message?.message || 'unknown error')}`
+                );
+                break;
             case 'ready':
                 this.postState();
                 if (this.progressDepth > 0) {
@@ -551,8 +559,39 @@ export class CallRelationPanel {
         });
     }
 
+    // webview 里既写不了文件也用不了剪贴板（焦点与权限限制），所以图的字节要回到扩展端来落盘。
+    private async saveExport(message: any): Promise<void> {
+        const data = typeof message?.data === 'string' ? message.data : '';
+        const name = (typeof message?.name === 'string' && message.name) ? message.name : 'relation-graph.svg';
+        if (!data) {
+            return;
+        }
+        const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase() === 'png' ? 'png' : 'svg';
+        const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        const target = await vscode.window.showSaveDialog({
+            defaultUri: folder ? vscode.Uri.joinPath(folder, name) : undefined,
+            saveLabel: 'Export',
+            filters: ext === 'png' ? { 'PNG image': ['png'] } : { 'SVG image': ['svg'] }
+        });
+        if (!target) {
+            return;
+        }
+        const bytes = message.encoding === 'base64'
+            ? Buffer.from(data, 'base64')
+            : Buffer.from(data, 'utf8');
+        await vscode.workspace.fs.writeFile(target, bytes);
+        const shown = target.path.split('/').pop() || name;
+        const action = await vscode.window.showInformationMessage(`Relation graph exported to ${shown}`, 'Reveal');
+        if (action === 'Reveal') {
+            await vscode.commands.executeCommand('revealFileInOS', target);
+        }
+    }
+
     private html(webview: vscode.Webview): string {
         const script = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'callRelation.js'));
+        const exportScript = webview.asWebviewUri(
+            vscode.Uri.joinPath(this.extensionUri, 'media', 'graphExport.js')
+        );
         const style = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'callRelation.css'));
         const n = nonce();
         const icon = (d: string) =>
@@ -599,7 +638,7 @@ export class CallRelationPanel {
   <div class="cr-centers" id="cr-centers" hidden></div>
   <div class="cr-notice" id="cr-notice" hidden></div>
   <div class="cr-hint" id="cr-hint" hidden>
-    <p>On a function, Relation shows the call hierarchy. On a variable or field, it shows Find All References grouped by enclosing function (right side empty). Click a node to select it and open its definition. Double-click to make it the center (Call mode only). Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click the canvas to expand or collapse all nodes; right-click the trail to copy the call chain.</p>
+    <p>On a function, Relation shows the call hierarchy. On a variable or field, it shows Find All References grouped by enclosing function (right side empty). Click a node to select it and open its definition. Double-click to make it the center (Call mode only). Alt+click a non-center node to pin the path from the center to that node (and its direct children); Alt+click again or Alt+click empty space to unpin. The top trail is the center stack — click any hop to return. Right-click the canvas to expand or collapse all nodes; right-click the trail to copy the call chain. The canvas menu also exports the graph: SVG / PNG save the current view, Mermaid / DOT copy its structure to the clipboard.</p>
     <p>Keys: arrows move focus (↑↓ siblings, ←→ parent/child; outward expands if needed), Enter opens, Shift+Enter expands/collapses, Backspace steps back on the center trail. In Call mode the mouse back / forward buttons walk that trail too.</p>
     <p>Esc: with Find open closes Find only; otherwise dismisses menu, pin, then selection. Find uses the editor Find shortcut.</p>
     <p>Filled = current center, thick link border = previous center, ring = selected, orange pin badge = pinned path, purple ↻ = same symbol again on this path, blue ×N = the same function on other call paths (click to jump). Hover a node to highlight it; hold Alt to highlight its other copies. The highlight clears when the pointer leaves. Dashed nodes are library groups. Click a link for that call site; a number on the arrow is how many sites. + / − expand or collapse. The bubble button turns node tips on (hover) or off (hold Alt to show). Slim keeps the kinds checked in the list beside Slim. Pick Elbow / Direct / Arc from the style list. Click Name / Order to sort A–Z, or by first call (callees) / file then call line (callers). Drag empty space to pan. − / + or Ctrl+scroll to zoom.</p>
@@ -623,6 +662,7 @@ export class CallRelationPanel {
   <div class="progress-container">
     <div class="progress-bar"></div>
   </div>
+  <script nonce="${n}" src="${exportScript}"></script>
   <script nonce="${n}" src="${script}"></script>
 </body>
 </html>`;
