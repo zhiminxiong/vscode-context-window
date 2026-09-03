@@ -20,9 +20,9 @@ function parseRelationLoc(arg?: { uri?: string; line?: number; character?: numbe
 
 export function activate(context: vscode.ExtensionContext) {
 
-    const provider = new ContextWindowProvider(context.extensionUri);
+    const provider = new ContextWindowProvider(context);
     context.subscriptions.push(provider);
-    const callRelation = new CallRelationPanel(context.extensionUri);
+    const callRelation = new CallRelationPanel(context);
     context.subscriptions.push(callRelation);
 
     context.subscriptions.push(
@@ -38,14 +38,8 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewPanelSerializer('FloatContextView', provider)
     );
 
-    // Reload / 再次打开工作区时 VS Code 会还原 webview 标签，但图数据无法恢复，只会留下空白页。
-    // 反序列化时直接关掉，需要时再从命令打开。
     context.subscriptions.push(
-        vscode.window.registerWebviewPanelSerializer(CALL_RELATION_VIEW_TYPE, {
-            async deserializeWebviewPanel(panel) {
-                panel.dispose();
-            }
-        })
+        vscode.window.registerWebviewPanelSerializer(CALL_RELATION_VIEW_TYPE, callRelation)
     );
 
     context.subscriptions.push(

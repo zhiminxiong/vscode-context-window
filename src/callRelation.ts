@@ -532,6 +532,15 @@ export class CallRelationModel {
         return this.root?.uri.toString();
     }
 
+    centerLocation(): { uri: vscode.Uri; position: vscode.Position } | undefined {
+        const item = (this.centerIndex >= 0 ? this.centerTrail[this.centerIndex] : undefined) || this.root;
+        if (!item) {
+            return undefined;
+        }
+        const pos = item.selectionRange?.start ?? item.range.start;
+        return { uri: item.uri, position: pos };
+    }
+
     setCompactFilter(on: boolean): void {
         this.compactFilter = on;
     }

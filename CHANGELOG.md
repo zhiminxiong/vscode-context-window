@@ -21,6 +21,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Fixed
 
+- Reload keeps the floating Context Window and the jump trail. The restored editor tab is adopted instead of disposed; the trail is saved as file pointers in workspace state and re-read from disk (missing files are dropped).
+- Reload keeps the Relation panel. The tab is adopted instead of closed; only the current center (uri + position) and pin are saved, then the graph is rebuilt from the language server. The center trail of previous hops is not restored.
 - Relation (References): left-side nodes group under the real enclosing function (`activate`), skipping TypeScript’s broken arrow names such as `find') callback`. Clicking the node opens that function’s name, not a callback or `registerCommand` line.
 - **Double Click Selects Symbol** no longer disturbs line-number selection. Dragging from a line number keeps the start line in both directions, holding still before dragging works, a small move inside one line no longer clears the selection, and press-and-drag is no longer mistaken for a double click. The caret is nudged with `cursorMove` instead of writing the selection, which preserves the editor's line-selection anchor, and the symbol expands only after a short confirmation with no further mouse movement.
 - Relation: after a class is shown as References, opening `constructor` (TypeScript maps it to the same item as the class) reloads Call incoming/outgoing instead of reusing the empty-right reference graph.

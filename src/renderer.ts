@@ -119,6 +119,10 @@ export class Renderer {
         return val !== false;
     }
 
+    public async renderUriRange(uri: vscode.Uri, range: vscode.Range): Promise<FileContentInfo> {
+        return this.getFileContents(uri, range, 'plaintext');
+    }
+
     public async renderDefinition(languageId: string, def: vscode.Location | vscode.LocationLink): Promise<FileContentInfo> {
         if (def instanceof vscode.Location) {
             return await this.getFileContents(def.uri, def.range, languageId);

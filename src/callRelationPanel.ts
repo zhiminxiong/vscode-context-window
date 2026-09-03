@@ -11,6 +11,17 @@ import {
 
 export const CALL_RELATION_VIEW_TYPE = 'contextView.callRelation';
 
+const SESSION_STATE_KEY = 'contextView.callRelation.session';
+const SESSION_VERSION = 1;
+const SESSION_PERSIST_DELAY = 200;
+const RESTORE_FOLLOW_QUIET_MS = 800;
+
+interface PersistedRelationSession {
+    version: number;
+    pinned: boolean;
+    root?: { uri: string; line: number; character: number };
+}
+
 function nonce(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let out = '';
@@ -20,7 +31,7 @@ function nonce(): string {
     return out;
 }
 
-export class CallRelationPanel {
+export class CallRelationPanel implements vscode.WebviewPanelSerializer {
     private panel: vscode.WebviewPanel | undefined;
     private readonly model = new CallRelationModel();
     private graph: RelationGraph = { rootId: '', title: '', nodes: [], edges: [] };
@@ -33,8 +44,12 @@ export class CallRelationPanel {
     private followTimer: ReturnType<typeof setTimeout> | undefined;
     private progressDepth = 0;
     private readonly disposables: vscode.Disposable[] = [];
+    private persistTimer: ReturnType<typeof setTimeout> | undefined;
+    private restoreQuietUntil = 0;
+    private readonly extensionUri: vscode.Uri;
 
-    constructor(private readonly extensionUri: vscode.Uri) {
+    constructor(private readonly context: vscode.ExtensionContext) {
+        this.extensionUri = context.extensionUri;
         this.edgeStyle = this.readEdgeStyle();
         this.childSort = this.readChildSort();
         this.updateMode = this.readUpdateMode();
@@ -76,12 +91,18 @@ export class CallRelationPanel {
                 if (this.pinned || !this.panel) {
                     return;
                 }
+                if (Date.now() < this.restoreQuietUntil) {
+                    return;
+                }
                 if (rootUri === e.document.uri.toString()) {
                     void this.reloadFromEditor(vscode.window.activeTextEditor);
                 }
             }),
             vscode.window.onDidChangeTextEditorSelection(e => {
                 if (this.pinned || !this.panel || e.selections.length === 0) {
+                    return;
+                }
+                if (Date.now() < this.restoreQuietUntil) {
                     return;
                 }
                 if (e.textEditor.document.uri.scheme !== 'file') {
@@ -98,13 +119,19 @@ export class CallRelationPanel {
     }
 
     dispose(): void {
+        this.flushPersist();
         if (this.followTimer) {
             clearTimeout(this.followTimer);
         }
-        this.panel?.dispose();
+        // 不要 dispose panel：重载时 VS Code 要靠它反序列化。
         for (const d of this.disposables) {
             d.dispose();
         }
+    }
+
+    async deserializeWebviewPanel(panel: vscode.WebviewPanel, _state: unknown): Promise<void> {
+        this.bindPanel(panel);
+        await this.restoreSession();
     }
 
     show(loc?: { uri?: vscode.Uri; position?: vscode.Position }): void {
@@ -137,7 +164,7 @@ export class CallRelationPanel {
         if (this.panel) {
             return this.panel;
         }
-        this.panel = vscode.window.createWebviewPanel(
+        const panel = vscode.window.createWebviewPanel(
             CALL_RELATION_VIEW_TYPE,
             'Relation',
             column,
@@ -148,18 +175,28 @@ export class CallRelationPanel {
                 localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')]
             }
         );
+        this.bindPanel(panel);
+        return panel;
+    }
+
+    private bindPanel(panel: vscode.WebviewPanel): void {
+        this.panel = panel;
+        panel.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')]
+        };
         const iconPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'icon.png');
-        this.panel.iconPath = { light: iconPath, dark: iconPath };
-        this.panel.webview.html = this.html(this.panel.webview);
+        panel.iconPath = { light: iconPath, dark: iconPath };
+        panel.webview.html = this.html(panel.webview);
         void vscode.commands.executeCommand('setContext', 'contextView.callRelation.active', true);
-        this.panel.onDidChangeViewState(() => {
+        panel.onDidChangeViewState(() => {
             void vscode.commands.executeCommand(
                 'setContext',
                 'contextView.callRelation.active',
                 !!this.panel?.active
             );
         });
-        this.panel.onDidDispose(() => {
+        panel.onDidDispose(() => {
             if (this.followTimer) {
                 clearTimeout(this.followTimer);
                 this.followTimer = undefined;
@@ -168,13 +205,65 @@ export class CallRelationPanel {
             this.model.reset();
             this.graph = { rootId: '', title: '', nodes: [], edges: [] };
             this.pinned = false;
+            void this.context.workspaceState.update(SESSION_STATE_KEY, undefined);
             void vscode.commands.executeCommand('setContext', 'contextView.callRelation.active', false);
             void vscode.commands.executeCommand('setContext', 'contextView.callRelation.findOpen', false);
         });
-        this.panel.webview.onDidReceiveMessage(message => {
+        panel.webview.onDidReceiveMessage(message => {
             void this.onMessage(message);
         });
-        return this.panel;
+    }
+
+    private schedulePersist(): void {
+        if (this.persistTimer) {
+            clearTimeout(this.persistTimer);
+        }
+        this.persistTimer = setTimeout(() => {
+            this.persistTimer = undefined;
+            this.flushPersist();
+        }, SESSION_PERSIST_DELAY);
+    }
+
+    private flushPersist(): void {
+        if (this.persistTimer) {
+            clearTimeout(this.persistTimer);
+            this.persistTimer = undefined;
+        }
+        if (!this.panel) {
+            return;
+        }
+        const loc = this.model.centerLocation();
+        const session: PersistedRelationSession = {
+            version: SESSION_VERSION,
+            pinned: this.pinned,
+            root: loc ? {
+                uri: loc.uri.toString(),
+                line: loc.position.line,
+                character: loc.position.character
+            } : undefined
+        };
+        void this.context.workspaceState.update(SESSION_STATE_KEY, session);
+    }
+
+    private async restoreSession(): Promise<void> {
+        const saved = this.context.workspaceState.get<PersistedRelationSession>(SESSION_STATE_KEY);
+        if (!saved || saved.version !== SESSION_VERSION) {
+            return;
+        }
+        this.pinned = !!saved.pinned;
+        this.postState();
+        const root = saved.root;
+        if (!root || typeof root.uri !== 'string') {
+            return;
+        }
+        this.restoreQuietUntil = Date.now() + RESTORE_FOLLOW_QUIET_MS;
+        try {
+            const uri = vscode.Uri.parse(root.uri);
+            const position = new vscode.Position(Math.max(0, root.line | 0), Math.max(0, root.character | 0));
+            await this.reloadFromUri(uri, position);
+        } catch {
+            // 文件没了就留空图，面板壳还在。
+        }
     }
 
     private async afterOpen(
@@ -254,6 +343,7 @@ export class CallRelationPanel {
                 break;
             case 'setPinned':
                 this.pinned = !!message.value;
+                this.schedulePersist();
                 this.postState();
                 break;
             case 'setUpdateMode': {
@@ -467,6 +557,7 @@ export class CallRelationPanel {
         this.graph = graph;
         const kind = graph.mode === 'reference' ? 'References' : 'Call';
         this.panel.title = graph.title ? `Relation (${kind}) — ${graph.title}` : `Relation (${kind})`;
+        this.schedulePersist();
         this.postGraph();
     }
 

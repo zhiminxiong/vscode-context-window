@@ -36,6 +36,29 @@ interface HistoryInfo {
     symbolName: string;
 }
 
+// 跳转链只存指针，正文重载后再从磁盘读。workspaceState 跟工作区走。
+const SESSION_STATE_KEY = 'contextView.session';
+const SESSION_VERSION = 1;
+const SESSION_PERSIST_DELAY = 200;
+
+interface PersistedTrailEntry {
+    uri: string;
+    range: {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+    };
+    navigateLine: number;
+    navigateColumn: number;
+    symbolName: string;
+}
+
+interface PersistedSession {
+    version: number;
+    historyIndex: number;
+    pinned: boolean;
+    history: PersistedTrailEntry[];
+}
+
 export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode.WebviewPanelSerializer {
     // Add a new property to cache the last content
     private _history: HistoryInfo[] = [];
@@ -60,6 +83,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private static readonly pinnedContext = 'contextView.contextWindow.isPinned';
 
     private readonly _disposables: vscode.Disposable[] = [];
+    private readonly _extensionUri: vscode.Uri;
 
     private readonly _renderer = new Renderer();
 
@@ -82,6 +106,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     private _progressDepth = 0;  // 进度条嵌套计数：归零才隐藏，避免并发更新时进度条错配
 
+    private _persistTimer?: NodeJS.Timeout;
+    private _restorePromise?: Promise<void>;
+    private _restoredSession = false;
+
     // —— 对齐 VSCode ModelSemanticColoring 的 semantic 异步补取（内容先出、data 后覆盖）——
     // 内容下发后不阻塞，延迟(debounce)向语言服务器取整篇 semantic data，取到再单独postMessage 下发。
     private _semanticTimer: NodeJS.Timeout | null = null;
@@ -92,8 +120,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private static readonly SEMANTIC_MAX_DELAY = 2000;
 
     constructor(
-        private readonly _extensionUri: vscode.Uri,
+        private readonly _context: vscode.ExtensionContext,
     ) {
+        this._extensionUri = this._context.extensionUri;
+        const saved = this.readPersistedSession();
+        if (saved?.pinned) {
+            this._pinned = true;
+            void vscode.commands.executeCommand('setContext', ContextWindowProvider.pinnedContext, true);
+        }
         // 监听主题变化：除主题名外，同步下发新主题解析出的语义配色，使 Monaco 实时跟随 VSCode 配色
         this._themeListener = vscode.window.onDidChangeActiveColorTheme(theme => {
             this.postMessageToWebview({
@@ -233,7 +267,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         // Add delayed initial update，保底更新
         this._initialUpdateTimer = setTimeout(() => {
             this._initialUpdateTimer = undefined;
-            this.update(/* force */ true);
+            void this.runInitialUpdate();
         }, INITIAL_UPDATE_DELAY);
 
         // listen for language status changes
@@ -245,15 +279,22 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             
             if (editor && e.uris.some(uri => uri.toString() === editor.document.uri.toString())) {
                 //console.log('[definition] Document diagnostics updated, updating definitions');
-                this.update(/* force */ true);
+                void this.restoreSession().then(() => {
+                    if (this._pinned || this._restoredSession) {
+                        return;
+                    }
+                    this.update(/* force */ true);
+                });
             }
         }, null, this._disposables);
     }
 
     async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, _state: any): Promise<void> {
-        // Reload / 再次打开工作区时 VS Code 会还原浮动 Context 标签，但内容无法可靠恢复。
-        // 与 Call Relation 一样：反序列化时直接关掉，需要时再从命令打开。
-        webviewPanel.dispose();
+        this._currentPanel = webviewPanel;
+        this.applyWebviewOptions(webviewPanel.webview);
+        this.resetWebviewPanel(webviewPanel);
+        await this.restoreSession();
+        this.revealRestoredContent();
     }
 
     // 键盘更新防抖方法
@@ -315,6 +356,144 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this._history.shift();
             this._historyIndex--;
         }
+        this.schedulePersist();
+    }
+
+    private applyWebviewOptions(webview: vscode.Webview): void {
+        webview.options = {
+            enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this._extensionUri, 'media'),
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor'),
+                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'vscode-oniguruma')
+            ]
+        };
+    }
+
+    private readPersistedSession(): PersistedSession | undefined {
+        const raw = this._context.workspaceState.get<PersistedSession>(SESSION_STATE_KEY);
+        if (!raw || raw.version !== SESSION_VERSION || !Array.isArray(raw.history)) {
+            return undefined;
+        }
+        return raw;
+    }
+
+    private schedulePersist(): void {
+        if (this._persistTimer) {
+            clearTimeout(this._persistTimer);
+        }
+        this._persistTimer = setTimeout(() => {
+            this._persistTimer = undefined;
+            this.flushPersist();
+        }, SESSION_PERSIST_DELAY);
+    }
+
+    private flushPersist(): void {
+        if (this._persistTimer) {
+            clearTimeout(this._persistTimer);
+            this._persistTimer = undefined;
+        }
+        const history: PersistedTrailEntry[] = [];
+        for (const h of this._history) {
+            const uri = h.content?.jmpUri;
+            if (!uri) {
+                continue;
+            }
+            history.push({
+                uri,
+                range: h.content!.range,
+                navigateLine: h.navigateLine,
+                navigateColumn: h.navigateColumn,
+                symbolName: h.symbolName || ''
+            });
+        }
+        const session: PersistedSession = {
+            version: SESSION_VERSION,
+            historyIndex: Math.max(0, Math.min(this._historyIndex, Math.max(0, history.length - 1))),
+            pinned: this._pinned,
+            history
+        };
+        void this._context.workspaceState.update(SESSION_STATE_KEY, session);
+    }
+
+    private restoreSession(): Promise<void> {
+        if (!this._restorePromise) {
+            this._restorePromise = this.doRestoreSession();
+        }
+        return this._restorePromise;
+    }
+
+    private async doRestoreSession(): Promise<void> {
+        const saved = this.readPersistedSession();
+        if (!saved || saved.history.length === 0) {
+            return;
+        }
+        const restored: HistoryInfo[] = [];
+        let newIndex = 0;
+        for (let i = 0; i < saved.history.length; i++) {
+            const entry = saved.history[i];
+            const content = await this.rehydrateEntry(entry);
+            if (!content) {
+                continue;
+            }
+            restored.push({
+                content,
+                navigateLine: typeof entry.navigateLine === 'number' ? entry.navigateLine : -1,
+                navigateColumn: typeof entry.navigateColumn === 'number' ? entry.navigateColumn : -1,
+                symbolName: entry.symbolName || nameFromContent(content)
+            });
+            if (i <= saved.historyIndex) {
+                newIndex = restored.length - 1;
+            }
+        }
+        if (!restored.length) {
+            return;
+        }
+        this._history = restored;
+        this._historyIndex = newIndex;
+        this._restoredSession = true;
+        this._pinned = !!saved.pinned;
+        void vscode.commands.executeCommand('setContext', ContextWindowProvider.pinnedContext, this._pinned);
+        const cur = this.getCurrentContent();
+        if (cur.content?.jmpUri) {
+            try {
+                this.currentUri = vscode.Uri.parse(cur.content.jmpUri);
+            } catch {
+                this.currentUri = undefined;
+            }
+            this.currentLine = cur.content.range?.start?.line ?? 0;
+            this.currentColumn = cur.content.range?.start?.character ?? 0;
+        }
+    }
+
+    private async rehydrateEntry(entry: PersistedTrailEntry): Promise<FileContentInfo | undefined> {
+        if (!entry || typeof entry.uri !== 'string' || !entry.range?.start || !entry.range?.end) {
+            return undefined;
+        }
+        try {
+            const uri = vscode.Uri.parse(entry.uri);
+            const range = new vscode.Range(
+                new vscode.Position(Math.max(0, entry.range.start.line), Math.max(0, entry.range.start.character)),
+                new vscode.Position(Math.max(0, entry.range.end.line), Math.max(0, entry.range.end.character))
+            );
+            return await this._renderer.renderUriRange(uri, range);
+        } catch {
+            return undefined;
+        }
+    }
+
+    private revealRestoredContent(): void {
+        const cur = this.getCurrentContent();
+        if (cur.content) {
+            void this.updateContent(cur.content);
+        } else {
+            this.postHistory();
+        }
+        this.postMessageToWebview({
+            type: 'pinState',
+            pinned: this._pinned
+        });
+        this.updateTitle();
     }
 
     // 获取 VS Code 主题对应的 Monaco 主题
@@ -647,6 +826,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         // 清理其他资源
         let item: vscode.Disposable | undefined;
+        this.flushPersist();
         while ((item = this._disposables.pop())) {
             item.dispose();
         }
@@ -681,6 +861,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this._historyIndex++;
         }
         if (lastIdx !== this._historyIndex) {
+            this.schedulePersist();
             this.revealHistoryEntry();
         }
     }
@@ -691,6 +872,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return;
         }
         this._historyIndex = index;
+        this.schedulePersist();
         this.revealHistoryEntry();
     }
 
@@ -1540,6 +1722,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 if (this._history.length > this._historyIndex) {
                     this._history[this._historyIndex].content = contentInfo;
                     this._history[this._historyIndex].symbolName = nameFromContent(contentInfo);
+                    this.schedulePersist();
                 }
 
                 this.updateContent(contentInfo);
@@ -1595,7 +1778,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             {
                 enableScripts: true,
                 enableForms: true,
-                retainContextWhenHidden: true
+                retainContextWhenHidden: true,
+                localResourceRoots: [
+                    vscode.Uri.joinPath(this._extensionUri, 'media'),
+                    vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor'),
+                    vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'vscode-oniguruma')
+                ]
             }
         );
 
@@ -1635,15 +1823,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     ) {
         this._view = webviewView;
 
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this._extensionUri, 'media'),
-                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'monaco-editor'), // 添加 Monaco Editor 资源路径
-                // 方案 B：oniguruma WASM 所在目录
-                vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'vscode-oniguruma')
-            ]
-        };
+        this.applyWebviewOptions(webviewView.webview);
     
         // 使用 _getHtmlForWebview 方法生成 HTML 内容
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
@@ -1669,19 +1849,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         this.updateTitle();
 
-        const curContext = this.getCurrentContent();
-
-        // 初始加载时如果有缓存内容就直接使用；否则保持 "Ready for content." 状态
-        if (curContext?.content) {
-            // 携带 range，确保初次加载缓存内容后能滚动并高亮到定义行
-            this.postMetadata(curContext.content, curContext.navigateLine + 1, true, this._view.webview, curContext.navigateColumn + 1);
-        }
-
-        this._view.webview.postMessage({
-            type: 'pinState',
-            pinned: this._pinned
+        void this.restoreSession().then(() => {
+            this.revealRestoredContent();
         });
-        this.postHistory();
     }
 
     public pin() {
@@ -1708,6 +1878,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         this._pinned = value;
         vscode.commands.executeCommand('setContext', ContextWindowProvider.pinnedContext, value);
+        this.schedulePersist();
         // 通知 Webview
         this.postMessageToWebview({
             type: 'pinState',
@@ -1928,6 +2099,17 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    private async runInitialUpdate(): Promise<void> {
+        if (this._pinned) {
+            return;
+        }
+        await this.restoreSession();
+        if (this._pinned || this._restoredSession) {
+            return;
+        }
+        this.update(/* force */ true);
+    }
+
     private async update(ignoreCache = false) {
         if (!this._view?.visible && !this._currentPanel?.visible) {
             //console.log('[definition] update no view');
@@ -2002,6 +2184,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     symbolName: nameFromContent(contentInfo)
                 });
                 this._historyIndex = 0;
+                this.schedulePersist();
 
                 this.updateContent(contentInfo);
             }
