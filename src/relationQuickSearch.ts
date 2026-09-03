@@ -1,7 +1,8 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-const PAGE = 20;
+const FIRST_PAGE = 10;
+const MORE_PAGE = 15;
 const MAX_MATCHES = 400;
 const DEBOUNCE_MS = 220;
 
@@ -208,7 +209,7 @@ function groupFiles(hits: Hit[]): FileGroup[] {
                 name: path.basename(hit.uri.fsPath) || hit.uri.path,
                 dir: path.basename(path.dirname(hit.uri.fsPath || hit.uri.path)),
                 hits: [],
-                shown: PAGE
+                shown: FIRST_PAGE
             };
             map.set(key, group);
             order.push(key);
@@ -386,7 +387,7 @@ export function registerRelationQuickSearch(
             if (item.pickKind === 'more' && item.groupKey) {
                 const group = groups.find(g => g.key === item.groupKey);
                 if (group && group.shown < group.hits.length) {
-                    group.shown = Math.min(group.hits.length, group.shown + PAGE);
+                    group.shown = Math.min(group.hits.length, group.shown + MORE_PAGE);
                     render(group.shown < group.hits.length ? group.key : undefined);
                 }
                 return;

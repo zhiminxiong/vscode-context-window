@@ -483,6 +483,11 @@
             "Follow the cursor. If the language server finds no call hierarchy, show an empty message.",
             "Keep the last graph until the language server returns a new call hierarchy."
           ]
+        },
+        "contextView.callRelation.quickOpenIndependent": {
+          "type": "boolean",
+          "default": false,
+          "description": "When on, Search and Open Relation opens the graph in an independent window. When off, it opens beside the editor."
         }
       }
     }
