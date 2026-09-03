@@ -1160,9 +1160,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         }
                                     }
                                     break;
-                                case 'noSymbolFound':
+                                case 'noSymbolFound': {
                                     const models = monaco.editor.getModels();
-                                    let model = models.length > 0 ? models[0] : null;
+                                    const model = models.length > 0 ? models[0] : null;
                                     if (editor && model) {
                                         const monacoPos = {
                                             lineNumber: message.pos.line + 1,  // VS Code是0-based，Monaco是1-based
@@ -1183,6 +1183,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                         }
                                     }
                                     break;
+                                }
                                 case 'updateDefinitionList':
                                     // 更新定义列表
                                     if (message.definitions && Array.isArray(message.definitions)) {

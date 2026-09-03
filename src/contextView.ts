@@ -65,7 +65,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     private _view?: vscode.WebviewView;
     private _currentCacheKey: CacheKey = cacheKeyNone;
-    private _loading?: { cts: vscode.CancellationTokenSource }
+    private _loading?: { cts: vscode.CancellationTokenSource };
 
     private _updateMode = UpdateMode.Sticky;
     private _pinned = false;
@@ -657,6 +657,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this._themeListener = undefined;
         }
 
+        // Renderer 自己持有 config 监听、needsRender emitter 和大文件缓存，
+        // provider 是它唯一的持有者，不在这里释放就会随实例长驻。
+        this._renderer.dispose();
+
         // 释放对大对象的强引用：历史里每条 HistoryInfo.content 含整文件文本，
         // 多次跳转后可达 MB 级；provider 实例自身可能被外部弱引用滞留，主动清空有助 GC。
         this._history = [];
@@ -669,7 +673,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     private navigate(direction: 'back' | 'forward') {
-        let lastIdx = this._historyIndex;
+        const lastIdx = this._historyIndex;
         // 实现导航逻辑
         if (direction === 'back' && this._historyIndex > 0) {
             this._historyIndex--;
@@ -815,7 +819,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         const startLine = range.start.line - 1;
         const startChar = range.start.character - 1;
-        let endLine = range.end.line - 1;
+        const endLine = range.end.line - 1;
         let endChar = range.end.character - 1;
         // 点位置 range 是零宽，前端不会画符号高亮。有 token 时扩到该标识符。
         const tokenName = (token || '').trim();
@@ -1572,7 +1576,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     private createFloatingWebview(column: vscode.ViewColumn): vscode.WebviewPanel {
         let title = "Context Window";
-        let curContext = this.getCurrentContent();
+        const curContext = this.getCurrentContent();
         if (curContext?.content && curContext.content.jmpUri) {
             let filePath;
             try {
@@ -1580,7 +1584,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             } catch (e) {
                 filePath = curContext.content.jmpUri;
             }
-            let filename = filePath.split('/').pop()?.split('\\').pop();
+            const filename = filePath.split('/').pop()?.split('\\').pop();
             title = filename ?? "Context Window";
         }
 

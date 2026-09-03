@@ -2044,7 +2044,7 @@ export class CallRelationModel {
             if (!call?.to) {
                 continue;
             }
-            let target = call.to;
+            const target = call.to;
             let sites = call.fromRanges;
             if (itemKey(call.to) === key) {
                 sites = await this.rewriteSelfSuper(item.uri, call.fromRanges, ident, item, key);
