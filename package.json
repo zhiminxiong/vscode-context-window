@@ -129,6 +129,16 @@
         "command": "contextView.callRelation.findPrevious",
         "title": "Find Previous in Relation",
         "category": "Context View"
+      },
+      {
+        "command": "contextView.mcp.previewRelations",
+        "title": "Preview AI Tool Output: Relations at Cursor",
+        "category": "Context View"
+      },
+      {
+        "command": "contextView.mcp.previewEnclosingSymbol",
+        "title": "Preview AI Tool Output: Enclosing Symbol at Cursor",
+        "category": "Context View"
       }
     ],
     "keybindings": [

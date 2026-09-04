@@ -3,6 +3,7 @@ import { ContextWindowProvider } from './contextView';
 import { CallRelationPanel, CALL_RELATION_VIEW_TYPE } from './callRelationPanel';
 import { registerRelationQuickSearch } from './relationQuickSearch';
 import { isSingleFullLineSelection, registerLineNumberSymbolSelection } from './enclosingSymbol';
+import { registerMcpToolPreview } from './mcp/preview';
 
 function parseRelationLoc(arg?: { uri?: string; line?: number; character?: number }):
     { uri?: vscode.Uri; position?: vscode.Position } | undefined {
@@ -262,6 +263,7 @@ export function activate(context: vscode.ExtensionContext) {
     registerBracketPairSelectionOnDoubleClick(context);
     registerBracketPairSelectionToggle(context);
     registerLineNumberSymbolSelection(context);
+    registerMcpToolPreview(context);
 }
 
 /**
