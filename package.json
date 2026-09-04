@@ -43,6 +43,12 @@
     "workspace"
   ],
   "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "contextViewMcpProvider",
+        "label": "Context View"
+      }
+    ],
     "viewsContainers": {
       "panel": [
         {
@@ -128,6 +134,16 @@
       {
         "command": "contextView.callRelation.findPrevious",
         "title": "Find Previous in Relation",
+        "category": "Context View"
+      },
+      {
+        "command": "contextView.mcp.showEndpoint",
+        "title": "Show MCP Endpoint",
+        "category": "Context View"
+      },
+      {
+        "command": "contextView.mcp.configureClient",
+        "title": "Configure MCP Server Entry",
         "category": "Context View"
       },
       {
@@ -242,6 +258,19 @@
           "type": "boolean",
           "default": false,
           "description": "When opening Context or Call Relation in an independent window, turn on Always on Top. Off by default to match older versions."
+        },
+        "contextView.mcp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Serve this window's code intelligence to AI assistants over the Model Context Protocol. Offers two tools: relations (callers, callees, and references from the language server) and enclosing symbol. The endpoint listens on loopback only, on a port picked at startup, and requires a bearer token that is regenerated every time the window starts. Run \"Context View: Show MCP Endpoint\" to see the address."
+        },
+        "contextView.mcp.configFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra MCP config files to offer in \"Context View: Configure MCP Server Entry\", for clients it does not know about. Each entry is a path to a `.json` file: absolute, starting with `~` for your home directory, or relative to the workspace. The surrounding key is taken from the file itself, defaulting to `mcpServers`."
         },
         "contextView.contextWindow.updateMode": {
           "type": "string",
@@ -506,7 +535,8 @@
     "vscode:prepublish": "webpack --mode production",
     "webpack": "webpack --mode development",
     "webpack-dev": "webpack --mode development --watch",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "check:mcp": "tsc -p tsconfig.json && node scripts/checkMcpProtocol.js && node scripts/checkMcpConfig.js && node scripts/checkMcpBridge.js"
   },
   "//dependencies-note": "vscode-textmate / vscode-oniguruma 仅在 webview 端打包使用（media/textmate.bundle.js）。",
   "devDependencies": {
@@ -521,6 +551,7 @@
     "webpack-cli": "^4.9.0"
   },
   "dependencies": {
+    "jsonc-parser": "^3.3.1",
     "monaco-editor": "^0.56.0",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2"

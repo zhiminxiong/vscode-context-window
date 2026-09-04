@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { RelationDirection, ToolResult, disposeToolState, queryEnclosingSymbol, queryRelations } from './tools';
+import { mcpChannel } from './log';
+import { RelationDirection, ToolResult, queryEnclosingSymbol, queryRelations } from './tools';
 
 /**
  * Runs the AI-facing tools at the cursor and dumps what a model would receive.
@@ -9,15 +10,8 @@ import { RelationDirection, ToolResult, disposeToolState, queryEnclosingSymbol, 
  * worth their tokens are all decided by reading real answers.
  */
 
-let channel: vscode.OutputChannel | undefined;
-
-function output(): vscode.OutputChannel {
-    channel ??= vscode.window.createOutputChannel('Context View MCP Preview');
-    return channel;
-}
-
 function report(title: string, elapsedMs: number, result: ToolResult): void {
-    const out = output();
+    const out = mcpChannel();
     out.appendLine('');
     out.appendLine('='.repeat(72));
     out.appendLine(`${title}   status=${result.status}   ${elapsedMs}ms   ${result.text.length} chars`);
@@ -90,13 +84,6 @@ async function previewEnclosingSymbol(): Promise<void> {
 export function registerMcpToolPreview(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand('contextView.mcp.previewRelations', () => void previewRelations()),
-        vscode.commands.registerCommand('contextView.mcp.previewEnclosingSymbol', () => void previewEnclosingSymbol()),
-        {
-            dispose: () => {
-                channel?.dispose();
-                channel = undefined;
-                disposeToolState();
-            }
-        }
+        vscode.commands.registerCommand('contextView.mcp.previewEnclosingSymbol', () => void previewEnclosingSymbol())
     );
 }

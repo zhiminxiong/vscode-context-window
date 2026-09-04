@@ -4,10 +4,14 @@ node_modules
 package-json.lock
 tsconfig.json
 webpack.config.js
+scripts
 
 **/*.ts
 **/*.map
 doc/*.*
+
+# media/mcpBridge.js must stay in the package: it is not bundled, it is copied
+# out and run as a standalone process by editors that configure MCP from a file.
 
 # Explicitly include non-bundled node_modules
 # !node_modules

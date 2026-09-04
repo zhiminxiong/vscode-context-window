@@ -101,33 +101,82 @@ export function disposeToolState(): void {
     headless = undefined;
 }
 
-async function resolveUri(raw: string): Promise<vscode.Uri | undefined> {
+/** A scheme is two or more characters; `e:` is a Windows drive letter. */
+const EXPLICIT_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
+const WINDOWS_DRIVE = /^[a-zA-Z]:[\\/]/;
+
+type UriResolution = { uri: vscode.Uri } | { problem: string };
+
+async function statExists(uri: vscode.Uri): Promise<boolean> {
+    try {
+        await vscode.workspace.fs.stat(uri);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * A model almost always passes a workspace-relative path, so that form has to
+ * win.
+ *
+ * `Uri.parse` cannot go first, because it is lenient in both directions: on a
+ * bare `src/a.ts` it invents `file:///src/a.ts`, which then fails to open, and
+ * on `e:/a.ts` it reads the Windows drive letter as a scheme.
+ */
+async function resolveUri(raw: string): Promise<UriResolution> {
     const text = (raw || '').trim().replace(/^['"]|['"]$/g, '');
     if (!text) {
-        return undefined;
+        return { problem: 'No file was given.' };
     }
-    try {
-        const parsed = vscode.Uri.parse(text);
-        if (parsed.scheme === 'file') {
-            return parsed;
-        }
-    } catch {
-        // Not a URI; fall through to the path forms.
+    if (WINDOWS_DRIVE.test(text)) {
+        return { uri: vscode.Uri.file(text) };
     }
-    if (/^[a-zA-Z]:[\\/]/.test(text) || text.startsWith('/') || text.startsWith('\\\\')) {
-        return vscode.Uri.file(text);
-    }
-    const relative = text.replace(/^[\\/]+/, '');
-    for (const folder of vscode.workspace.workspaceFolders || []) {
-        const candidate = vscode.Uri.file(path.join(folder.uri.fsPath, relative));
+    if (EXPLICIT_SCHEME.test(text)) {
         try {
-            await vscode.workspace.fs.stat(candidate);
-            return candidate;
+            return { uri: vscode.Uri.parse(text, true) };
         } catch {
-            // Try the next folder.
+            return { problem: `"${raw}" looks like a URI but could not be parsed.` };
         }
     }
-    return undefined;
+
+    const folders = vscode.workspace.workspaceFolders || [];
+    // A leading slash is dropped as well: to a model it reads as "from the
+    // workspace root", and on Windows it is not an absolute path anyway.
+    const relative = text
+        .replace(/^[\\/]+/, '')
+        .replace(/^\.[\\/]+/, '')
+        .replace(/\\/g, '/');
+    for (const folder of folders) {
+        const candidate = vscode.Uri.file(path.join(folder.uri.fsPath, relative));
+        if (await statExists(candidate)) {
+            return { uri: candidate };
+        }
+    }
+    if (text.startsWith('/') || text.startsWith('\\\\')) {
+        const absolute = vscode.Uri.file(text);
+        if (await statExists(absolute)) {
+            return { uri: absolute };
+        }
+    }
+
+    // Last resort: a partial path such as `mcp/tools.ts`, or a bare file name.
+    let hits: vscode.Uri[] = [];
+    try {
+        hits = await vscode.workspace.findFiles(`**/${relative}`, '**/node_modules/**', 2);
+    } catch {
+        // A malformed glob; treat it as no match.
+    }
+    if (hits.length === 1) {
+        return { uri: hits[0] };
+    }
+    if (hits.length > 1) {
+        return { problem: `"${raw}" matches more than one file. Give the path from the workspace root.` };
+    }
+    const names = folders.map(f => f.name).join(', ');
+    return {
+        problem: `No file "${raw}" in the workspace${names ? ` (folders: ${names})` : ' (no folder is open)'}.`
+    };
 }
 
 /** Workspace-relative where possible: absolute paths are mostly wasted tokens. */
@@ -381,10 +430,11 @@ export function serializeGraph(graph: RelationGraph, direction: RelationDirectio
  * and is reported back as `mode`.
  */
 export async function queryRelations(query: RelationQuery): Promise<ToolResult> {
-    const uri = await resolveUri(query.uri);
-    if (!uri) {
-        return { status: 'not_found', text: '', detail: `Cannot resolve a file from "${query.uri}".` };
+    const resolved = await resolveUri(query.uri);
+    if ('problem' in resolved) {
+        return { status: 'not_found', text: '', detail: resolved.problem };
     }
+    const uri = resolved.uri;
     const depth = Math.min(Math.max(Math.trunc(query.depth ?? DEFAULT_DEPTH) || DEFAULT_DEPTH, 1), CALL_MAX_HOP);
     const direction: RelationDirection = query.direction ?? 'both';
     const line0 = Math.trunc(query.line) - 1;
@@ -458,10 +508,11 @@ export async function queryRelations(query: RelationQuery): Promise<ToolResult> 
  * falls back to folding ranges when document symbols are not available yet.
  */
 export async function queryEnclosingSymbol(query: EnclosingSymbolQuery): Promise<ToolResult> {
-    const uri = await resolveUri(query.uri);
-    if (!uri) {
-        return { status: 'not_found', text: '', detail: `Cannot resolve a file from "${query.uri}".` };
+    const resolved = await resolveUri(query.uri);
+    if ('problem' in resolved) {
+        return { status: 'not_found', text: '', detail: resolved.problem };
     }
+    const uri = resolved.uri;
     const line0 = Math.trunc(query.line) - 1;
     let doc: vscode.TextDocument;
     try {

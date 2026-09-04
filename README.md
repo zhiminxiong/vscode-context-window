@@ -102,14 +102,51 @@ This extension implements Source Insight’s Context Window, plus Relation’s C
 - `contextView.callRelation.compactFilter` — When on, keep only the symbol kinds checked in `compactKinds`. Off by default. Toggle from the Call Relation toolbar (**Slim**).
 - `contextView.callRelation.compactKinds` — Symbol kinds kept when Slim is on. Default: `function`, `method`, `constructor`, `class`, `struct`, `variable`, `constant`, `property`. Change them from the list beside the Slim button.
 
+#### MCP (AI access)
+
+- `contextView.mcp.enabled` — Serve this window's code intelligence to AI assistants over the Model Context Protocol. On by default. Two tools are offered:
+    - `code_relations` — Callers and callees of a function as a tree with the exact call sites, or every reference to a variable or type grouped by the function containing it. The same language-server data the Call Relation panel draws.
+    - `enclosing_symbol` — The smallest function, method, class, or namespace containing a line, with its exact range and source.
+
+  The endpoint listens on loopback only, on a port chosen at startup, and requires a bearer token regenerated every time the window starts. Because the answers come from this window's language servers and workspace, the server runs inside the extension and cannot be started separately.
+
+- `contextView.mcp.configFiles` — Extra MCP config files to offer when configuring a client, for ones not on the list below. Each is a path to a `.json` file: absolute, starting with `~`, or relative to the workspace. Empty by default.
+
+  Nothing needs to be configured on VS Code 1.101 or later: the editor asks the extension for the address each time it connects. Older versions and other editors are unaffected — the API is detected at runtime and simply not used when it is absent.
+
+  Every other client is configured from a file, which is written once and cannot hold an address that changes every restart. Run **Context View: Configure MCP Server Entry** to add an entry pointing at a small bridge script that looks the endpoint up when it is launched. The command lists, with the running editor's own files first:
+
+    - `.cursor/mcp.json` and `.codebuddy/mcp.json` — this project only, and shared with anyone who checks it out.
+    - `~/.cursor/mcp.json` and `~/.codebuddy/mcp.json` — every project you open.
+    - Anything named in `contextView.mcp.configFiles`, plus **Another file…** to give a path once.
+    - **Copy the entry**, for a client with no file on this list.
+
+  VS Code is deliberately not offered: it is handed the server through the API above, and a file would register the same tools a second time.
+
+  The chosen file is edited in place rather than rewritten, so servers you already have there keep their settings — including any credentials — along with their comments, key order, and formatting. Comments and trailing commas are accepted, since these files are usually hand-edited. If one still cannot be read, nothing is written to it at all and the command offers to open it or to copy the entry for you to paste.
+
+  The entry is an ordinary stdio server run with `node`, so it is not tied to the editor that wrote it; where no usable `node` is on PATH, that editor's binary stands in as the Node runtime. The workspace is passed as `${workspaceFolder}` so one entry serves every checkout, which is what makes the home-directory files usable. Cursor resolves that to the folder holding the config, which in a home-directory file is your home rather than the project, and some clients pass it through unexpanded — so it can name a workspace nobody is serving. The bridge then tries the directory it was started in, which is the workspace for every client seen so far, and failing that the single window that is serving. It refuses to guess when several are open, and says which ones those are. The path to the script is absolute for this machine, so a project-level file is worth adding to `.gitignore`. Reload the MCP servers in your client afterwards.
+
+  Run **Context View: Show MCP Endpoint** at any time to see the address and which of the two paths is in use.
+
 ## Commands
 
 - `Pin current Context` — Stop live updating of the context view. Keeps the currently visible context. 
 - `Unpin current Context` — Make the context view start tracking the cursor again.
 - `Show Context Window` — Show context view by Keyboard Shortcuts.
 - `Display the floating Context Window` — Show floating window by Keyboard Shortcuts.
+- `Show MCP Endpoint` — Show the address and token of the MCP endpoint, and how the editor is reaching it.
+- `Configure MCP Server Entry` — Add this workspace's MCP server to a client's config file, or copy the entry. Only its own entry is written: other servers, unrelated settings, comments, and formatting are left as they are, and a file that cannot be read is not touched at all.
 
 ## Build
 
 - npm install
 - vsce package
+
+The MCP transport is hand-written rather than taken from `@modelcontextprotocol/sdk`, which would have added 850 KB to a 182 KB bundle for two tools. `npm run check:mcp` drives the endpoint over real HTTP to check the handshake and the failure cases clients put it in, checks that writing the config entry leaves the rest of a client's file alone, then spawns `media/mcpBridge.js` and speaks stdio to it the way Cursor does. That covers the usual `node` launch; to check the fallback, pass the editor binary the entry would name instead:
+
+```bash
+node scripts/checkMcpBridge.js "C:\Users\you\AppData\Local\Programs\cursor\Cursor.exe"
+```
+
+`media/mcpBridge.js` is not bundled: it is copied to `~/.context-view/` and run as its own process, so it must stay a dependency-free script in the published package.
