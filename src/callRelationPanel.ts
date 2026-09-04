@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { lockPanelGroupIfFocused, showPanelInNewWindow } from './auxiliaryWindow';
+import { lockPanelGroup, showPanelInNewWindow } from './auxiliaryWindow';
 import {
     callSiteIdentRange,
     CallRelationModel,
@@ -144,7 +144,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         const editor = vscode.window.activeTextEditor;
         // Re-entering while the window is still opening would detach a second one.
         if (!this.detaching) {
-            this.detaching = showPanelInNewWindow(this.panel, column => this.ensurePanel(column))
+            this.detaching = showPanelInNewWindow(CALL_RELATION_VIEW_TYPE, this.panel, column => this.ensurePanel(column))
                 .then(() => undefined)
                 .finally(() => {
                     this.detaching = undefined;
@@ -279,7 +279,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         editor: vscode.TextEditor | undefined,
         loc?: { uri?: vscode.Uri; position?: vscode.Position }
     ): Promise<void> {
-        await lockPanelGroupIfFocused(this.panel);
+        await lockPanelGroup(this.panel);
         if (loc?.uri && loc.position) {
             await this.reloadFromUri(loc.uri, loc.position);
             return;

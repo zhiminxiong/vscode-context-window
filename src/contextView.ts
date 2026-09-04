@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
-import { lockPanelGroupIfFocused, showPanelInNewWindow } from './auxiliaryWindow';
+import { lockPanelGroup, showPanelInNewWindow } from './auxiliaryWindow';
 import { Renderer, FileContentInfo } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent } from './grammarRegistry';
 import { blameLine, blameLineDiff, openBlameDiff } from './lineBlame';
 import { enclosingSymbolRange } from './enclosingSymbol';
+
+export const FLOAT_CONTEXT_VIEW_TYPE = 'FloatContextView';
 
 enum UpdateMode {
     Live = 'live',
@@ -926,14 +928,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //this._currentPanel.reveal(vscode.ViewColumn.Beside, true);
         } else {
             this.createFloatingWebview(vscode.ViewColumn.Beside);
-            void lockPanelGroupIfFocused(this._currentPanel);
+            void lockPanelGroup(this._currentPanel);
         }
     }
 
     public async showFloatingWebviewIndependent(): Promise<void> {
         // Re-entering while the window is still opening would create a second panel.
         if (!this._detaching) {
-            this._detaching = showPanelInNewWindow(this._currentPanel, column => this.createFloatingWebview(column))
+            this._detaching = showPanelInNewWindow(FLOAT_CONTEXT_VIEW_TYPE, this._currentPanel, column => this.createFloatingWebview(column))
                 .then(() => undefined)
                 .finally(() => {
                     this._detaching = undefined;
@@ -1784,7 +1786,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
 
         this._currentPanel = vscode.window.createWebviewPanel(
-            'FloatContextView',
+            FLOAT_CONTEXT_VIEW_TYPE,
             title,
             column,
             {
