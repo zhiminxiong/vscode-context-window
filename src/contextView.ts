@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { showPanelInNewWindow } from './auxiliaryWindow';
+import { lockPanelGroupIfFocused, showPanelInNewWindow } from './auxiliaryWindow';
 import { Renderer, FileContentInfo } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent } from './grammarRegistry';
@@ -94,6 +94,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _updateMode = UpdateMode.Sticky;
     private _pinned = false;
     private _currentPanel?: vscode.WebviewPanel; // 添加成员变量存储当前面板
+    private _detaching?: Promise<void>; // 独立窗口正在打开，防止重入建出第二个面板
     private _pickItems: any[] | undefined; // 添加成员变量存储选择项
 
     private _themeListener: vscode.Disposable | undefined;
@@ -925,12 +926,20 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             //this._currentPanel.reveal(vscode.ViewColumn.Beside, true);
         } else {
             this.createFloatingWebview(vscode.ViewColumn.Beside);
-            void this.lockPanelGroup(this._currentPanel);
+            void lockPanelGroupIfFocused(this._currentPanel);
         }
     }
 
     public async showFloatingWebviewIndependent(): Promise<void> {
-        await showPanelInNewWindow(this._currentPanel, column => this.createFloatingWebview(column));
+        // Re-entering while the window is still opening would create a second panel.
+        if (!this._detaching) {
+            this._detaching = showPanelInNewWindow(this._currentPanel, column => this.createFloatingWebview(column))
+                .then(() => undefined)
+                .finally(() => {
+                    this._detaching = undefined;
+                });
+        }
+        await this._detaching;
     }
 
     private postMessageToWebview(message: any) {
@@ -1753,7 +1762,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         panel.onDidDispose(() => {
             // this.saveState();
-            this._currentPanel = undefined;
+            // 只有当前面板被关掉才清引用，否则会把后建的那个一并抹掉。
+            if (this._currentPanel === panel) {
+                this._currentPanel = undefined;
+            }
         });
     }
 
@@ -1794,26 +1806,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             pinned: this._pinned
         });
         return this._currentPanel;
-    }
-
-    private async lockPanelGroup(panel: vscode.WebviewPanel | undefined): Promise<void> {
-        if (!panel) {
-            return;
-        }
-        panel.reveal(panel.viewColumn ?? vscode.ViewColumn.Beside, false);
-        const groups = (vscode.window as unknown as {
-            tabGroups?: { all: { viewColumn?: vscode.ViewColumn; isLocked: boolean }[] };
-        }).tabGroups;
-        const column = panel.viewColumn;
-        const group = groups?.all.find(g => g.viewColumn === column);
-        if (group?.isLocked) {
-            return;
-        }
-        try {
-            await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
-        } catch {
-            // Older VS Code builds may not have editor-group lock.
-        }
     }
 
     public resolveWebviewView(

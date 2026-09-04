@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { showPanelInNewWindow } from './auxiliaryWindow';
+import { lockPanelGroupIfFocused, showPanelInNewWindow } from './auxiliaryWindow';
 import {
     callSiteIdentRange,
     CallRelationModel,
@@ -46,6 +46,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
     private readonly disposables: vscode.Disposable[] = [];
     private persistTimer: ReturnType<typeof setTimeout> | undefined;
     private restoreQuietUntil = 0;
+    private detaching: Promise<void> | undefined;
     private readonly extensionUri: vscode.Uri;
 
     constructor(private readonly context: vscode.ExtensionContext) {
@@ -141,7 +142,15 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
 
     async showInNewWindow(loc?: { uri?: vscode.Uri; position?: vscode.Position }): Promise<void> {
         const editor = vscode.window.activeTextEditor;
-        await showPanelInNewWindow(this.panel, column => this.ensurePanel(column));
+        // Re-entering while the window is still opening would detach a second one.
+        if (!this.detaching) {
+            this.detaching = showPanelInNewWindow(this.panel, column => this.ensurePanel(column))
+                .then(() => undefined)
+                .finally(() => {
+                    this.detaching = undefined;
+                });
+        }
+        await this.detaching;
         if (loc?.uri && loc.position) {
             await this.reloadFromUri(loc.uri, loc.position);
             return;
@@ -270,35 +279,12 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         editor: vscode.TextEditor | undefined,
         loc?: { uri?: vscode.Uri; position?: vscode.Position }
     ): Promise<void> {
-        await this.lockPanelGroup();
+        await lockPanelGroupIfFocused(this.panel);
         if (loc?.uri && loc.position) {
             await this.reloadFromUri(loc.uri, loc.position);
             return;
         }
         await this.reloadFromEditor(editor);
-    }
-
-    private async lockPanelGroup(): Promise<void> {
-        if (!this.panel) {
-            return;
-        }
-        this.panel.reveal(this.panel.viewColumn ?? vscode.ViewColumn.Beside, false);
-        if (!this.panel.active) {
-            return;
-        }
-        const groups = (vscode.window as unknown as {
-            tabGroups?: { all: { viewColumn?: vscode.ViewColumn; isLocked: boolean }[] };
-        }).tabGroups;
-        const column = this.panel.viewColumn;
-        const group = groups?.all.find(g => g.viewColumn === column);
-        if (group?.isLocked) {
-            return;
-        }
-        try {
-            await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
-        } catch {
-            // Older VS Code builds may not have editor-group lock.
-        }
     }
 
     private async onMessage(message: any): Promise<void> {
