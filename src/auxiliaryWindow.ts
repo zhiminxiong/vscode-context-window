@@ -8,42 +8,11 @@ const ENABLE_ALWAYS_ON_TOP = 'workbench.action.enableWindowAlwaysOnTop';
 /** Webview editors are registered under this prefix plus the panel's view type. */
 const WEBVIEW_EDITOR_ID_PREFIX = 'mainThreadWebview-';
 
-/** Indexed by column, these focus a group by its position across all windows. */
-const FOCUS_GROUP_COMMANDS = [
-    'workbench.action.focusFirstEditorGroup',
-    'workbench.action.focusSecondEditorGroup',
-    'workbench.action.focusThirdEditorGroup',
-    'workbench.action.focusFourthEditorGroup',
-    'workbench.action.focusFifthEditorGroup',
-    'workbench.action.focusSixthEditorGroup',
-    'workbench.action.focusSeventhEditorGroup',
-    'workbench.action.focusEighthEditorGroup'
-];
-
 const NEW_GROUP_TIMEOUT_MS = 1000;
-const PANEL_ACTIVE_TIMEOUT_MS = 1000;
+const PANEL_TARGET_TIMEOUT_MS = 1000;
 
 function tabGroups(): typeof vscode.window.tabGroups | undefined {
     return (vscode.window as Partial<typeof vscode.window>).tabGroups;
-}
-
-function waitForPanelActive(panel: vscode.WebviewPanel, timeoutMs: number): Promise<boolean> {
-    if (panel.active) {
-        return Promise.resolve(true);
-    }
-    return new Promise(resolve => {
-        const done = (ok: boolean) => {
-            sub.dispose();
-            clearTimeout(timer);
-            resolve(ok);
-        };
-        const sub = panel.onDidChangeViewState(() => {
-            if (panel.active) {
-                done(true);
-            }
-        });
-        const timer = setTimeout(() => done(panel.active), timeoutMs);
-    });
 }
 
 /** Tab inputs report the host-prefixed view type (mainThreadWebview-<viewType>). */
@@ -52,8 +21,55 @@ function tabHoldsPanel(tab: vscode.Tab, viewType: string): boolean {
     return typeof input?.viewType === 'string' && input.viewType.includes(viewType);
 }
 
-function groupOf(panel: vscode.WebviewPanel): vscode.TabGroup | undefined {
-    return tabGroups()?.all.find(g => g.tabs.some(tab => tabHoldsPanel(tab, panel.viewType)));
+/**
+ * Whether an editor command would act on this panel.
+ *
+ * Group lock and Always on Top both work on whatever the workbench considers
+ * focused, so this is their precondition. It has to be observed rather than
+ * arranged: focusing a group by column runs `focusNthEditorGroup`, which
+ * reports success as soon as the command dispatches, and on Cursor focus does
+ * not actually leave the main window, so the lock landed on the main tab group.
+ * That command also splits off a brand new group when the column is past the
+ * end, which is where stray empty groups came from.
+ *
+ * `panel.active` alone is not enough either, because it is a value pushed to
+ * the extension host and Cursor leaves it stale. The tab model is pushed
+ * separately, so checking both means only one of them has to have caught up.
+ */
+function panelIsCommandTarget(panel: vscode.WebviewPanel): boolean {
+    if (panel.active) {
+        return true;
+    }
+    const activeTab = tabGroups()?.all.find(group => group.isActive)?.activeTab;
+    return !!activeTab && tabHoldsPanel(activeTab, panel.viewType);
+}
+
+function waitForCommandTarget(panel: vscode.WebviewPanel, timeoutMs: number): Promise<boolean> {
+    if (panelIsCommandTarget(panel)) {
+        return Promise.resolve(true);
+    }
+    return new Promise(resolve => {
+        const subscriptions: vscode.Disposable[] = [];
+        const done = (ok: boolean) => {
+            clearTimeout(timer);
+            for (const subscription of subscriptions) {
+                subscription.dispose();
+            }
+            resolve(ok);
+        };
+        const check = () => {
+            if (panelIsCommandTarget(panel)) {
+                done(true);
+            }
+        };
+        subscriptions.push(panel.onDidChangeViewState(check));
+        const groups = tabGroups();
+        if (groups) {
+            subscriptions.push(groups.onDidChangeTabGroups(check));
+            subscriptions.push(groups.onDidChangeTabs(check));
+        }
+        const timer = setTimeout(() => done(panelIsCommandTarget(panel)), timeoutMs);
+    });
 }
 
 function freshEmptyGroup(before: ReadonlySet<vscode.ViewColumn>): vscode.TabGroup | undefined {
@@ -107,28 +123,6 @@ async function openEmptyWindowColumn(): Promise<vscode.ViewColumn | undefined> {
     return found?.viewColumn;
 }
 
-/**
- * Focuses the group in the given column, in whichever window holds it.
- *
- * Group lock and Always on Top both act on whatever is focused, and a panel's
- * `active` flag is a value pushed to the extension host, so it can already be
- * stale — Cursor hands focus back to the main window right after a floating
- * window opens. Focusing by column right before those commands run leaves no
- * gap for focus to drift.
- */
-async function focusGroup(column: vscode.ViewColumn | undefined): Promise<boolean> {
-    const command = typeof column === 'number' ? FOCUS_GROUP_COMMANDS[column - 1] : undefined;
-    if (!command) {
-        return false;
-    }
-    try {
-        await vscode.commands.executeCommand(command);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
 async function lockActiveGroup(): Promise<void> {
     try {
         await vscode.commands.executeCommand(LOCK_EDITOR_GROUP);
@@ -177,23 +171,17 @@ async function enableAlwaysOnTop(): Promise<void> {
     }
 }
 
-/** Locks the editor group holding the panel, wherever that group lives. */
+/** Keeps other editors from opening in the group that holds the panel. */
 export async function lockPanelGroup(panel: vscode.WebviewPanel | undefined): Promise<void> {
     if (!panel) {
         return;
     }
-    const column = groupOf(panel)?.viewColumn;
-    if (await focusGroup(column)) {
-        await lockActiveGroup();
-        return;
+    if (await ensureAutoLock(panel.viewType)) {
+        return; // The group locks itself as the panel opens in it.
     }
-    // No column to aim at (very old host, or past the eighth group): the panel
-    // holding focus is the only remaining evidence that the lock lands right.
-    if (!panel.active) {
-        panel.reveal(column, false);
-        await waitForPanelActive(panel, PANEL_ACTIVE_TIMEOUT_MS);
-    }
-    if (panel.active) {
+    // Only reachable when the setting could not be written. Locking blind would
+    // hit the main tab group, so skip it unless the panel is the target.
+    if (await waitForCommandTarget(panel, PANEL_TARGET_TIMEOUT_MS)) {
         await lockActiveGroup();
     }
 }
@@ -203,13 +191,10 @@ const floatingPanels = new WeakSet<vscode.WebviewPanel>();
 
 async function settleFloating(
     panel: vscode.WebviewPanel,
-    autoLocked: boolean,
-    column?: vscode.ViewColumn
+    autoLocked: boolean
 ): Promise<vscode.WebviewPanel> {
     floatingPanels.add(panel);
-    await waitForPanelActive(panel, PANEL_ACTIVE_TIMEOUT_MS);
-    const focused = await focusGroup(groupOf(panel)?.viewColumn ?? column);
-    if (!focused && !panel.active) {
+    if (!await waitForCommandTarget(panel, PANEL_TARGET_TIMEOUT_MS)) {
         return panel;
     }
     // The group locked itself as it opened. Running the command now would lock
@@ -239,11 +224,10 @@ export async function showPanelInNewWindow(
     create: (column: vscode.ViewColumn) => vscode.WebviewPanel
 ): Promise<vscode.WebviewPanel> {
     if (panel && floatingPanels.has(panel)) {
-        const home = groupOf(panel)?.viewColumn;
-        panel.reveal(home, false);
-        await waitForPanelActive(panel, PANEL_ACTIVE_TIMEOUT_MS);
-        const focused = await focusGroup(home);
-        if (focused || panel.active) {
+        // Webviews are singleton editors, so revealing without a column brings
+        // the window it already lives in forward instead of moving it.
+        panel.reveal(undefined, false);
+        if (await waitForCommandTarget(panel, PANEL_TARGET_TIMEOUT_MS)) {
             await enableAlwaysOnTop();
         }
         return panel;
@@ -255,17 +239,16 @@ export async function showPanelInNewWindow(
     const column = await openEmptyWindowColumn();
     if (column !== undefined) {
         if (!panel) {
-            return settleFloating(create(column), autoLocked, column);
+            return settleFloating(create(column), autoLocked);
         }
         // reveal() moves a webview into the target column.
         panel.reveal(column, false);
-        return settleFloating(panel, autoLocked, column);
+        return settleFloating(panel, autoLocked);
     }
 
     const existing = panel ?? create(vscode.ViewColumn.Beside);
     existing.reveal(undefined, false);
-    await waitForPanelActive(existing, PANEL_ACTIVE_TIMEOUT_MS);
-    if (!existing.active) {
+    if (!await waitForCommandTarget(existing, PANEL_TARGET_TIMEOUT_MS)) {
         // Moving now would detach whatever editor does have focus.
         return existing;
     }
