@@ -1,3 +1,4 @@
+import * as https from 'https';
 import * as vscode from 'vscode';
 import {
     LineBlameDiffLine,
@@ -180,13 +181,16 @@ function shaChip(shortSha: string, fullSha: string, parent = false): string {
     return `[${chip}](${commandLink(COPY_COMMAND, args)} "Copy SHA")`;
 }
 
+/**
+ * 保留 Gravatar 的 d=404：没登记头像时让它直接 404，我们才好换成首字母牌子，
+ * 和 media/lineBlame.js 一样。换成 d=mp 只会拿到一张所有人都一样的灰人像。
+ */
 function avatarSrc(hover: LineBlameHoverInfo): string | undefined {
     const url = hover.avatarUrl;
     if (!url) {
         return undefined;
     }
-    const withFallback = url.replace(/([?&])d=404\b/, '$1d=mp');
-    const retina = withFallback.replace(/([?&])s=\d+\b/, '$1s=64');
+    const retina = url.replace(/([?&])s=\d+\b/, '$1s=64');
     return /[?&]s=\d+/.test(retina)
         ? retina
         : `${retina}${retina.includes('?') ? '&' : '?'}s=64`;
@@ -204,6 +208,157 @@ function escapeHtml(text: string): string {
 
 function htmlImg(src: string, width: number, height: number): string {
     return `<img src="${escapeHtml(src)}" width="${width}" height="${height}" alt="">`;
+}
+
+/**
+ * 头像。webview 那边自己 fetch，失败就退回首字母牌子（media/lineBlame.js 的
+ * makeAvatar）；浮窗里我们只能交出一段 markdown，<img> 加载成没成功看不见，
+ * 所以把顺序倒过来：在扩展宿主先把图取回来内联成 data URI，取不到——作者没登记
+ * Gravatar（404）、断网、被代理挡住——就直接画同一套首字母牌子，不留一个空洞。
+ */
+const AVATAR_PX = 28;
+const AVATAR_MAX_BYTES = 512 * 1024;
+const AVATAR_TIMEOUT_MS = 5000;
+/** 拉失败不是永久结论：作者以后可能补登记头像，隔一段时间再试一次。 */
+const AVATAR_RETRY_MS = 10 * 60 * 1000;
+
+/** src 为 null 表示这一轮没拉到；at 用来隔一阵子再试。 */
+type AvatarEntry = { src: string | null; at: number };
+
+/** 整个会话共用：光标在同一提交的相邻行之间移动时不会重复走网络。 */
+const avatarCache = new Map<string, AvatarEntry>();
+const avatarInflight = new Map<string, Promise<string | null>>();
+
+function cachedAvatar(url: string): string | undefined {
+    return avatarCache.get(url)?.src || undefined;
+}
+
+function shouldFetchAvatar(url: string): boolean {
+    const hit = avatarCache.get(url);
+    if (!hit) {
+        return true;
+    }
+    return hit.src ? false : Date.now() - hit.at >= AVATAR_RETRY_MS;
+}
+
+function fetchAvatar(url: string, redirects = 2): Promise<string | null> {
+    return new Promise(resolve => {
+        let settled = false;
+        const done = (value: string | null) => {
+            if (!settled) {
+                settled = true;
+                resolve(value);
+            }
+        };
+        if (!/^https:/i.test(url)) {
+            done(null);
+            return;
+        }
+        try {
+            const req = https.get(
+                url,
+                {
+                    headers: { 'user-agent': 'vscode-context-window', accept: 'image/*' },
+                    timeout: AVATAR_TIMEOUT_MS
+                },
+                res => {
+                    const status = res.statusCode || 0;
+                    const location = res.headers.location;
+                    if (status >= 300 && status < 400 && location && redirects > 0) {
+                        res.resume();
+                        fetchAvatar(new URL(location, url).toString(), redirects - 1).then(done, () => done(null));
+                        return;
+                    }
+                    const type = String(res.headers['content-type'] || '').split(';')[0].trim();
+                    if (status !== 200 || !/^image\//i.test(type)) {
+                        res.resume();
+                        done(null);
+                        return;
+                    }
+                    const chunks: Buffer[] = [];
+                    let size = 0;
+                    res.on('data', (chunk: Buffer) => {
+                        size += chunk.length;
+                        if (size > AVATAR_MAX_BYTES) {
+                            res.destroy();
+                            done(null);
+                            return;
+                        }
+                        chunks.push(chunk);
+                    });
+                    res.on('end', () => done(`data:${type};base64,${Buffer.concat(chunks).toString('base64')}`));
+                    res.on('error', () => done(null));
+                }
+            );
+            req.on('timeout', () => {
+                req.destroy();
+                done(null);
+            });
+            req.on('error', () => done(null));
+        } catch {
+            done(null);
+        }
+    });
+}
+
+function loadAvatar(url: string): Promise<string | null> {
+    const pending = avatarInflight.get(url);
+    if (pending) {
+        return pending;
+    }
+    const job = fetchAvatar(url).then(src => {
+        avatarCache.set(url, { src, at: Date.now() });
+        avatarInflight.delete(url);
+        return src;
+    }, () => {
+        avatarCache.set(url, { src: null, at: Date.now() });
+        avatarInflight.delete(url);
+        return null;
+    });
+    avatarInflight.set(url, job);
+    return job;
+}
+
+function avatarLetter(name: string): string {
+    const s = String(name || '').trim();
+    return s ? [...s][0].toUpperCase() : '?';
+}
+
+// 与 media/lineBlame.js 同一张色表：按首字母分段（A–C / D–F / …），白字保证对比度。
+const AVATAR_COLORS = [
+    '#c0392b', // A–C
+    '#d35400', // D–F
+    '#b7950b', // G–I
+    '#1e8449', // J–L
+    '#148f77', // M–O
+    '#2471a3', // P–R
+    '#6c3483', // S–U
+    '#7d3c98'  // V–Z 及其它
+];
+
+function avatarColor(name: string): string {
+    const letter = avatarLetter(name);
+    const code = letter.charCodeAt(0);
+    const idx = code >= 65 && code <= 90
+        ? Math.min(AVATAR_COLORS.length - 1, Math.floor((code - 65) * AVATAR_COLORS.length / 26))
+        : (letter.codePointAt(0) || 0) % AVATAR_COLORS.length;
+    return AVATAR_COLORS[idx];
+}
+
+/** 首字母牌子。圆角、字号、配色照 .cw-line-blame-hover-avatar-letter。 */
+function letterAvatarUri(name: string): string {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${AVATAR_PX}" height="${AVATAR_PX}" viewBox="0 0 28 28">`
+        + `<rect width="28" height="28" rx="6" ry="6" fill="${avatarColor(name)}"/>`
+        + `<text x="14" y="14" fill="#ffffff" font-family="sans-serif" font-size="14" font-weight="600"`
+        + ` text-anchor="middle" dominant-baseline="central">${escapeHtml(avatarLetter(name))}</text>`
+        + `</svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+function avatarImage(hover: LineBlameHoverInfo): string {
+    const url = avatarSrc(hover);
+    const src = (url && cachedAvatar(url)) || letterAvatarUri(hover.authorName || hover.author || '');
+    return htmlImg(src, AVATAR_PX, AVATAR_PX);
 }
 
 /** 1×1 透明 PNG。浮窗里的 <img width> 会按属性拉伸，不依赖 SVG 固有尺寸。 */
@@ -250,19 +405,16 @@ function headerGapPx(hover: LineBlameHoverInfo, diff: readonly LineBlameDiffLine
     return Math.max(24, hoverWidthPx(hover, diff) - Math.round(left + right));
 }
 
-function ruleImage(width: number): string {
-    const theme = vscode.window.activeColorTheme?.kind;
-    const dark = theme === vscode.ColorThemeKind.Dark || theme === vscode.ColorThemeKind.HighContrast;
-    const fill = dark ? '#454545' : '#e0e0e0';
-    const w = Math.max(1, Math.round(width));
-    return htmlImg(
-        `data:image/svg+xml,${encodeURIComponent(
-            `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="1"><rect width="${w}" height="1" fill="${fill}"/></svg>`
-        )}`,
-        w,
-        1
-    );
-}
+/**
+ * 上下两区之间那根线。以前是一张一像素宽图，但图是行内元素：浮窗会给它开一个
+ * 完整的文本行框，再加上下两侧的段落外边距，一根线要吃掉三十多像素，diff 和
+ * Changes 之间就空出一大块。改用 markdown 的水平线，浮窗自带的 hr 样式只留几
+ * 像素外边距，还会自己撑满整宽，不用再按算出来的宽度画。
+ *
+ * 写 `---` 而不是 `<hr>`：裸标签会开一个 HTML 块，要一直到空行才结束，
+ * 紧跟其后的 Changes 那行就会被当成原样 HTML，里面的芯片链接全成了死字符。
+ */
+const HOVER_RULE = '---';
 
 function appendHeader(
     md: vscode.MarkdownString,
@@ -272,8 +424,8 @@ function appendHeader(
     const who = escapeHtml(hover.author || hover.authorName || 'Someone');
     const when = escapeHtml(whenText(hover));
     const colors = palette();
-    const src = avatarSrc(hover);
-    const avatar = src ? htmlImg(src, 28, 28) : '';
+    // 头像永远有：拉不到照片就是首字母牌子，不会空一块。
+    const avatar = avatarImage(hover);
     const clock = when ? htmlImg(clockDataUri(colors.muted), 14, 14) : '';
     const name = `<span><strong>${who}</strong></span>`;
     const time = when
@@ -281,7 +433,7 @@ function appendHeader(
         : '';
     const gap = when ? spacer(headerGapPx(hover, diff)) : '';
     md.appendMarkdown(
-        `${avatar}${avatar ? '&nbsp;' : ''}${name}${gap}${time}\n\n`
+        `${avatar}&nbsp;${name}${gap}${time}\n\n`
     );
 }
 
@@ -369,7 +521,7 @@ interface HoverParts {
 }
 
 /**
- * 两个 hover part，中间那根分割条是编辑器给相邻 part 画的，不要手写 ---。
+ * 两个 hover part，中间那根分割条是编辑器给相邻 part 画的，不要自己再补一根。
  * 分区跟 webview 一样：上面作者和提交，下面 diff + Changes 合成一块，
  * 所以浮到底下时只有一颗拷贝，内容也是 diff 和 Changes 一起。
  */
@@ -389,11 +541,12 @@ function buildHover(
 
     const detail = section();
     if (diff.length) {
-        detail.appendMarkdown(`${diffBlock(diff)}\n\n`);
+        // 代码块和下面这根线之间不再空一行：markdown 的空行会多开一个段落，
+        // 那正是截图里 diff 下方那片多余留白。
+        detail.appendMarkdown(`${diffBlock(diff)}\n`);
     }
     // 分割条只画在这一块里面，不另开 hover part，拷贝仍是 diff + Changes 一起。
-    // 宽度跟卡好的浮窗宽一致，才能和 part 之间那根顶栏对齐。
-    detail.appendMarkdown(`${ruleImage(hoverWidthPx(hover, diff))}\n\n`);
+    detail.appendMarkdown(`${HOVER_RULE}\n`);
     detail.appendMarkdown(changesLine(hover));
     if (hover.sha || hover.workingTree) {
         const args: OpenChangesArgs = {
@@ -552,7 +705,25 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
         // hoverMessage 是静态的、只能预先备好，所以这里拿两步走近似那个效果：
         // 注解立刻可见，浮窗随后升级成带 diff 的完整版本。中间这一小段时间里
         // 划过去只是少一块 diff，不会看到空浮窗。
-        apply(editor, line0, info.text, buildHover(info, [], uriString, line0 + 1));
+        const blame = info;
+        let shownDiff: readonly LineBlameDiffLine[] = [];
+        const draw = () => apply(
+            editor,
+            line0,
+            blame.text,
+            buildHover(blame, shownDiff, uriString, line0 + 1)
+        );
+        draw();
+
+        // 头像同理：先用首字母牌子，图取回来了再重画一次。取不到就一直是牌子。
+        const avatarUrl = avatarSrc(blame.hover);
+        if (avatarUrl && shouldFetchAvatar(avatarUrl)) {
+            void loadAvatar(avatarUrl).then(src => {
+                if (src && stillMine()) {
+                    draw();
+                }
+            });
+        }
 
         let diff: readonly LineBlameDiffLine[] | undefined;
         try {
@@ -564,7 +735,8 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
         if (!diff?.length || !stillMine()) {
             return;
         }
-        apply(editor, line0, info.text, buildHover(info, diff, uriString, line0 + 1));
+        shownDiff = diff;
+        draw();
     };
 
     const schedule = () => {
