@@ -17,14 +17,16 @@ import {
  * media/lineBlame.js 那张卡片来。
  *
  * 但两者不可能长得一样，因为渲染的人不同：webview 那张卡片是我们自己的 DOM；
- * 这里交给编辑器的只有 MarkdownString。字号、按下变色不在这个口子里；
- * 头像行的左右分布靠 supportHtml 下的 <table width="100%">。
+ * 这里交给编辑器的只有 MarkdownString。字号、按下变色不在这个口子里；样式也只剩
+ * 标签一条路——VS Code 的 markdown 消毒器只在 <span> 上放行 style，且只认
+ * color / background-color / border-radius，别的标签写了 style 一律抹掉。所以
+ * 头像行的对齐与左右分布靠 supportHtml 下的 <table>，靠单元格默认的居中对齐。
  *
  * 拷贝例外。新版编辑器给每个 hover part 挂一颗 HoverCopyButton，默认透明，
  * 指针进入这一行才显示——CodeBuddy 的「add to Chat」旁那颗就是它，不是他们
- * 改了我们的 markdown。所以卡片必须拆成两条装饰、两个 part：上半区作者和提交，
- * 下半区增删和 Changes。指针在哪一行，哪一行的拷贝才出现，跟 webview 的
- * is-copy-below 同一套分区，只是按钮是编辑器画的。
+ * 改了我们的 markdown。所以卡片拆成三条装饰、三个 part：作者和提交、增删、
+ * Changes。指针在哪一行，哪一行的拷贝才出现。顺带，part 之间那两根分割条也
+ * 由编辑器统一画，宽度天然一致，我们自己画不出等长的（见 buildHover）。
  */
 
 const CONFIG_SECTION = 'contextView.editor';
@@ -406,16 +408,15 @@ function headerGapPx(hover: LineBlameHoverInfo, diff: readonly LineBlameDiffLine
 }
 
 /**
- * 上下两区之间那根线。以前是一张一像素宽图，但图是行内元素：浮窗会给它开一个
- * 完整的文本行框，再加上下两侧的段落外边距，一根线要吃掉三十多像素，diff 和
- * Changes 之间就空出一大块。改用 markdown 的水平线，浮窗自带的 hr 样式只留几
- * 像素外边距，还会自己撑满整宽，不用再按算出来的宽度画。
+ * 头像和名字这一行。行内图片是按基线摆的——图的下沿落在基线上，所以 28px 的
+ * 头像整个悬在文字上方，和 webview 里 `align-items: center` 的那一行对不上。
+ * 浮窗又没有 CSS 口子：VS Code 的 markdown 消毒器只在 <span> 上放行 style，
+ * 且只认 color / background-color / border-radius，vertical-align 会被直接抹掉。
  *
- * 写 `---` 而不是 `<hr>`：裸标签会开一个 HTML 块，要一直到空行才结束，
- * 紧跟其后的 Changes 那行就会被当成原样 HTML，里面的芯片链接全成了死字符。
+ * 所以改用单行表格。单元格默认就是 vertical-align: middle，头像、名字、时钟、
+ * 时间各占一格，天然按中线对齐，等价于 webview 那套 flex。撑开左右间距的那张
+ * 透明图也放进自己的格子，卡片宽度仍由它决定。
  */
-const HOVER_RULE = '---';
-
 function appendHeader(
     md: vscode.MarkdownString,
     hover: LineBlameHoverInfo,
@@ -424,17 +425,18 @@ function appendHeader(
     const who = escapeHtml(hover.author || hover.authorName || 'Someone');
     const when = escapeHtml(whenText(hover));
     const colors = palette();
-    // 头像永远有：拉不到照片就是首字母牌子，不会空一块。
-    const avatar = avatarImage(hover);
-    const clock = when ? htmlImg(clockDataUri(colors.muted), 14, 14) : '';
-    const name = `<span><strong>${who}</strong></span>`;
-    const time = when
-        ? `<span style="color:${colors.muted};">${clock}&nbsp;${when}</span>`
-        : '';
-    const gap = when ? spacer(headerGapPx(hover, diff)) : '';
-    md.appendMarkdown(
-        `${avatar}&nbsp;${name}${gap}${time}\n\n`
-    );
+    const cells = [
+        `<td>${avatarImage(hover)}</td>`,
+        `<td>&nbsp;<strong>${who}</strong></td>`
+    ];
+    if (when) {
+        cells.push(`<td>${spacer(headerGapPx(hover, diff))}</td>`);
+        cells.push(`<td>${htmlImg(clockDataUri(colors.muted), 14, 14)}</td>`);
+        cells.push(`<td><span style="color:${colors.muted};">&nbsp;${when}</span></td>`);
+    }
+    // 整张表写在一行里：markdown 的 HTML 块要到空行才结束，中途换行会把后面的
+    // 提交信息一起吞进原样 HTML。
+    md.appendMarkdown(`<table><tr>${cells.join('')}</tr></table>\n\n`);
 }
 
 /** 首行是标题、其余是正文，和 webview 的 summary / body 一致。 */
@@ -517,13 +519,22 @@ function section(): vscode.MarkdownString {
 
 interface HoverParts {
     tips: vscode.MarkdownString;
-    detail?: vscode.MarkdownString;
+    diff?: vscode.MarkdownString;
+    foot?: vscode.MarkdownString;
 }
 
 /**
- * 两个 hover part，中间那根分割条是编辑器给相邻 part 画的，不要自己再补一根。
- * 分区跟 webview 一样：上面作者和提交，下面 diff + Changes 合成一块，
- * 所以浮到底下时只有一颗拷贝，内容也是 diff 和 Changes 一起。
+ * 三个 hover part：作者和提交 / 增删 / Changes。两根分割条都由编辑器在相邻
+ * part 之间画，我们一根都不自己画。
+ *
+ * 自己画不出等长的线。手写的 `---` 落在 .hover-contents 里，它自带的
+ * margin:-8px 只够抵消内容区那 8px 内边距；而带拷贝按钮的行（.hover-row-with-copy）
+ * 右侧还留了 20px 给按钮，线就比上面那根短 20px。想补回来得改外边距，可
+ * VS Code 的消毒器只在 <span> 上放行 style，hr 上写什么都会被抹掉。
+ * 交给编辑器画则天然一致：那两根线是同一条 .hover-row 顶边框。
+ *
+ * 代价是拷贝按钮从两颗变三颗，增删和 Changes 各拷各的，不再像 webview 那样
+ * 一起拷。
  */
 function buildHover(
     info: LineBlameInfo,
@@ -539,15 +550,15 @@ function buildHover(
         tips.appendMarkdown(shaChip(hover.shortSha, hover.sha));
     }
 
-    const detail = section();
+    const parts: HoverParts = { tips };
     if (diff.length) {
-        // 代码块和下面这根线之间不再空一行：markdown 的空行会多开一个段落，
-        // 那正是截图里 diff 下方那片多余留白。
-        detail.appendMarkdown(`${diffBlock(diff)}\n`);
+        const code = section();
+        code.appendMarkdown(diffBlock(diff));
+        parts.diff = code;
     }
-    // 分割条只画在这一块里面，不另开 hover part，拷贝仍是 diff + Changes 一起。
-    detail.appendMarkdown(`${HOVER_RULE}\n`);
-    detail.appendMarkdown(changesLine(hover));
+
+    const foot = section();
+    foot.appendMarkdown(changesLine(hover));
     if (hover.sha || hover.workingTree) {
         const args: OpenChangesArgs = {
             uri: uriString,
@@ -556,11 +567,12 @@ function buildHover(
             previousSha: hover.previousSha || '',
             workingTree: !!hover.workingTree
         };
-        detail.appendMarkdown(
+        foot.appendMarkdown(
             ` &nbsp;[${openChangesImage(palette().icon)}](${commandLink(OPEN_CHANGES_COMMAND, args)} "Open Changes")`
         );
     }
-    return { tips, detail };
+    parts.foot = foot;
+    return parts;
 }
 
 /**
@@ -596,8 +608,10 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
             color: new vscode.ThemeColor('contextView.lineBlameForeground')
         }
     });
-    // 第二条不画字，只多贡献下半区 hover part：diff 和 Changes 在一起。
-    const detailHover = vscode.window.createTextEditorDecorationType({});
+    // 后两条不画字，只各贡献一个 hover part：增删、Changes。
+    // 顺序就是这里创建、下面 setDecorations 的顺序，浮窗里的先后与之一致。
+    const diffHover = vscode.window.createTextEditorDecorationType({});
+    const footHover = vscode.window.createTextEditorDecorationType({});
 
     /** 当前画着注解的编辑器和行，用来判断某次事件是否让它失效。 */
     let decorated: { editor: vscode.TextEditor; line: number } | undefined;
@@ -612,7 +626,7 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
         if (!previous) {
             return;
         }
-        wipe(previous.editor, annotation, detailHover);
+        wipe(previous.editor, annotation, diffHover, footHover);
     };
 
     const apply = (
@@ -622,7 +636,7 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
         hover: HoverParts
     ) => {
         if (decorated && decorated.editor !== editor) {
-            wipe(decorated.editor, annotation, detailHover);
+            wipe(decorated.editor, annotation, diffHover, footHover);
         }
         const end = editor.document.lineAt(line0Based).range.end;
         const range = new vscode.Range(end, end);
@@ -631,8 +645,11 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
             hoverMessage: hover.tips,
             renderOptions: { after: { contentText: text } }
         }]);
-        editor.setDecorations(detailHover, hover.detail
-            ? [{ range, hoverMessage: hover.detail }]
+        editor.setDecorations(diffHover, hover.diff
+            ? [{ range, hoverMessage: hover.diff }]
+            : []);
+        editor.setDecorations(footHover, hover.foot
+            ? [{ range, hoverMessage: hover.foot }]
             : []);
         decorated = { editor, line: line0Based };
     };
@@ -833,7 +850,8 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
                 clearTimeout(timer);
             }
             annotation.dispose();
-            detailHover.dispose();
+            diffHover.dispose();
+            footHover.dispose();
         }
     });
 
