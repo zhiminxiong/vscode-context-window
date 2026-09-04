@@ -49,6 +49,18 @@
         "label": "Context View"
       }
     ],
+    "colors": [
+      {
+        "id": "contextView.lineBlameForeground",
+        "description": "Foreground of the git blame annotation at the end of the cursor's line. Defaults to the same translucent gray GitLens uses for its trailing annotation, so it stays behind the code rather than competing with it.",
+        "defaults": {
+          "dark": "#99999959",
+          "light": "#99999959",
+          "highContrast": "#999999a0",
+          "highContrastLight": "#999999a0"
+        }
+      }
+    ],
     "viewsContainers": {
       "panel": [
         {
@@ -271,6 +283,11 @@
           },
           "default": [],
           "markdownDescription": "Extra MCP config files to offer in \"Context View: Configure MCP Server Entry\", for clients it does not know about. Each entry is a path to a `.json` file: absolute, starting with `~` for your home directory, or relative to the workspace. The surrounding key is taken from the file itself, defaulting to `mcpServers`."
+        },
+        "contextView.editor.lineBlame": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show a gray git summary (author, time, commit subject) at the end of the cursor's line in the main editor, and a hover with the full message and an Open Changes link. Meant to replace the same annotation from GitLens — if `gitlens.currentLine.enabled` is also on you will see both, so turn one of them off. While a line has unsaved edits it reads \"Uncommitted changes\" instead: `git blame` numbers lines by the file on disk, so its answer no longer lines up with what is on screen."
         },
         "contextView.contextWindow.updateMode": {
           "type": "string",

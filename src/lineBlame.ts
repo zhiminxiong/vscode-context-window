@@ -548,7 +548,11 @@ function materializeBlame(hit: LineBlameCacheHit): LineBlameInfo {
     } else if (hit.who && when) {
         text = `${hit.who}, ${when}`;
     }
-    return { text, hover };
+    const info: LineBlameInfo = { text, hover };
+    if (hit.content !== undefined) {
+        info.content = hit.content;
+    }
+    return info;
 }
 
 function parsePreviousField(rest: string): { previous: string; previousPath: string } {
@@ -724,6 +728,12 @@ export interface LineBlameHoverInfo {
 export interface LineBlameInfo {
     text: string;
     hover: LineBlameHoverInfo;
+    /**
+     * 该行在 git 眼里的内容（工作区磁盘版本，不含行尾符）。
+     * git blame 按磁盘文件算行号，编辑器里有未保存的增删时行号会错位，
+     * 调用方可用它和当前行文本比对，判断这条 blame 还对不对得上。
+     */
+    content?: string;
 }
 
 /**

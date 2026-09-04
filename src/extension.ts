@@ -5,6 +5,7 @@ import { registerRelationQuickSearch } from './relationQuickSearch';
 import { isSingleFullLineSelection, registerLineNumberSymbolSelection } from './enclosingSymbol';
 import { registerMcpToolPreview } from './mcp/preview';
 import { registerMcpHost } from './mcp/host';
+import { registerEditorLineBlame } from './editorLineBlame';
 
 function parseRelationLoc(arg?: { uri?: string; line?: number; character?: number }):
     { uri?: vscode.Uri; position?: vscode.Position } | undefined {
@@ -264,6 +265,7 @@ export function activate(context: vscode.ExtensionContext) {
     registerBracketPairSelectionOnDoubleClick(context);
     registerBracketPairSelectionToggle(context);
     registerLineNumberSymbolSelection(context);
+    registerEditorLineBlame(context);
     registerMcpToolPreview(context);
     registerMcpHost(context);
 }

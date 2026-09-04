@@ -28,6 +28,7 @@ This extension implements Source Insight’s Context Window, plus Relation’s C
   ![feature2](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature2.gif?raw=true)
 
   - Git line blame: click a non-word area (line number or empty end of line) to show a trailing git summary. The detailed hover can be enabled in settings; when it is off, hold **Alt** over the annotation to open it.
+  - The same annotation follows the cursor in the **main VS Code editor** as well, so GitLens is not needed for it (`contextView.editor.lineBlame`, on by default). Both draw in the same place, so turn one of them off.
   - Right-click to select the word under the cursor.
   - Source Insight–style double-click to select a whole bracket/quote pair (in the Context Window, use a right-button double-click). A setting can enable the same behavior in the VS Code editor; it differs from VS Code’s default double-click selection.
   - Source Insight–style double-click on a line number to select the whole function. A setting can enable the same behavior in the VS Code editor.
@@ -82,6 +83,17 @@ This extension implements Source Insight’s Context Window, plus Relation’s C
     - Only files whose content is larger than this value are cached in the backend, so a frontend miss can refetch them without re-reading the document.
     - Note: setting it too large means almost no file qualifies and the backend cache stays empty (no effect); setting it too small lets small files take up the limited backend slots and crowd out the truly large files. Recommended range: ~50KB to ~300KB.
 - `contextView.contextWindow.backendCacheSize` — Maximum number of large files cached in the extension host (backend). Default `20`. The least recently used file is evicted when exceeded.
+
+#### Main editor
+
+- `contextView.editor.lineBlame` — Show a gray git summary (author, time, commit subject) at the end of the cursor's line in the main VS Code editor, with a hover carrying the full commit message and an **Open Changes** link. On by default, and intended to replace the same annotation from GitLens — both draw at the end of the line, so if `gitlens.currentLine.enabled` is also on you will see the two of them side by side.
+    - The annotation follows the cursor and is asked for only once the cursor stops, so holding an arrow key does not run `git blame` for every line in between. Answers are shared with the Context Window's own annotation, so the two never disagree and never query git twice.
+    - While the line has unsaved edits it reads `You, Uncommitted changes` rather than a commit. `git blame` numbers lines by the file **on disk**, so as soon as you insert or delete a line its answer no longer matches what is on screen; showing the stale author would be worse than saying nothing. Save the file and the real annotation comes back.
+    - Only files on disk are annotated. Untitled buffers and the read-only side of a diff are skipped, as is a selection that spans more than one line.
+    - The hover carries the same card as the Context Window's, in two bands that the editor treats as separate hover parts: the author with their avatar, a dimmed relative time and exact date, the commit message, and the SHA on a green chip; then this line's additions and deletions and a dimmed `Changes …` footer with the **Open Changes** link. Every SHA chip copies the full SHA when clicked. The copy icon at the top-right of each band is the editor's own — it appears only while the pointer is in that band, the same split the Context Window uses. Other extensions (for example CodeBuddy's **add to Chat**) can add another band above ours; their copy button is that band's, not ours.
+    - It cannot look identical, because the two are drawn by different machinery. The Context Window's card is this extension's own DOM, so its HTML, CSS, and mouse handling are all ours. What the main editor gets is a markdown string, and the hover widget paints it with its own stylesheet; extensions get no hook into it. So these have no way through: font size, padding, line height, and rounded corners; pushing the date to the card's right edge; a pressed color on the SHA chip; and the character-level highlight inside a changed line, which is colored per line instead. Authors with no Gravatar get its generic silhouette rather than an initial badge, since a hover image cannot fall back.
+    - The annotation also disappears the moment you leave the line or edit the document, instead of lingering until the new answer arrives. A decoration moves with the text it is attached to, so inserting a line above would otherwise carry the old line's annotation along with it.
+    - Color comes from `contextView.lineBlameForeground`, which defaults to the same translucent gray GitLens uses. Override it under `workbench.colorCustomizations` to make it dimmer or brighter.
 
 #### Floating / independent window
 
