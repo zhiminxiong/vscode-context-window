@@ -106,6 +106,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     private _lastContentHash: string | undefined;  // 最近一次的内容标识
     private _lastContent: FileContentInfo | undefined;  // 最近一次的内容
+    private _semanticRulesLanguageId: string | undefined;  // 最近一次按该语言解析过语义配色
 
     private _progressDepth = 0;  // 进度条嵌套计数：归零才隐藏，避免并发更新时进度条错配
 
@@ -136,7 +137,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this.postMessageToWebview({
                     type: 'updateTheme',
                     theme: this._getVSCodeTheme(theme),
-                    themeSemanticRules: resolveSemanticRules(),
+                    themeSemanticRules: resolveSemanticRules(this._resolveLanguageId()),
                     // 方案 B：主题切换时同步刷新「全部 textmate scope → 颜色」，使基础语法层实时跟随主题
                     themeTextmateRules: this._isTextmateEnabled() ? resolveRawTokenColors() : undefined
                 });
@@ -706,6 +707,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         return '#0000FF'; // 默认颜色
     }
 
+    // 当前 Context 正在展示的语言。语义探测 scope（support.variable.ts）按语言贡献，必须带上。
+    private _resolveLanguageId(): string | undefined {
+        return this._lastContent?.languageId
+            || this.getCurrentContent()?.content?.languageId
+            || vscode.window.activeTextEditor?.document.languageId;
+    }
+
     // 获取 VS Code 编辑器完整配置
     private _getVSCodeEditorConfiguration(): any {
         // 获取所有编辑器相关配置
@@ -781,7 +789,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         // 从当前 VSCode 主题解析出的语义 token 真实配色，作为 Monaco 的默认色（前端可被用户规则覆盖）。
         // 解析失败时为 undefined，前端回退到硬编码兜底色。
-        config.themeSemanticRules = resolveSemanticRules();
+        const languageId = this._resolveLanguageId();
+        this._semanticRulesLanguageId = languageId;
+        config.themeSemanticRules = resolveSemanticRules(languageId);
 
         // 方案 B：启用真实 TextMate 语法时，下发主题全部 tokenColors（scope → 颜色），供基础语法层着色。
         if (this._isTextmateEnabled()) {
@@ -2065,8 +2075,18 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private async updateContent(contentInfo?: FileContentInfo, curLine: number =-1, curColumn: number =-1) {
         if (contentInfo && contentInfo.content.length && contentInfo.jmpUri) {
             // 只缓存最近一次的内容（供前端请求使用）
+            const prevLang = this._semanticRulesLanguageId;
             this._lastContentHash = `${contentInfo.jmpUri.toString()}:${contentInfo.documentVersion}`;
             this._lastContent = contentInfo;
+            if (contentInfo.languageId && contentInfo.languageId !== prevLang) {
+                this._semanticRulesLanguageId = contentInfo.languageId;
+                this.postMessageToWebview({
+                    type: 'updateTheme',
+                    theme: this._getVSCodeTheme(),
+                    themeSemanticRules: resolveSemanticRules(contentInfo.languageId),
+                    themeTextmateRules: this._isTextmateEnabled() ? resolveRawTokenColors() : undefined
+                });
+            }
 
             // 先发送元数据（不包含 body），body 由前端按需 requestContent 拉取
             // 历史里是 0-based，消息里统一转成 Monaco 的 1-based

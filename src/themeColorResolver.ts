@@ -8,13 +8,16 @@ import * as path from 'path';
 //   1) 找到当前主题贡献的 JSON 文件（含 include 继承链）并解析 tokenColors / semanticTokenColors；
 //   2) 叠加用户设置 editor.semanticTokenColorCustomizations / editor.tokenColorCustomizations；
 //   3) 对每个语义类型，先查 semanticTokenColors（含 *.declaration 等选择器），
-//      未命中再用「语义类型 → textmate scope」默认映射回退到 tokenColors。
+//      未命中再用「语义选择器 → scopesToProbe / 语义类型 → textmate scope」回退到 tokenColors。
 // 解析失败时返回 undefined，前端继续用硬编码的兜底默认色，保证不退化。
 
 export interface SemanticRule {
     token: string;
     foreground?: string;
     fontStyle?: string;
+    // VSCode scopesToProbe 的首选 TextMate scope（无语言后缀）。取色面板用来展示
+    // Inspect 里那条「semantic → support.variable.ts」，不发给 Monaco。
+    probe?: string;
 }
 
 interface TokenColorRule {
@@ -56,12 +59,56 @@ const SEMANTIC_TO_SCOPES: Record<string, string[]> = {
     operator: ['keyword.operator'],
 };
 
+// VSCode tokenClassificationRegistry 的 registerTokenStyleDefault：带修饰符的选择器
+// 另有自己的 TextMate 探测表。主题通常不写 semanticTokenColors["variable.defaultLibrary"]，
+// 颜色来自这些 probe（TS 再贡献 support.variable.ts）。按「类型相同 + 修饰符子集」匹配，
+// 最具体者优先，故 key 用修饰符集合语义，不依赖书写顺序。
+const SCOPES_TO_PROBE: Record<string, string[]> = {
+    'variable.readonly': ['variable.other.constant'],
+    'property.readonly': ['variable.other.constant.property'],
+    'type.defaultLibrary': ['support.type'],
+    'class.defaultLibrary': ['support.class'],
+    'interface.defaultLibrary': ['support.class'],
+    'variable.defaultLibrary': ['support.variable', 'support.other.variable'],
+    'variable.defaultLibrary.readonly': ['support.constant'],
+    'property.defaultLibrary': ['support.variable.property'],
+    'property.defaultLibrary.readonly': ['support.constant.property'],
+    'function.defaultLibrary': ['support.function'],
+    'method.defaultLibrary': ['support.function'],
+};
+
 // 常见语言的 scope 后缀（用于解析「基础语法层」token 的语言专属配色，如 storage.type.class.ts）。
 // 覆盖各 textmate 语法的 tokenPostfix；多发出的、不匹配任何实际 token 的规则是无害的。
 const LANG_POSTFIXES = [
     'ts', 'js', 'tsx', 'jsx', 'cpp', 'c', 'cs', 'java', 'go', 'rs', 'rust', 'py', 'python',
     'rb', 'ruby', 'php', 'swift', 'kt', 'kotlin', 'lua', 'scala', 'dart', 'h', 'hpp', 'm', 'mm',
 ];
+
+// VS Code / Monaco languageId → TextMate tokenPostfix。探测语义色时只加当前语言的后缀
+// （support.variable.ts），不能把 .js/.cpp 等全试一遍：那些常会先命中主题里更短的
+// support.variable，把用户给 support.variable.ts 配的色盖掉。
+const LANG_ID_TO_POSTFIX: Record<string, string> = {
+    typescript: 'ts',
+    javascript: 'js',
+    typescriptreact: 'tsx',
+    javascriptreact: 'jsx',
+    cpp: 'cpp',
+    c: 'c',
+    csharp: 'cs',
+    java: 'java',
+    go: 'go',
+    rust: 'rs',
+    python: 'py',
+    ruby: 'rb',
+    php: 'php',
+    swift: 'swift',
+    kotlin: 'kt',
+    lua: 'lua',
+    scala: 'scala',
+    dart: 'dart',
+    'objective-c': 'm',
+    'objective-cpp': 'mm',
+};
 
 // 修饰符的规范顺序，对齐 VSCode 语义 token legend 的常见顺序。
 // 编辑器里 Monaco 会按 legend 顺序把「类型 + 修饰符」拼成 "variable.declaration.readonly.local"，
@@ -78,6 +125,111 @@ function sortModifiers(mods: string[]): string[] {
         return i < 0 ? MODIFIER_ORDER.length : i;
     };
     return [...mods].sort((a, b) => idx(a) - idx(b));
+}
+
+// 选择器与 token 是否匹配：类型相同，且选择器的修饰符是 token 修饰符的子集（与书写顺序无关）。
+function selectorMatchesToken(selector: string, tokenType: string, tokenMods: string[]): boolean {
+    const [sType, ...sMods] = selector.split('.');
+    if (sType !== tokenType) { return false; }
+    return sMods.every(m => tokenMods.includes(m));
+}
+
+// 最具体的内置 probe scopes（修饰符更多者优先）。无组合命中时回退到类型表。
+function builtinProbeScopes(token: string): string[] {
+    const specific = specificProbeScopes(token);
+    if (specific.length) { return specific; }
+    const tType = token.split('.')[0];
+    return SEMANTIC_TO_SCOPES[tType] || [];
+}
+
+function specificProbeScopes(token: string): string[] {
+    const [tType, ...tMods] = token.split('.');
+    let best: string[] | undefined;
+    let bestScore = -1;
+    for (const [selector, scopes] of Object.entries(SCOPES_TO_PROBE)) {
+        if (!selectorMatchesToken(selector, tType, tMods)) { continue; }
+        const score = selector.split('.').length - 1;
+        if (score > bestScore) {
+            bestScore = score;
+            best = scopes;
+        }
+    }
+    return best && best.length ? best : [];
+}
+
+function specificProbeScope(token: string): string | undefined {
+    return specificProbeScopes(token)[0];
+}
+
+// 扩展 contributes.semanticTokenScopes：语言专属探测（如 TS 的 variable.defaultLibrary → support.variable.ts）。
+function readExtensionProbeScopes(): { language?: string; selector: string; scopes: string[] }[] {
+    const out: { language?: string; selector: string; scopes: string[] }[] = [];
+    try {
+        for (const ext of vscode.extensions.all) {
+            const list = ext.packageJSON?.contributes?.semanticTokenScopes;
+            if (!Array.isArray(list)) { continue; }
+            for (const c of list) {
+                if (!c?.scopes || typeof c.scopes !== 'object') { continue; }
+                const language = typeof c.language === 'string' ? c.language : undefined;
+                for (const [selector, tmScopes] of Object.entries(c.scopes as Record<string, unknown>)) {
+                    if (!Array.isArray(tmScopes)) { continue; }
+                    const scopes: string[] = [];
+                    for (const raw of tmScopes) {
+                        if (typeof raw !== 'string') { continue; }
+                        const segs = raw.trim().split(/\s+/);
+                        const last = segs[segs.length - 1];
+                        if (last) { scopes.push(last); }
+                    }
+                    if (scopes.length) { out.push({ language, selector, scopes }); }
+                }
+            }
+        }
+    } catch {
+        // 扩展清单读失败不影响主题解析
+    }
+    return out;
+}
+
+function uniqueScopes(scopes: string[]): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const s of scopes) {
+        if (!s || seen.has(s)) { continue; }
+        seen.add(s);
+        out.push(s);
+    }
+    return out;
+}
+
+// 取色候选（当前语言）：扩展 semanticTokenScopes → 内置 probe 的语言后缀 → 内置 probe → 类型回退。
+// 只保留当前 languageId 的贡献；其它语言的 support.variable.js 等不得参与，否则会先命中
+// 主题里更短的 support.variable，丢了用户给 support.variable.ts 配的色。
+function colorCandidateScopes(
+    token: string,
+    extensionProbes: { language?: string; selector: string; scopes: string[] }[],
+    languageId?: string
+): string[] {
+    const [tType, ...tMods] = token.split('.');
+    let extBestScore = -1;
+    let extBest: string[] = [];
+    for (const p of extensionProbes) {
+        if (languageId && p.language && p.language !== languageId) { continue; }
+        if (!selectorMatchesToken(p.selector, tType, tMods)) { continue; }
+        const langBonus = (languageId && p.language === languageId) ? 1000 : 0;
+        const score = (p.selector.split('.').length - 1) + langBonus;
+        if (score > extBestScore) {
+            extBestScore = score;
+            extBest = [...p.scopes];
+        } else if (score === extBestScore) {
+            extBest.push(...p.scopes);
+        }
+    }
+
+    const builtin = builtinProbeScopes(token);
+    const typeScopes = SEMANTIC_TO_SCOPES[tType] || [];
+    const postfix = languageId ? (LANG_ID_TO_POSTFIX[languageId] || '') : '';
+    const suffixed = postfix ? builtin.map(sc => `${sc}.${postfix}`) : [];
+    return uniqueScopes([...extBest, ...suffixed, ...builtin, ...typeScopes]);
 }
 
 // 去掉 JSONC 中的注释与尾随逗号，便于用 JSON.parse 解析主题文件。
@@ -202,27 +354,31 @@ function normalizeScopes(scope?: string | string[]): string[] {
     return out;
 }
 
-// 在 tokenColors 中按候选 scope 找最匹配规则（最长 scope 前缀、后者覆盖前者）。
+// 在 tokenColors 中按候选 scope 找最匹配规则。
+// 对全部候选一起比：匹配到的规则 scope 越长越好（support.variable.ts 胜过 support.variable）；
+// 同长度时保留更靠前的候选（语言专属 probe 优先于类型回退），同一候选内后者覆盖前者。
 function styleFromTokenColors(tokenColors: TokenColorRule[], candidateScopes: string[]): SemanticStyle | undefined {
-    for (const target of candidateScopes) {
-        let best: SemanticStyle | undefined;
-        let bestLen = -1;
+    let best: SemanticStyle | undefined;
+    let bestLen = -1;
+    let bestCi = -1;
+    for (let ci = 0; ci < candidateScopes.length; ci++) {
+        const target = candidateScopes[ci];
         for (const rule of tokenColors) {
             const settings = rule.settings;
             if (!settings || (!settings.foreground && !settings.fontStyle)) { continue; }
             for (const sc of normalizeScopes(rule.scope)) {
                 if (target === sc || target.startsWith(sc + '.')) {
                     const len = sc.split('.').length;
-                    if (len >= bestLen) {
+                    if (len > bestLen || (len === bestLen && ci === bestCi)) {
                         bestLen = len;
+                        bestCi = ci;
                         best = { foreground: settings.foreground, fontStyle: settings.fontStyle };
                     }
                 }
             }
         }
-        if (best) { return best; }
     }
-    return undefined;
+    return best;
 }
 
 // 一条 semanticTokenColors 规则对各样式位的「贡献」：undefined 表示该规则未定义此位。
@@ -368,12 +524,13 @@ function mergeStyle(...styles: (SemanticStyle | undefined)[]): SemanticStyle {
 // 解析出某个语义 token（如 "enum" 或 "enum.declaration"）的最终样式。
 function resolveStyleForToken(
     token: string,
-    typeForScopes: string,
     themeData: { tokenColors: TokenColorRule[]; semanticTokenColors: Record<string, any> },
-    userSemantic: Record<string, any>
+    userSemantic: Record<string, any>,
+    extensionProbes: { language?: string; selector: string; scopes: string[] }[],
+    languageId?: string
 ): SemanticStyle | undefined {
-    // 优先级（低 → 高）：textmate 回退 < 主题 semanticTokenColors < 用户 semanticTokenColorCustomizations
-    const fromScope = styleFromTokenColors(themeData.tokenColors, SEMANTIC_TO_SCOPES[typeForScopes] || []);
+    // 优先级（低 → 高）：textmate 探测回退 < 主题 semanticTokenColors < 用户 semanticTokenColorCustomizations
+    const fromScope = styleFromTokenColors(themeData.tokenColors, colorCandidateScopes(token, extensionProbes, languageId));
     const fromTheme = styleFromSemanticColors(themeData.semanticTokenColors, token);
     const fromUser = styleFromSemanticColors(userSemantic, token);
     const merged = mergeStyle(fromScope, fromTheme, fromUser);
@@ -381,9 +538,9 @@ function resolveStyleForToken(
     return merged;
 }
 
-export function resolveSemanticRules(): SemanticRule[] | undefined {
+export function resolveSemanticRules(languageId?: string): SemanticRule[] | undefined {
     try {
-        return resolveSemanticRulesInner();
+        return resolveSemanticRulesInner(languageId);
     } catch {
         // 任意异常都不应影响配置注入；失败时前端走硬编码兜底
         return undefined;
@@ -446,7 +603,7 @@ export function resolveRawTokenColors(): SemanticRule[] | undefined {
     }
 }
 
-function resolveSemanticRulesInner(): SemanticRule[] | undefined {
+function resolveSemanticRulesInner(languageId?: string): SemanticRule[] | undefined {
     const themeFile = findThemePath();
     if (!themeFile) { return undefined; }
 
@@ -464,28 +621,32 @@ function resolveSemanticRulesInner(): SemanticRule[] | undefined {
     // 收集主题 + 用户语义选择器里出现过的「修饰符组合」（按类型；'*' 适用于所有类型）。
     // 例如用户写了 variable.declaration.readonly / *.declaration，就为相应类型生成这些带修饰符的规则。
     const comboMap = collectModifierCombos(themeData.semanticTokenColors, userSemantic);
+    addDefaultProbeCombos(comboMap);
     const starCombos = comboMap.get('*') || new Set<string>();
+    const extensionProbes = readExtensionProbeScopes();
 
     const rules: SemanticRule[] = [];
     let produced = false;
 
-    const pushRule = (token: string, typeForScopes: string, baseFg?: string) => {
-        const style = resolveStyleForToken(token, typeForScopes, themeData, userSemantic);
+    const pushRule = (token: string, baseFg?: string) => {
+        const style = resolveStyleForToken(token, themeData, userSemantic, extensionProbes, languageId);
         const fg = normalizeColor(style?.foreground) || baseFg;
         const fontStyle = style?.fontStyle;
         if (fg) { produced = true; }
+        const probe = specificProbeScope(token);
         rules.push({
             token,
             ...(fg ? { foreground: fg } : {}),
             // 保留显式 ''（重置样式）：与 undefined（继承父 scope）区分，避免 Monaco 继承祖先的 bold/italic。
             ...(fontStyle !== undefined ? { fontStyle } : {}),
+            ...(probe ? { probe } : {}),
         });
         return fg;
     };
 
     for (const type of Object.keys(SEMANTIC_TO_SCOPES)) {
         // 基础类型规则
-        const baseFg = pushRule(type, type);
+        const baseFg = pushRule(type);
         // 该类型相关的修饰符组合 = 类型专属 ∪ '*' 通配。
         // 顺序很关键：通配（'*'，如来自 *.declaration）在前、类型专属（如来自 class.constructorOrDestructor）在后。
         // 二者拍平后同形（都是 class.<mod>），特异性（修饰符数）相同时前端按「后注册覆盖」取最后命中，
@@ -493,7 +654,7 @@ function resolveSemanticRulesInner(): SemanticRule[] | undefined {
         const combos = new Set<string>([...starCombos, ...(comboMap.get(type) || [])]);
         for (const combo of combos) {
             if (!combo) { continue; }
-            pushRule(`${type}.${combo}`, type, baseFg);
+            pushRule(`${type}.${combo}`, baseFg);
         }
     }
 
@@ -582,4 +743,18 @@ function collectModifierCombos(...sources: Record<string, any>[]): Map<string, S
         }
     }
     return perType;
+}
+
+// 即使主题没写 semanticTokenColors，也要为 VSCode 内置探测选择器生成规则
+// （否则 variable.defaultLibrary 会掉回 variable 色，console 等标准库标识符就会偏色）。
+function addDefaultProbeCombos(comboMap: Map<string, Set<string>>): void {
+    for (const selector of Object.keys(SCOPES_TO_PROBE)) {
+        const parts = selector.split('.');
+        const sType = parts[0];
+        const sMods = parts.slice(1);
+        if (!sMods.length || !(sType in SEMANTIC_TO_SCOPES)) { continue; }
+        const combo = sortModifiers(sMods).join('.');
+        if (!comboMap.has(sType)) { comboMap.set(sType, new Set<string>()); }
+        comboMap.get(sType)!.add(combo);
+    }
 }

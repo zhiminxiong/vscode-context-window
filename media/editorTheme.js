@@ -111,11 +111,14 @@ function mergeThemeRules(userRules, light) {
 // 回退继承父 scope（表现为"加粗对、颜色错"，如 if 渲染成蓝色加粗而非自定义红色）。
 function sanitizeRuleColors(rules) {
     return rules.map(r => {
-        if (!r || typeof r.foreground !== 'string') { return r; }
-        let fg = r.foreground.trim();
+        if (!r) { return r; }
+        const next = { ...r };
+        delete next.probe;
+        if (typeof next.foreground !== 'string') { return next; }
+        let fg = next.foreground.trim();
         if (fg.startsWith('#')) { fg = fg.slice(1); }
         if (/^[0-9a-fA-F]{8}$/.test(fg)) { fg = fg.slice(0, 6); }
-        return fg === r.foreground ? r : { ...r, foreground: fg };
+        return fg === next.foreground ? next : { ...next, foreground: fg };
     });
 }
 

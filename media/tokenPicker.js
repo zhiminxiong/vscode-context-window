@@ -31,7 +31,7 @@ function normalizeHex(c) {
 }
 
 /**
- * @param {{ token?: string, foreground?: string, fontStyle?: string, description?: string, source?: string }} options
+ * @param {{ token?: string, displayToken?: string, foreground?: string, fontStyle?: string, description?: string, source?: string }} options
  * @param {string} domColor
  * @param {string} word
  */
@@ -49,7 +49,7 @@ export async function pickTokenStyle(options = {
         bold: options.fontStyle?.includes('bold') || false,
         italic: options.fontStyle?.includes('italic') || false
     };
-    const tokenText = options.token || '';
+    const tokenText = options.displayToken || options.token || '';
     const SOURCE_LABELS = {
         monaco: 'monaco',
         semantic: 'semantic',

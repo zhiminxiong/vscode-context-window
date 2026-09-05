@@ -13,6 +13,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Switching Jump mode (Definition / Type Definition / Implementation / References) no longer rebuilds the Monaco theme, so the editor colors do not flash before the new lookup lands.
 - Relation toolbar: Pin is Lucide `pin` on its side (needle left) when free and needle-down when stuck, with no blue highlight. Live / Sticky also drop the blue fill and keep the eye plus label. Buttons are tighter so the remaining on-state blue is not a thick chip, with 3px of vertical padding so Slim’s fill is not clipped. A Jump Trail icon after Slim shows or hides the center path at the top. Pin sits before Slim. Slim is a funnel plus a kinds caret, not the word Slim; only the funnel goes blue when the filter is on.
 
+#### Fixed
+
+- Semantic tokens such as `console` (`variable.defaultLibrary`) take their color from the current language’s TextMate probe (`support.variable.ts` in TypeScript), including the user’s `tokenColorCustomizations`, instead of a generic `variable` / `support.variable` fallback.
+
 ## [1.1.1] 2026.09.05
 
 #### Changed
