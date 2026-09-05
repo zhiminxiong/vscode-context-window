@@ -10,7 +10,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 - Footer Sticky Scroll icon: the three stacked bars are thinner, and the pin is smaller, so they match the stroke weight of the other view toggles.
 - Footer Jump Trail icon: Lucide `route` (start and end nodes on a path), not a middle dot or name stubs.
-- Relation toolbar: Pin is Lucide `pin` on its side (needle left) when free and needle-down when stuck, with no blue highlight. Live / Sticky also drop the blue fill and keep the eye plus label. Buttons are tighter so the remaining on-state blue is not a thick chip, with 3px of vertical padding so Slim’s fill is not clipped. A Jump Trail icon after Slim shows or hides the center path at the top. Pin sits before Slim.
+- Relation toolbar: Pin is Lucide `pin` on its side (needle left) when free and needle-down when stuck, with no blue highlight. Live / Sticky also drop the blue fill and keep the eye plus label. Buttons are tighter so the remaining on-state blue is not a thick chip, with 3px of vertical padding so Slim’s fill is not clipped. A Jump Trail icon after Slim shows or hides the center path at the top. Pin sits before Slim. Slim is a funnel plus a kinds caret, not the word Slim; only the funnel goes blue when the filter is on.
 
 ## [1.1.1] 2026.09.05
 

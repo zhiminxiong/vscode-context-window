@@ -3640,6 +3640,7 @@ function applyCompactFilter(on) {
     if (slimBtn) {
         slimBtn.classList.remove('is-on');
         slimBtn.setAttribute('aria-pressed', slim ? 'true' : 'false');
+        slimBtn.setAttribute('aria-label', slim ? 'Slim filter on' : 'Slim filter off');
         slimBtn.title = slim
             ? 'Slim filter on — keep the kinds checked in the list'
             : 'Slim filter off — show every symbol the language server returns';

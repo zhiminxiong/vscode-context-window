@@ -164,13 +164,16 @@ body.vscode-high-contrast {
 }
 
 .cr-slim-wrap #cr-slim {
-    padding-right: 7px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
 }
 
 .cr-slim-caret {
-    min-width: 22px;
-    padding-left: 6px;
-    padding-right: 8px;
+    min-width: 18px;
+    width: 18px;
+    height: 22px;
+    padding: 0;
     border-left: 1px solid var(--cr-chip-line);
 }
 
@@ -185,20 +188,25 @@ body.vscode-high-contrast {
 }
 
 .cr-slim-wrap.is-on {
-    background: var(--cr-btn-on-bg);
-    color: var(--cr-btn-on-fg);
-}
-
-.cr-slim-wrap.is-on .cr-btn {
+    background: transparent;
     color: inherit;
 }
 
+.cr-slim-wrap.is-on #cr-slim {
+    color: var(--cr-btn-on-fg);
+    background: var(--cr-btn-on-bg);
+}
+
 .cr-slim-wrap.is-on:hover {
+    background: var(--cr-btn-hover);
+}
+
+.cr-slim-wrap.is-on:hover #cr-slim {
     background: var(--cr-btn-on-hover);
 }
 
 .cr-slim-wrap.is-on .cr-slim-caret {
-    border-left-color: color-mix(in srgb, var(--cr-btn-on-fg) 28%, transparent);
+    border-left-color: var(--cr-chip-line);
 }
 
 .cr-slim-menu {
