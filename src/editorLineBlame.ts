@@ -8,6 +8,7 @@ import {
     blameLineDiff,
     openBlameDiff
 } from './lineBlame';
+import { resolveRawTokenColors } from './themeColorResolver';
 
 /**
  * 主编辑器当前行的 git blame 行尾注解，替代 GitLens 的同名能力。
@@ -496,15 +497,46 @@ function wrapText(text: string, budget: number): string[] {
 }
 
 /**
- * 头像行里那张透明图的宽度：把卡片撑到下限。名字和时间按估算宽度扣掉，估不准
- * 也只影响下限那点余量——时间贴不贴右边由单元格的 align 决定，与这里无关。
+ * 整张卡片按内容该有多宽。取正文和增删里最宽的那行，卡进 520–720。
+ *
+ * 这个值只有头部要用，而头部偏偏是最需要它的地方：头部和增删分属不同的
+ * hover part，而每个 part 的 .hover-row 是 display:flex，flex 主轴上的项目
+ * 默认 flex:0 1 auto——不会被拉开去填满行宽。所以头部那个 part 只按自己的内容
+ * 收缩，表格的 width="100%" 是相对这个收缩后的盒子解析的，跟增删撑出来的整卡
+ * 宽度无关。增删一长，时间就停在半路。头部必须自己算出整卡多宽，再用透明图
+ * 把这一行垫到那么宽。
  */
-function headerGapPx(hover: LineBlameHoverInfo): number {
+function cardWidthPx(hover: LineBlameHoverInfo, diff: readonly LineBlameDiffLine[]): number {
+    const widest = Math.max(
+        HOVER_MIN_PX,
+        messageWidthPx(hover.summary || ''),
+        diffWidthPx(diff)
+    );
+    return Math.min(HOVER_MAX_PX, Math.round(widest));
+}
+
+/** 提交信息折好后最宽那行占多少像素。空信息返回 0。 */
+function messageWidthPx(message: string): number {
+    const budget = HOVER_MAX_PX - CONTENT_PAD_PX;
+    let widest = 0;
+    for (const source of message.split(/\r?\n/)) {
+        for (const line of wrapText(source.trim(), budget)) {
+            widest = Math.max(widest, textPx(line, TEXT_PX));
+        }
+    }
+    return widest ? CONTENT_PAD_PX + widest : 0;
+}
+
+/**
+ * 头像行里那张透明图的宽度：把这一行垫到整卡宽度。名字和时间按估算宽度扣掉，
+ * 估偏一点只是让垫片多退或少退几像素，时间贴右边靠单元格的 align，不靠它。
+ */
+function headerGapPx(hover: LineBlameHoverInfo, diff: readonly LineBlameDiffLine[]): number {
     const who = hover.author || hover.authorName || 'Someone';
     const when = whenText(hover);
-    const left = 28 + 10 + textPx(who, 8.5);
+    const left = AVATAR_PX + 10 + textPx(who, 8.5);
     const right = when ? 20 + textPx(when, 6.6) : 0;
-    return Math.max(24, HOVER_MIN_PX - Math.round(left + right));
+    return Math.max(24, cardWidthPx(hover, diff) - CONTENT_PAD_PX - Math.round(left + right));
 }
 
 /**
@@ -524,25 +556,29 @@ function noWrap(text: string): string {
  * 且只认 color / background-color / border-radius，vertical-align 会被直接抹掉。
  *
  * 所以改用单行表格。单元格默认就是 vertical-align: middle，头像、名字、时钟、
- * 时间各占一格，天然按中线对齐，等价于 webview 那套 flex。左右分布同理：表格
- * width="100%" 跟着卡片实际宽度走，名字那格吃掉多余的空间，右边两格被顶到
- * 右端——正文长短决定卡片多宽，时间都在右端，不再依赖估算。width 和 align 是
- * 消毒器白名单里的属性，style 才是被拦的那个。
+ * 时间各占一格，天然按中线对齐，等价于 webview 那套 flex。左右分布则靠名字那格
+ * 的 width="100%" 把右边两格顶到右端，再由 headerGapPx 那张透明图把整行垫到
+ * 卡片该有的宽度——单靠 width="100%" 不够，见 cardWidthPx 的说明。width 和
+ * align 是消毒器白名单里的属性，style 才是被拦的那个。
  *
  * 时钟和时间必须是两格，不能塞进同一格：同一格里图片和文字之间存在断行机会，
  * 被压到最小宽度时就会从那里断开，图标独占一行。而同一行的单元格永远并排，
  * 不可能上下分开。
  */
-function appendHeader(md: vscode.MarkdownString, hover: LineBlameHoverInfo): void {
+function appendHeader(
+    md: vscode.MarkdownString,
+    hover: LineBlameHoverInfo,
+    diff: readonly LineBlameDiffLine[]
+): void {
     const who = escapeHtml(hover.author || hover.authorName || 'Someone');
     const when = escapeHtml(whenText(hover));
     const colors = palette();
-    // 撑下限的透明图跟着名字走：它只是把这一格的最小宽度垫起来。
+    // 垫宽的透明图跟着名字走：它把这一格的最小宽度顶到整卡该有的宽度。
     // 名字不锁行：它那格 width="100%" 会先分到所有余量，只有整行实在放不下时
     // 才会折——那时候让长名字折，好过把卡片撑破。
     const cells = [
         `<td>${avatarImage(hover)}</td>`,
-        `<td width="100%">&nbsp;<strong>${who}</strong>${spacer(headerGapPx(hover))}</td>`
+        `<td width="100%">&nbsp;<strong>${who}</strong>${spacer(headerGapPx(hover, diff))}</td>`
     ];
     if (when) {
         cells.push(`<td>${clockImage(colors.muted)}</td>`);
@@ -614,26 +650,32 @@ function appendMessage(md: vscode.MarkdownString, message: string): void {
 }
 
 /**
- * 当前行的增删。webview 用逐字符 affix 高亮，浮窗里只有语言着色可用，
- * 所以走 diff 代码块——增删的绿红由 VS Code 的 diff 语法着色给出。
- * 围栏用四个反引号，源码行里出现 ``` 也不会把块提前闭合。
+ * 当前行的增删，配色自己做，不借 ```diff 的语法着色。
+ *
+ * 借语法着色的话续行必须重复 `+` / `-`：那份语法的 15 条规则里除注释外全是
+ * `^` 行首锚定的单行 match（`markup.inserted.diff` 是 `^(((>)( .*)?)|((\+).*))$`），
+ * 空白开头的续行落不到任何规则上就会掉色。而折行是躲不掉的——表头的时间靠
+ * 透明图垫到卡片宽度才能右对齐，卡片多宽只有我自己折行时才知道。
+ *
+ * 所以照 media/lineBlame.js 的 renderDiff 那样逐行上色：标记只出现在首行，
+ * 续行照样有颜色，`+` / `-` 还能单独取操作符色（见 diffBlock / operatorColor）。
  */
-function diffBlock(diff: readonly LineBlameDiffLine[]): string {
-    // 代码块不会自己折行，超出的部分只会把卡片撑宽，所以在这里按同一个预算断开。
+function diffRows(diff: readonly LineBlameDiffLine[]): { kind: LineBlameDiffLine['kind']; text: string }[] {
+    // 行不会自己折行（也不该靠它折，宽度得是已知的），超出的部分按预算断开。
     const budget = HOVER_MAX_PX - CODE_PAD_PX;
-    const rows: string[] = [];
+    const rows: { kind: LineBlameDiffLine['kind']; text: string }[] = [];
     for (const line of diff) {
         const mark = line.kind === 'del' ? '-' : line.kind === 'add' ? '+' : ' ';
         // 和 webview 一样去掉行首缩进：浮窗窄，缩进只会把内容挤出视野。
         const text = String(line.text || '').replace(/^[ \t]+/, '');
-        // 续行用两格空白顶头，和首行的 `+ ` / `- ` 对齐。
+        // 首行是 `+ ` / `- `，续行用两格空白顶头对齐；颜色由 span 给，与标记无关。
         let row = `${mark} `;
         let px = MONO_PX * 2;
         let taken = 0;
         for (const ch of text) {
             const w = charPx(ch, MONO_PX);
             if (taken && px + w > budget) {
-                rows.push(row);
+                rows.push({ kind: line.kind, text: row });
                 row = '  ';
                 px = MONO_PX * 2;
                 taken = 0;
@@ -642,9 +684,121 @@ function diffBlock(diff: readonly LineBlameDiffLine[]): string {
             px += w;
             taken++;
         }
-        rows.push(row);
+        rows.push({ kind: line.kind, text: row });
     }
-    return `\`\`\`\`diff\n${rows.join('\n')}\n\`\`\`\``;
+    return rows;
+}
+
+/** 增删折好后最宽那行占多少像素。没有增删时返回 0。 */
+function diffWidthPx(diff: readonly LineBlameDiffLine[]): number {
+    let widest = 0;
+    for (const row of diffRows(diff)) {
+        widest = Math.max(widest, textPx(row.text, MONO_PX));
+    }
+    return widest ? CODE_PAD_PX + widest : 0;
+}
+
+/**
+ * 增删的行色，照 media/main.css 的 .cw-line-blame-hover-diff-* 取值：
+ * 新增那两个绿是 webview 里写死的，删除和上下文跟着主题变量走。
+ */
+function diffColor(kind: LineBlameDiffLine['kind']): string {
+    const theme = vscode.window.activeColorTheme?.kind;
+    const dark = theme === vscode.ColorThemeKind.Dark || theme === vscode.ColorThemeKind.HighContrast;
+    if (kind === 'add') {
+        return dark ? '#3fb950' : '#16825D';
+    }
+    if (kind === 'del') {
+        return 'var(--vscode-gitDecoration-deletedResourceForeground)';
+    }
+    return 'var(--vscode-descriptionForeground)';
+}
+
+/**
+ * 行首 `+` / `-` 的颜色。照 media/main.css 的 .cw-line-blame-hover-diff-mark：
+ * 不跟增删同色，而是取当前主题的操作符色（`+` 在编辑器里就是这个色），
+ * 解析不到时用 Light+ / Dark+ 那个偏紫的兜底。
+ *
+ * webview 那边从 window.vsCodeEditorConfiguration 里现成的规则表查；扩展这边
+ * 直接问 themeColorResolver。它要读并解析主题 JSON，不能每次浮窗都来一遍，
+ * 所以缓存住，换主题时由 registerEditorLineBlame 清掉。
+ */
+let operatorColorCache: string | undefined;
+
+function toCssColor(raw: string): string {
+    const s = raw.trim();
+    if (!s) {
+        return '';
+    }
+    // themeColorResolver 下发的 foreground 不带 '#'（是给 Monaco 用的）
+    return /^[0-9a-fA-F]{6,8}$/.test(s) ? `#${s}` : s;
+}
+
+function operatorColor(): string {
+    if (operatorColorCache !== undefined) {
+        return operatorColorCache;
+    }
+    let color = '';
+    try {
+        const rules = resolveRawTokenColors() || [];
+        // 和 webview 的 pickRuleColor 一样从后往前找：同名 scope 后者优先。
+        // 不用泛化的 operator，Light+ 下那个是前景黑。
+        for (const scope of ['keyword.operator.arithmetic', 'keyword.operator']) {
+            for (let i = rules.length - 1; i >= 0 && !color; i--) {
+                if (rules[i].token === scope && rules[i].foreground) {
+                    color = toCssColor(rules[i].foreground as string);
+                }
+            }
+            if (color) {
+                break;
+            }
+        }
+    } catch {
+        color = '';
+    }
+    if (!color) {
+        const theme = vscode.window.activeColorTheme?.kind;
+        const dark = theme === vscode.ColorThemeKind.Dark || theme === vscode.ColorThemeKind.HighContrast;
+        color = dark ? '#C586C0' : '#800080';
+    }
+    operatorColorCache = color;
+    return color;
+}
+
+/** 空格必须转成不换行空格：浮窗里 white-space 是 normal，行首缩进会被吃掉。 */
+function keepSpaces(text: string): string {
+    return escapeHtml(text).replace(/ /g, '&nbsp;');
+}
+
+/**
+ * 增删块。用 <p> 包一层、每行一个 <code>，不用 <pre>。
+ *
+ * <pre> 在浮窗里没有任何 CSS 命中，吃的是浏览器默认 `margin: 1em 0`，上下各多出
+ * 十几像素，和两根分割条离得老远。浮窗只给 p / .code / ul / h1-h6 设了 8px 边距，
+ * 而 p:first-child + p:last-child 会被清零——这一块里只有这个 <p>，两条都命中，
+ * 于是上下边距为 0，只剩 .hover-contents 那 4px 内边距。
+ *
+ * 等宽字体来自 <code>（.monaco-hover code 给了 --monaco-monospace-font）。逐行
+ * 各包一个而不是整块包一个：<code> 带 `padding: 0 .4em`，整块包时那点内边距只
+ * 落在首行行首，续行就会错开半个字。
+ */
+function diffBlock(diff: readonly LineBlameDiffLine[]): string {
+    const mark = operatorColor();
+    const lines = diffRows(diff).map(row => {
+        // diffRows 给的行首固定两格：首行是 `+ ` / `- `，续行是空白。
+        const prefix = row.text.slice(0, 2);
+        const body = row.text.slice(2);
+        const marked = prefix.trim()
+            // 照 .cw-line-blame-hover-diff-mark 的 font-weight: 600；
+            // 浮窗不认 font-weight，只能用标签。
+            ? `<strong><span style="color:${mark};">${keepSpaces(prefix)}</span></strong>`
+            : `<span style="color:${mark};">${keepSpaces(prefix)}</span>`;
+        const text = body
+            ? `<span style="color:${diffColor(row.kind)};">${keepSpaces(body)}</span>`
+            : '';
+        return `<code>${marked}${text}</code>`;
+    });
+    return `<p>${lines.join('<br>')}</p>`;
 }
 
 /** 逐字照搬 media/lineBlame.js 的 Changes 脚注措辞，两边不该有出入。 */
@@ -709,7 +863,7 @@ function buildHover(
 ): HoverParts {
     const hover = info.hover;
     const tips = section();
-    appendHeader(tips, hover);
+    appendHeader(tips, hover, diff);
     appendMessage(tips, hover.summary || '');
     if (hover.shortSha && !hover.workingTree) {
         tips.appendMarkdown(shaChip(hover.shortSha, hover.sha));
@@ -1017,6 +1171,9 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
         // 浮窗里的颜色是写死的十六进制，明暗两套靠主题类型选。换了主题就得重建，
         // 否则手上这份浮窗会在新主题下用旧那套颜色。
         vscode.window.onDidChangeActiveColorTheme(() => {
+            // 操作符色是从主题 JSON 解析出来缓存的，同为深色的两个主题之间切换
+            // 也会变，不能只看明暗，得直接扔掉重算。
+            operatorColorCache = undefined;
             clear();
             schedule();
         })
