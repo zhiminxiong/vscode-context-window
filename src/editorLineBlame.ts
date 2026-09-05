@@ -444,22 +444,22 @@ function textPx(text: string, unit: number): number {
 type Token = { text: string; space: boolean; px: number };
 
 /** 西文词和网址整块不拆，中文逐字可断，空白单独成块——就是折行的最小单位。 */
-function tokenize(text: string): Token[] {
+function tokenize(text: string, unit: number): Token[] {
     const out: Token[] = [];
     let word = '';
     const flush = () => {
         if (word) {
-            out.push({ text: word, space: false, px: textPx(word, TEXT_PX) });
+            out.push({ text: word, space: false, px: textPx(word, unit) });
             word = '';
         }
     };
     for (const ch of text) {
         if (/\s/.test(ch)) {
             flush();
-            out.push({ text: ch, space: true, px: TEXT_PX });
+            out.push({ text: ch, space: true, px: unit });
         } else if (WIDE_CHAR.test(ch)) {
             flush();
-            out.push({ text: ch, space: false, px: TEXT_PX * 2 });
+            out.push({ text: ch, space: false, px: unit * 2 });
         } else {
             word += ch;
         }
@@ -476,7 +476,7 @@ function wrapText(text: string, budget: number): string[] {
     const lines: string[] = [];
     let line = '';
     let px = 0;
-    for (const token of tokenize(text)) {
+    for (const token of tokenize(text, TEXT_PX)) {
         if (line && px + token.px > budget) {
             lines.push(line);
             line = token.space ? '' : token.text;
@@ -650,6 +650,58 @@ function appendMessage(md: vscode.MarkdownString, message: string): void {
 }
 
 /**
+ * 代码行折行。和 webview 的 `word-break: break-word` 同一套取舍：优先在空白处
+ * 断，只有一个词本身就超预算时才在词内断——不然会像逐字符折行那样把
+ * `CS.UnityEngine.Bounds` 从中间劈开。
+ *
+ * 和 wrapText 的区别是词内允许断：这里的「词」是标识符，切开只是难看；
+ * 而正文里的长词往往是网址，切开就不再是可点的链接了。
+ */
+function wrapCode(text: string, budget: number): string[] {
+    const lines: string[] = [];
+    let line = '';
+    let px = 0;
+    for (const token of tokenize(text, MONO_PX)) {
+        // 折到新行以后，行首那些空格没有意义
+        if (token.space && !line) {
+            continue;
+        }
+        if (line && px + token.px > budget) {
+            lines.push(line);
+            line = '';
+            px = 0;
+            if (token.space) {
+                continue;
+            }
+        }
+        if (token.px > budget) {
+            // 单独占一行也放不下的长标识符：只能在词内断
+            let chunk = '';
+            let chunkPx = 0;
+            for (const ch of token.text) {
+                const w = charPx(ch, MONO_PX);
+                if (chunk && chunkPx + w > budget) {
+                    lines.push(chunk);
+                    chunk = '';
+                    chunkPx = 0;
+                }
+                chunk += ch;
+                chunkPx += w;
+            }
+            line = chunk;
+            px = chunkPx;
+            continue;
+        }
+        line += token.text;
+        px += token.px;
+    }
+    if (line) {
+        lines.push(line);
+    }
+    return lines.length ? lines : [''];
+}
+
+/**
  * 当前行的增删，配色自己做，不借 ```diff 的语法着色。
  *
  * 借语法着色的话续行必须重复 `+` / `-`：那份语法的 15 条规则里除注释外全是
@@ -662,29 +714,21 @@ function appendMessage(md: vscode.MarkdownString, message: string): void {
  */
 function diffRows(diff: readonly LineBlameDiffLine[]): { kind: LineBlameDiffLine['kind']; text: string }[] {
     // 行不会自己折行（也不该靠它折，宽度得是已知的），超出的部分按预算断开。
-    const budget = HOVER_MAX_PX - CODE_PAD_PX;
+    // 预算里先扣掉行首那两格，续行才对得齐。
+    const budget = HOVER_MAX_PX - CODE_PAD_PX - MONO_PX * 2;
     const rows: { kind: LineBlameDiffLine['kind']; text: string }[] = [];
     for (const line of diff) {
         const mark = line.kind === 'del' ? '-' : line.kind === 'add' ? '+' : ' ';
         // 和 webview 一样去掉行首缩进：浮窗窄，缩进只会把内容挤出视野。
         const text = String(line.text || '').replace(/^[ \t]+/, '');
         // 首行是 `+ ` / `- `，续行用两格空白顶头对齐；颜色由 span 给，与标记无关。
-        let row = `${mark} `;
-        let px = MONO_PX * 2;
-        let taken = 0;
-        for (const ch of text) {
-            const w = charPx(ch, MONO_PX);
-            if (taken && px + w > budget) {
-                rows.push({ kind: line.kind, text: row });
-                row = '  ';
-                px = MONO_PX * 2;
-                taken = 0;
-            }
-            row += ch;
-            px += w;
-            taken++;
+        const wrapped = wrapCode(text, budget);
+        for (let i = 0; i < wrapped.length; i++) {
+            rows.push({
+                kind: line.kind,
+                text: `${i === 0 ? mark : ' '} ${wrapped[i]}`
+            });
         }
-        rows.push({ kind: line.kind, text: row });
     }
     return rows;
 }
@@ -771,6 +815,51 @@ function keepSpaces(text: string): string {
 }
 
 /**
+ * Changes 行里两个 SHA 之间那个双箭头。形状照 codicon `arrow-both` 复刻，
+ * 但自己画成 <img>，因为要能再往上抬一点。
+ *
+ * 直接用 `$(arrow-both)` 的话位置动不了：codicon 的垂直位置全由浮窗自己的
+ * CSS 定死——`vertical-align: middle` 加它自带的 `margin-bottom: 2px`，而这
+ * 两个属性都不在 <span> 的 style 白名单里（只放行 color / background-color /
+ * border-radius）。<img> 才是唯一位置可控的元素：width / height / align 都在
+ * 属性白名单上，而且行内图片是坐在基线上的，把 16 网格贴着盒子下沿画，
+ * 抬多高完全由我定。
+ *
+ * 之前手画偏大是因为按 em 框的尺寸去画（`↔` 字符的墨迹远小于 em 框）。这回
+ * 直接照 codicon 的 16 网格来：渲染宽度 SEP_W 就是它在浮窗字号下的大小，
+ * 描边按缩放比落到 1px 以内，所以看着还是那个箭头。
+ */
+/** codicon 的设计网格。 */
+const SEP_GRID = 16;
+/** 渲染宽度，对齐 codicon 在浮窗字号下的实际大小。 */
+const SEP_W = 14;
+/** 盒子高度，只用来给抬升留地方，不影响观感。 */
+const SEP_BOX_H = 16;
+/**
+ * 箭头中线离基线多高。这是唯一的位置旋钮：要再往上就加大它。
+ * codicon 原本落在「基线 + 半个 x 高 + 2px」≈ 5.5px，这里取 6.5 即再抬 1px。
+ */
+const SEP_CENTER_PX = 5.5;
+
+function separatorImage(color: string): string {
+    const scale = SEP_W / SEP_GRID;
+    // 网格贴着盒子下沿放，再把整格上移，使网格的 y=8（箭头中线）
+    // 正好落在离盒底 SEP_CENTER_PX 的位置。
+    const offsetPx = SEP_BOX_H - SEP_CENTER_PX - (SEP_GRID / 2) * scale;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"`
+        + ` viewBox="0 0 ${SEP_GRID} ${(SEP_BOX_H / scale).toFixed(3)}"`
+        + ` width="${SEP_W}" height="${SEP_BOX_H}">`
+        + `<g transform="translate(0 ${(offsetPx / scale).toFixed(3)})">`
+        + `<path d="M2 8H14M5 5 2 8l3 3M11 5l3 3-3 3"`
+        + ` fill="none" stroke="${color}" stroke-width="1.1"`
+        + ` stroke-linecap="round" stroke-linejoin="round"/>`
+        + `</g></svg>`;
+    // 这个箭头不在链接里，可以用标签（svgImage 那种图片写法是给芯片里的图标
+    // 留的，见它的注释）。
+    return htmlImg(`data:image/svg+xml,${encodeURIComponent(svg)}`, SEP_W, SEP_BOX_H);
+}
+
+/**
  * 增删块。用 <p> 包一层、每行一个 <code>，不用 <pre>。
  *
  * <pre> 在浮窗里没有任何 CSS 命中，吃的是浏览器默认 `margin: 1em 0`，上下各多出
@@ -805,6 +894,7 @@ function diffBlock(diff: readonly LineBlameDiffLine[]): string {
 function changesLine(hover: LineBlameHoverInfo): string {
     // webview 的脚注文字比正文淡一档，芯片才是亮的。
     const label = (text: string) => tint(palette().muted, text);
+    const sep = separatorImage(palette().muted);
     if (hover.workingTree) {
         const left = hover.previousShortSha || '';
         const sameRef = !!(hover.previousSha && hover.sha && hover.previousSha === hover.sha);
@@ -812,12 +902,12 @@ function changesLine(hover: LineBlameHoverInfo): string {
             ? shaChip(hover.shortSha, hover.sha)
             : label('Working Tree');
         return left
-            ? `${label('Changes')} ${shaChip(left, hover.previousSha || left, true)} ${label('↔')} ${right}`
+            ? `${label('Changes')} ${shaChip(left, hover.previousSha || left, true)} ${sep} ${right}`
             : `${label('Changes')} ${right}`;
     }
     if (hover.previousShortSha && hover.shortSha) {
         const previous = shaChip(hover.previousShortSha, hover.previousSha || hover.previousShortSha, true);
-        return `${label('Changes')} ${previous} ${label('↔')} ${shaChip(hover.shortSha, hover.sha)}`;
+        return `${label('Changes')} ${previous} ${sep} ${shaChip(hover.shortSha, hover.sha)}`;
     }
     if (hover.shortSha) {
         // 首提交没有 parent：GitLens 仍固定写 Changes added in <sha>。
