@@ -54,10 +54,9 @@ interface CopyArgs {
 }
 
 /**
- * command: 链接的目标。参数里既有仓库路径（`C:\Program Files (x86)\...`）也有
- * 提交信息，encodeURIComponent 偏偏放过圆括号，所以自己再补上这两个字符——
- * 目标最终落在 data-href 属性里，多编码一层无碍，省得日后挪回 `[x](y)` 时
- * 又被一个裸的 `)` 把链接截断。
+ * markdown 链接的目标里不能出现裸的 `)`，否则链接在那里就断了。
+ * encodeURIComponent 偏偏放过圆括号，而参数里既有仓库路径（`C:\Program Files
+ * (x86)\...`）也有提交信息，所以必须自己再补上这两个字符。
  */
 function commandLink(command: string, args: unknown): string {
     const payload = encodeURIComponent(JSON.stringify([args]))
@@ -142,12 +141,18 @@ function tint(color: string, markdown: string): string {
 }
 
 /**
- * 内联 SVG。写成 <img> 而不是 `![](...)`：这些图标要出现在脚注那张表格里，
- * 而 markdown 的 HTML 块是原样输出的，图片语法在里面不会被解析。标签在两种
- * 上下文里都成立。尺寸照 SVG 自己的 width/height 写，渲染结果和原来一致。
+ * 内联 SVG，markdown 图片写法。
+ *
+ * 别改成 <img> 标签：这些图标出现在芯片的链接文字里（`[图标+SHA](command:…)`），
+ * 而链接的提示和点击全靠渲染后那趟 <a> 巡检——它读 href，读不到合规值就把整个
+ * <a> 拆掉、只留下里面的内容。那正是「芯片还在、提示和点击都没了」的样子。
+ * 图片语法是这套芯片一直用的形态，不要为了别处的排版去动它。
+ *
+ * data URI 里的括号不用额外编码：CommonMark 允许目标里出现成对括号，
+ * 而 SVG 里的 translate(...) / rotate(...) 都是成对的。
  */
-function svgImage(svg: string, width: number, height: number): string {
-    return htmlImg(`data:image/svg+xml,${encodeURIComponent(svg)}`, width, height);
+function svgImage(svg: string): string {
+    return `![](data:image/svg+xml,${encodeURIComponent(svg)})`;
 }
 
 /** 插件芯片左侧那个旋转过的 git 节点，12×12。图形下移 2px，跟旁边的 SHA 对齐。 */
@@ -156,9 +161,7 @@ function gitNodeImage(color: string): string {
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="12" height="12">`
         + `<g transform="translate(0 2.7)">`
         + `<path fill="${color}" transform="rotate(90 8 8)" d="M11.5 8C11.5 6.24 10.194 4.779 8.5 4.536V1.5C8.5 1.224 8.276 1 8 1C7.724 1 7.5 1.224 7.5 1.5V4.536C5.806 4.779 4.5 6.24 4.5 8C4.5 9.76 5.806 11.221 7.5 11.464V14.5C7.5 14.776 7.724 15 8 15C8.276 15 8.5 14.776 8.5 14.5V11.464C10.194 11.221 11.5 9.76 11.5 8ZM8 10.5C6.621 10.5 5.5 9.378 5.5 8C5.5 6.622 6.621 5.5 8 5.5C9.379 5.5 10.5 6.622 10.5 8C10.5 9.378 9.379 10.5 8 10.5Z"/>`
-        + `</g></svg>`,
-        12,
-        12
+        + `</g></svg>`
     );
 }
 
@@ -168,9 +171,7 @@ function openChangesImage(color: string): string {
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">`
         + `<g transform="translate(0 2)">`
         + `<path fill="${color}" d="M9.14645 5.85355C9.34171 6.04882 9.65829 6.04882 9.85355 5.85355C10.0488 5.65829 10.0488 5.34171 9.85355 5.14645L8.70711 4H10.5C11.3284 4 12 4.67157 12 5.5V10.05C10.8589 10.2816 10 11.2905 10 12.5C10 13.8807 11.1193 15 12.5 15C13.8807 15 15 13.8807 15 12.5C15 11.2905 14.1411 10.2816 13 10.05V5.5C13 4.11929 11.8807 3 10.5 3H8.70711L9.85355 1.85355C10.0488 1.65829 10.0488 1.34171 9.85355 1.14645C9.65829 0.951184 9.34171 0.951184 9.14645 1.14645L7.14645 3.14645C6.95118 3.34171 6.95118 3.65829 7.14645 3.85355L9.14645 5.85355ZM14 12.5C14 13.3284 13.3284 14 12.5 14C11.6716 14 11 13.3284 11 12.5C11 11.6716 11.6716 11 12.5 11C13.3284 11 14 11.6716 14 12.5ZM6 3.5C6 4.70948 5.14112 5.71836 4 5.94999V10.5C4 11.3284 4.67157 12 5.5 12H7.29289L6.14645 10.8536C5.95118 10.6583 5.95118 10.3417 6.14645 10.1464C6.34171 9.95118 6.65829 9.95118 6.85355 10.1464L8.85355 12.1464C9.04882 12.3417 9.04882 12.6583 8.85355 12.8536L6.85355 14.8536C6.65829 15.0488 6.34171 15.0488 6.14645 14.8536C5.95118 14.6583 5.95118 14.3417 6.14645 14.1464L7.29289 13H5.5C4.11929 13 3 11.8807 3 10.5V5.94999C1.85888 5.71836 1 4.70948 1 3.5C1 2.11929 2.11929 1 3.5 1C4.88071 1 6 2.11929 6 3.5ZM5 3.5C5 2.67157 4.32843 2 3.5 2C2.67157 2 2 2.67157 2 3.5C2 4.32843 2.67157 5 3.5 5C4.32843 5 5 4.32843 5 3.5Z"/>`
-        + `</g></svg>`,
-        16,
-        16
+        + `</g></svg>`
     );
 }
 
@@ -189,7 +190,7 @@ function shaChip(shortSha: string, fullSha: string, parent = false): string {
         '</span>'
     ].join('');
     const args: CopyArgs = { text: fullSha || shortSha, notify: 'SHA copied' };
-    return htmlLink(commandLink(COPY_COMMAND, args), 'Copy SHA', chip);
+    return `[${chip}](${commandLink(COPY_COMMAND, args)} "Copy SHA")`;
 }
 
 /**
@@ -219,21 +220,6 @@ function escapeHtml(text: string): string {
 
 function htmlImg(src: string, width: number, height: number): string {
     return `<img src="${escapeHtml(src)}" width="${width}" height="${height}" alt="">`;
-}
-
-/**
- * 可点的链接，写成标签而不是 `[x](y)`。
- *
- * 脚注那一整块要包进 <table>（见 buildHover），而 markdown 的 HTML 块是原样
- * 输出的——里面的 `[x](y)` 不会再被解析成链接，芯片就成了死字符。所以链接自己
- * 也得是标签。
- *
- * 用 data-href 而不是 href：浮窗的点击处理是 `target.closest('a[data-href]')`
- * 再读 dataset.href，markdown 渲染出来的链接也是这个形状，所以这样写和原来
- * 完全同一条路径。data-href 同样在消毒器的属性白名单里。
- */
-function htmlLink(href: string, title: string, inner: string): string {
-    return `<a data-href="${escapeHtml(href)}" title="${escapeHtml(title)}">${inner}</a>`;
 }
 
 /**
@@ -731,18 +717,23 @@ function buildHover(
             previousSha: hover.previousSha || '',
             workingTree: !!hover.workingTree
         };
-        changes += ' &nbsp;' + htmlLink(
-            commandLink(OPEN_CHANGES_COMMAND, args),
-            'Open Changes',
-            openChangesImage(palette().icon)
-        );
+        changes += ` &nbsp;[${openChangesImage(palette().icon)}]`
+            + `(${commandLink(OPEN_CHANGES_COMMAND, args)} "Open Changes")`;
     }
     // 和头像那行一样包一层表格，卡片上下留白才对称：浮窗只给内容区 4px 内边距，
     // 表格自己还带 2px 的 border-spacing 和 1px 的单元格内边距。顶上是表格、
     // 底下是段落的话，底边就少那 3px。这 3px 没法单独补——p:last-child 的
     // margin-bottom 被浮窗清零了，而给它加个兄弟节点又会一次多出 8px。
     // 两头用同一种结构，多少像素都对得上，不必写死。
-    foot.appendMarkdown(`<table><tr><td>${changes}</td></tr></table>`);
+    //
+    // 单元格里那两个空行是必需的，不是排版好看。markdown 的 HTML 块到空行为止，
+    // 所以空行之间这段会照常当 markdown 解析，芯片的 `[x](y)` 仍然变成真链接
+    // （浮窗的拷贝和 Open Changes 全靠它：点击走 a[data-href]，提示来自链接标题）。
+    // 少了空行，整块就是原样 HTML，芯片会变成不能点、没提示的死字符。
+    // 闭合标签同理，也要自己单独成块。
+    // 单元格里的 p 既是 first-child 又是 last-child，上下外边距都被浮窗清零，
+    // 所以不会多占高度。
+    foot.appendMarkdown(`<table><tr><td>\n\n${changes}\n\n</td></tr></table>`);
     parts.foot = foot;
     return parts;
 }
