@@ -557,13 +557,17 @@ function appendHeader(md: vscode.MarkdownString, hover: LineBlameHoverInfo): voi
 }
 
 /** 一段正文。作者自己的换行保留，太长的行按预算再折。 */
-function appendParagraph(md: vscode.MarkdownString, sourceLines: readonly string[]): void {
+function appendParagraph(
+    md: vscode.MarkdownString,
+    sourceLines: readonly string[],
+    muted = false
+): void {
     const budget = HOVER_MAX_PX - CONTENT_PAD_PX;
     const out: string[] = [];
     for (const source of sourceLines) {
         const wrapped = wrapText(source, budget);
         if (wrapped.length) {
-            out.push(...wrapped.map(escapeMarkdown));
+            out.push(...wrapped.map(line => escapeMarkdown(line)));
         } else {
             // 作者留的空行，照原样留着
             out.push('');
@@ -573,9 +577,20 @@ function appendParagraph(md: vscode.MarkdownString, sourceLines: readonly string
         out.pop();
     }
     if (out.length) {
-        md.appendMarkdown(`${out.join('  \n')}\n\n`);
+        const lines = muted
+            ? out.map(line => line && tint(BODY_FOREGROUND, line))
+            : out;
+        md.appendMarkdown(`${lines.join('  \n')}\n\n`);
     }
 }
+
+/**
+ * 正文文字颜色，跟 webview 卡片同一套（.cw-line-blame-hover-body 的
+ * color: var(--vscode-descriptionForeground)）：首行标题用前景色，正文用描述色，
+ * 层次和那边一致。span 的 style 只认 color/background-color/border-radius，
+ * 但 color 允许直接写 var(--vscode-…)，所以跟主题走，不用按明暗挑死值。
+ */
+const BODY_FOREGROUND = 'var(--vscode-descriptionForeground)';
 
 /** 首行是标题、其余是正文，和 webview 的 summary / body 一致。 */
 function appendMessage(md: vscode.MarkdownString, message: string): void {
@@ -594,7 +609,7 @@ function appendMessage(md: vscode.MarkdownString, message: string): void {
         appendParagraph(md, [lines[0]]);
     }
     if (body.some(line => line)) {
-        appendParagraph(md, body);
+        appendParagraph(md, body, true);
     }
 }
 
