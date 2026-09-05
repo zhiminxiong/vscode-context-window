@@ -1297,6 +1297,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             pinned: this._pinned
         });
         this.postHistory();
+        // 新 webview 从零开始，不知道此刻有没有更新在跑；进度条状态得补一次，
+        // 否则面板重建（浮动/独立窗口切换、reload）落在更新中间时它是空的，
+        // 而结束时那次 endProgress 又只对已经知情的 webview 有意义。
+        this.syncProgress();
     }
 
     private async handleRevealInFileExplorer(message: any) {
@@ -1639,7 +1643,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this.invalidateCacheKey();
         })();
 
-        this.withProgress<void>(() => updatePromise);
+        // 不 await：点击的回包不该把消息循环挂住。但 promise 必须收口，
+        // 否则 renderer 或语言服务抛错时是一条无人接手的 rejection。
+        void this.withProgress<void>(() => updatePromise).catch(err => {
+            console.error('[context-window] jump definition failed:', err);
+        });
     }
 
     // 双击底部区域：在主编辑区打开当前上下文文件并跳转
@@ -1749,7 +1757,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         })();
 
         setTimeout(() => {
-            this.withProgress<void>(() => updatePromise);
+            // 内层 IIFE 已经自己 try/catch 了，这里兜的是 withProgress 本身
+            // （postMessage 等）意外抛出的情况。
+            void this.withProgress<void>(() => updatePromise).catch(err => {
+                console.error('[context-window] definition item selected failed:', err);
+            });
         }, 0);
     }
 
@@ -2075,18 +2087,33 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    /**
+     * 把进度条的当前状态推给 webview。webview 是可以被换掉的（浮动/独立窗口切换、
+     * reload），新的那个不知道此刻有没有更新在跑，得由这边告诉它一次。
+     */
+    private syncProgress(): void {
+        this.postMessageToWebview({
+            type: this._progressDepth > 0 ? 'beginProgress' : 'endProgress'
+        });
+    }
+
     private async withProgress<T>(operation: () => Promise<T>): Promise<T> {
         // 用计数器配对 begin/end：只有首个开始时显示、最后一个结束时隐藏，
         // 避免多次更新交叠导致进度条提前消失或卡住。
-        if (this._progressDepth === 0) {
-            this.postMessageToWebview({ type: 'beginProgress' });
-        }
+        //
+        // 每次都推 begin，不再只在计数为 0 时推：这个计数是实例上的，跨 webview
+        // 重建不会清零，一旦哪条路径漏掉一次减法，条件推法就会让进度条从此再也
+        // 不出现。重复的 begin 在前端只是把同一个 display 再设一遍，代价可以忽略，
+        // 换来的是「不会永久失效」。
         this._progressDepth++;
+        this.postMessageToWebview({ type: 'beginProgress' });
 
         try {
             return await operation();
         } finally {
-            this._progressDepth--;
+            // 不用 -- ：异常路径下若计数已被别处归零，这里会减成负数，
+            // 之后 `=== 0` 永远不成立，进度条就一直挂着。
+            this._progressDepth = Math.max(0, this._progressDepth - 1);
             if (this._progressDepth === 0) {
                 this.postMessageToWebview({ type: 'endProgress' });
             }
@@ -2184,7 +2211,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             }
         })();
 
-        this.withProgress<void>(() => updatePromise);
+        // 光标驱动的自动刷新，没人在等它的结果；但取消之外的真实错误
+        // （语言服务抛异常等）必须有人接，否则是一条 unhandled rejection。
+        void this.withProgress<void>(() => updatePromise).catch(err => {
+            console.error('[context-window] update failed:', err);
+        });
     }
 
     private async getHtmlContentForActiveEditor(token: vscode.CancellationToken): Promise<FileContentInfo> {
