@@ -10,7 +10,7 @@ import { BRACE_LANGS } from './braceLangs.js';
 export function createUpdateEditorContent(ctx) {
     /** @type {import('monaco-editor').editor.IStandaloneCodeEditor} */
     const editor = ctx.editor;
-    const { state, applyIndentationForModel, updateFilenameDisplay, hideCursor, ensureGrammar } = ctx;
+    const { state, applyIndentationForModel, updateFilenameDisplay, hideCursor, ensureGrammar, ensureLanguageConfig } = ctx;
 
     // ===== #include / #pragma / #region / #endregion 等预处理指令高亮 =====
     // 与扩展端 VSCode 编辑器的装饰（extension.ts: registerDirectiveDecorations）同源：
@@ -244,6 +244,9 @@ export function createUpdateEditorContent(ctx) {
             // 故此处无需自行重分词；已注册语言的后续内容更新会直接走 TextMate provider。
             if (typeof ensureGrammar === 'function' && languageId) {
                 try { ensureGrammar(languageId); } catch (_) {}
+            }
+            if (typeof ensureLanguageConfig === 'function' && languageId) {
+                try { ensureLanguageConfig(languageId); } catch (_) {}
             }
 
             // 避免Monaco将旧装饰迁移到新内容的相同位置

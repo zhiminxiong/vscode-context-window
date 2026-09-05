@@ -1,15 +1,16 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as jsonc from 'jsonc-parser';
 
-// 从用户实际安装的所有 VSCode 语言扩展里「收割」TextMate 语法贡献（contributes.grammars），
-// 建立三张表供 webview 端的 vscode-textmate 使用：
+// 从用户实际安装的所有 VSCode 语言扩展里「收割」TextMate 语法与语言配置：
 //   - languageToScope：languageId → 顶层 scopeName（如 cpp → source.cpp），webview 据此知道某语言用哪份语法；
 //   - scopeToFile：    scopeName → 语法文件绝对路径，webview 按需请求时据此读取并下发原始内容；
 //   - injections：     目标 scope → 注入语法 scope 列表（contributes.grammars[].injectTo），
-//                      供 Registry.getInjections 解析注入语法（如 TODO 高亮、字符串内嵌等）。
+//                      供 Registry.getInjections 解析注入语法（如 TODO 高亮、字符串内嵌等）；
+//   - languageToConfigFile：languageId → language-configuration.json（brackets 含 `${` 等）。
 //
-// 这样 webview 拿到的语法「和用户 VSCode 里跑的完全一致」（含其安装的第三方语言扩展），无需自行维护语法库。
+// 这样 webview 拿到的语法和括号规则「和用户 VSCode 里跑的完全一致」，无需自行维护语法库。
 
 export interface GrammarMaps {
     languageToScope: Record<string, string>;
@@ -17,6 +18,7 @@ export interface GrammarMaps {
 }
 
 let _scopeToFile: Map<string, string> | undefined;
+let _languageToConfigFile: Map<string, string> | undefined;
 let _maps: GrammarMaps | undefined;
 
 // 从同一 language 的多个候选 scope 里挑「主语法」scope。
@@ -39,28 +41,40 @@ function pickPrimaryScope(candidates: string[]): string {
 
 function build(): void {
     const scopeToFile = new Map<string, string>();
+    const languageToConfigFile = new Map<string, string>();
     const langCandidates: Record<string, string[]> = {};
     const injections: Record<string, string[]> = {};
 
     for (const ext of vscode.extensions.all) {
         const grammars = ext.packageJSON?.contributes?.grammars;
-        if (!Array.isArray(grammars)) { continue; }
-        for (const g of grammars) {
-            if (!g || typeof g.scopeName !== 'string' || typeof g.path !== 'string') { continue; }
-            const abs = path.join(ext.extensionPath, g.path);
-            // 同一 scope 被多个扩展贡献时，与 VSCode 核心保持一致：后注册的覆盖前者（last wins），
-            // 确保插件取到的语法与 VSCode 实际渲染用的那份一致（例如同时装了多份 source.cs C# 语法时）。
-            scopeToFile.set(g.scopeName, abs);
-            // 收集该 language 的所有候选 scope，稍后挑主语法（排除 embedded/injection、取层级最浅）
-            if (typeof g.language === 'string' && g.language) {
-                (langCandidates[g.language] = langCandidates[g.language] || []).push(g.scopeName);
-            }
-            // 注入语法：injectTo 列出它要注入到哪些目标 scope
-            if (Array.isArray(g.injectTo)) {
-                for (const target of g.injectTo) {
-                    if (typeof target !== 'string') { continue; }
-                    (injections[target] = injections[target] || []).push(g.scopeName);
+        if (Array.isArray(grammars)) {
+            for (const g of grammars) {
+                if (!g || typeof g.scopeName !== 'string' || typeof g.path !== 'string') { continue; }
+                const abs = path.join(ext.extensionPath, g.path);
+                // 同一 scope 被多个扩展贡献时，与 VSCode 核心保持一致：后注册的覆盖前者（last wins），
+                // 确保插件取到的语法与 VSCode 实际渲染用的那份一致（例如同时装了多份 source.cs C# 语法时）。
+                scopeToFile.set(g.scopeName, abs);
+                // 收集该 language 的所有候选 scope，稍后挑主语法（排除 embedded/injection、取层级最浅）
+                if (typeof g.language === 'string' && g.language) {
+                    (langCandidates[g.language] = langCandidates[g.language] || []).push(g.scopeName);
                 }
+                // 注入语法：injectTo 列出它要注入到哪些目标 scope
+                if (Array.isArray(g.injectTo)) {
+                    for (const target of g.injectTo) {
+                        if (typeof target !== 'string') { continue; }
+                        (injections[target] = injections[target] || []).push(g.scopeName);
+                    }
+                }
+            }
+        }
+        // 语言配置（brackets / autoClosingPairs / colorizedBracketPairs 等）。
+        // TypeScript 把 `${` `}` 收成一对括号，且 colorizedBracketPairs 不含这一对——
+        // 插值分隔符走 TextMate 色，不会被括号对着色拆成 `$` + `{`。
+        const languages = ext.packageJSON?.contributes?.languages;
+        if (Array.isArray(languages)) {
+            for (const lang of languages) {
+                if (!lang || typeof lang.id !== 'string' || typeof lang.configuration !== 'string') { continue; }
+                languageToConfigFile.set(lang.id, path.join(ext.extensionPath, lang.configuration));
             }
         }
     }
@@ -71,6 +85,7 @@ function build(): void {
     }
 
     _scopeToFile = scopeToFile;
+    _languageToConfigFile = languageToConfigFile;
     _maps = { languageToScope, injections };
 }
 
@@ -89,6 +104,19 @@ export function getGrammarContent(scopeName: string): { content: string; path: s
     try {
         const content = fs.readFileSync(file, 'utf8');
         return { content, path: file };
+    } catch {
+        return undefined;
+    }
+}
+
+// 按 languageId 读取 VSCode 语言配置（webview 按需请求，交给 Monaco setLanguageConfiguration）。
+export function getLanguageConfiguration(languageId: string): object | undefined {
+    if (!_languageToConfigFile) { build(); }
+    const file = _languageToConfigFile!.get(languageId);
+    if (!file) { return undefined; }
+    try {
+        const parsed = jsonc.parse(fs.readFileSync(file, 'utf8'));
+        return parsed && typeof parsed === 'object' ? parsed : undefined;
     } catch {
         return undefined;
     }

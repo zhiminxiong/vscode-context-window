@@ -687,6 +687,10 @@ function resolveSemanticRulesInner(languageId?: string): SemanticRule[] | undefi
         { token: 'constant.language.boolean.false', scopes: ['constant.language.boolean.false', 'constant.language.boolean', 'constant.language', 'constant', 'keyword'] },
         { token: 'constant.language', scopes: ['constant.language', 'constant', 'keyword'] },
         { token: 'variable.language', scopes: ['variable.language', 'variable', 'keyword'] },
+        // 模板插值 ${}：主题/用户规则常只写 begin 或 end。基础层必须发出这两条，
+        // 否则 pickScope 会停在 meta.template.expression 重置层，Monaco 也没有对应 token 色。
+        { token: 'punctuation.definition.template-expression.begin', scopes: ['punctuation.definition.template-expression.begin', 'punctuation.definition.template-expression.end', 'punctuation.definition.template-expression', 'punctuation.section.embedded'] },
+        { token: 'punctuation.definition.template-expression.end', scopes: ['punctuation.definition.template-expression.end', 'punctuation.definition.template-expression.begin', 'punctuation.definition.template-expression', 'punctuation.section.embedded'] },
     ];
     for (const ex of extraTextmateRules) {
         // 基础（无语言后缀）颜色：按候选 scope 前缀回退。

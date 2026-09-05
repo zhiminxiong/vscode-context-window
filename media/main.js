@@ -12,6 +12,7 @@ import { createUpdateEditorContent } from './editorContent.js';
 import { createMessageHandlers } from './messageHandlers.js';
 import { setupEditorMouseHandlers } from './editorMouseHandlers.js';
 import { setupTextmate, ensureGrammar as tmEnsureGrammar, updateThemeScopes as tmUpdateThemeScopes, setOnGrammarRegistered as tmSetOnGrammarRegistered } from './textmateClient.js';
+import { setupLanguageConfig, ensureLanguageConfig } from './languageConfigClient.js';
 import { setupHoverProvider, ensureHoverProvider, handleHoverResult, disableMonacoBuiltinTsJsProviders, disposeHoverProvider } from './hoverProvider.js';
 import { createJumpTrail } from './jumpTrail.js';
 import { createLineBlame } from './lineBlame.js';
@@ -846,6 +847,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                     // 避免浮窗顶部已有我们的内容、下方又追加 "Loading..." （来自 Monaco 自带 ts hover provider）。
                     disableMonacoBuiltinTsJsProviders();
 
+                    // VSCode 语言配置（含 TS/JS 的 `${` `}` 括号对）。与 TextMate 无关，默认分词模式也要接。
+                    setupLanguageConfig({ monaco, vscode });
+
                     // 通知扩展编辑器已准备好
                     vscode.postMessage({ type: 'editorReady' });
                     //console.log('[definition] Editor ready message sent');
@@ -888,7 +892,8 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         updateFilenameDisplay,
                         hideCursor,
                         // 方案 B：真实 TextMate 语法按需加载入口（未启用时为 no-op）
-                        ensureGrammar: tmEnsureGrammar
+                        ensureGrammar: tmEnsureGrammar,
+                        ensureLanguageConfig
                     });
 
                     const lineBlame = createLineBlame({

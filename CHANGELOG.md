@@ -16,6 +16,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 #### Fixed
 
 - Semantic tokens such as `console` (`variable.defaultLibrary`) take their color from the current language’s TextMate probe (`support.variable.ts` in TypeScript), including the user’s `tokenColorCustomizations`, instead of a generic `variable` / `support.variable` fallback.
+- Template interpolations such as `${lod}` keep the TextMate `${` / `}` tokens and their colors. The view uses the language’s VS Code configuration (`${` paired with `}`, not in colorized brackets) so bracket pair colorization does not split `${` or recolor `}`.
 
 ## [1.1.1] 2026.09.05
 

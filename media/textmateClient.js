@@ -51,10 +51,11 @@ function log(...args) {
 }
 
 // ===== 主题 scope 集合：用于挑选「主题能着色的最深 scope」=====
-// 重建可着色 scope 集合：纳入「主题全部 tokenColors」+「用户自定义规则（右键取色保存的）」。
-// 把用户自定义规则也算进来，使用户为某个深层 scope（如 storage.type.struct.cpp）配色后，
-// 渲染端的 pickScope 也会优先挑中该 scope，做到「弹窗所见 === 编辑器所染」。
-// 主题切换 / 自定义规则变更时由 main.js 调用（无需传参，直接读最新配置）。
+// 纳入：主题 tokenColors + 语义/基础层解析规则 + 用户自定义。
+// 必须含 themeSemanticRules：Visual Studio Light 一类主题没有 variable 的 tokenColors，
+// 却有 meta.template.expression / meta.embedded 的「重置色」（把字符串绿清掉）。
+// 若集合里没有 variable / template-expression.begin，pickScope 会把 ${lod} 收成
+// meta.embedded 重置层，而 VSCode 是在重置层之上再套变量色和插值标点色。
 export function updateThemeScopes() {
     const cfg = window.vsCodeEditorConfiguration || {};
     const set = new Set();
@@ -66,6 +67,7 @@ export function updateThemeScopes() {
         }
     };
     add(cfg.themeTextmateRules);
+    add(cfg.themeSemanticRules);
     add(cfg.customThemeRules);
     _themeScopeSet = set;
 }

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { lockPanelGroup, showPanelInNewWindow } from './auxiliaryWindow';
 import { Renderer, FileContentInfo } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
-import { getGrammarMaps, getGrammarContent } from './grammarRegistry';
+import { getGrammarMaps, getGrammarContent, getLanguageConfiguration } from './grammarRegistry';
 import { blameLine, blameLineDiff, openBlameDiff } from './lineBlame';
 import { enclosingSymbolRange } from './enclosingSymbol';
 
@@ -1106,6 +1106,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 case 'requestGrammar':
                     this.handleRequestGrammar(message);
                     break;
+                case 'requestLanguageConfig':
+                    this.handleRequestLanguageConfig(message);
+                    break;
                 case 'jumpDefinition':
                     this.handleJumpDefinition(message, editor);
                     break;
@@ -1615,6 +1618,25 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             }
         } catch (err) {
             this.postMessageToWebview({ type: 'grammarData', scopeName, found: false, error: String(err) });
+        }
+    }
+
+    // webview 按 languageId 索取 VSCode 语言配置（brackets 含 `${` 等），接到 Monaco。
+    private handleRequestLanguageConfig(message: any) {
+        const languageId = String(message?.languageId ?? '');
+        if (!languageId) {
+            this.postMessageToWebview({ type: 'languageConfigData', languageId, found: false });
+            return;
+        }
+        try {
+            const config = getLanguageConfiguration(languageId);
+            if (config) {
+                this.postMessageToWebview({ type: 'languageConfigData', languageId, found: true, config });
+            } else {
+                this.postMessageToWebview({ type: 'languageConfigData', languageId, found: false });
+            }
+        } catch (err) {
+            this.postMessageToWebview({ type: 'languageConfigData', languageId, found: false, error: String(err) });
         }
     }
 
