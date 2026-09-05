@@ -59,6 +59,7 @@ const titleEl = document.getElementById('cr-title');
 const stage = document.getElementById('cr-stage');
 const emptyEl = document.getElementById('cr-empty');
 const pinBtn = document.getElementById('cr-pin');
+const jumpTrailBtn = document.getElementById('cr-jump-trail');
 const updateBtn = document.getElementById('cr-update');
 const slimBtn = document.getElementById('cr-slim');
 const slimKindsBtn = document.getElementById('cr-slim-kinds');
@@ -109,6 +110,8 @@ let childSort = 'name';
 let nameOnlyIds = new Set();
 /** Hover tips on by default; off = hold Alt to show. */
 let tipsAuto = true;
+/** Top center trail (foo › bar › baz). On by default. */
+let jumpTrailEnabled = true;
 let altHeld = false;
 try {
     const saved = vscode.getState();
@@ -124,7 +127,15 @@ try {
     if (saved && typeof saved.tipsAuto === 'boolean') {
         tipsAuto = saved.tipsAuto;
     }
+    if (saved && typeof saved.jumpTrail === 'boolean') {
+        jumpTrailEnabled = saved.jumpTrail;
+    }
 } catch (_) { /* noop */ }
+
+const LUCIDE_PIN = '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16h14v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>';
+const ICON_PIN = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g transform="rotate(90 12 12)">${LUCIDE_PIN}</g></svg>`;
+const ICON_PINNED = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LUCIDE_PIN}</svg>`;
+const ICON_JUMP_TRAIL = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>';
 
 function normalizeEdgeStyle(value) {
     return value === 'direct' || value === 'elbow' ? value : 'arc';
@@ -491,6 +502,7 @@ function persistViewState() {
         saved.nameOnlyIds = [...nameOnlyIds];
         saved.zoom = zoom;
         saved.tipsAuto = tipsAuto;
+        saved.jumpTrail = jumpTrailEnabled;
         vscode.setState(saved);
     } catch (_) { /* noop */ }
 }
@@ -1989,7 +2001,7 @@ function renderCenters(graph) {
     const items = (graph && graph.centerTrail) || [];
     const index = graph && typeof graph.centerIndex === 'number' ? graph.centerIndex : items.length - 1;
     lastCenterTrail = { items, index };
-    const show = items.length > 1;
+    const show = jumpTrailEnabled && items.length > 1;
     host.hidden = !show;
     if (!show) {
         host.innerHTML = '';
@@ -3381,9 +3393,46 @@ function bindPan(el) {
     }, true);
 }
 
+function pinOn() {
+    return !!(pinBtn && pinBtn.getAttribute('aria-pressed') === 'true');
+}
+
+function syncPinBtn() {
+    if (!pinBtn) {
+        return;
+    }
+    const on = pinOn();
+    pinBtn.classList.remove('is-on');
+    pinBtn.innerHTML = on ? ICON_PINNED : ICON_PIN;
+    pinBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    pinBtn.setAttribute('aria-label', on ? 'Unpin graph' : 'Pin graph');
+    pinBtn.title = on
+        ? 'Pinned — cursor moves do not refresh the graph. Click to unpin.'
+        : 'Pin the current graph so cursor moves do not refresh it';
+}
+
+function syncJumpTrailBtn() {
+    if (!jumpTrailBtn) {
+        return;
+    }
+    jumpTrailBtn.classList.toggle('is-on', jumpTrailEnabled);
+    jumpTrailBtn.innerHTML = ICON_JUMP_TRAIL;
+    jumpTrailBtn.setAttribute('aria-pressed', jumpTrailEnabled ? 'true' : 'false');
+    jumpTrailBtn.setAttribute('aria-label', jumpTrailEnabled ? 'Hide jump trail' : 'Show jump trail');
+    jumpTrailBtn.title = jumpTrailEnabled
+        ? 'Jump trail on — hide the center path at the top'
+        : 'Jump trail off — show the center path at the top';
+}
+
 pinBtn?.addEventListener('click', () => {
-    const next = !pinBtn.classList.contains('is-on');
-    vscode.postMessage({ type: 'setPinned', value: next });
+    vscode.postMessage({ type: 'setPinned', value: !pinOn() });
+});
+
+jumpTrailBtn?.addEventListener('click', () => {
+    jumpTrailEnabled = !jumpTrailEnabled;
+    persistViewState();
+    syncJumpTrailBtn();
+    renderCenters(lastGraph);
 });
 
 function syncTipsBtn() {
@@ -3504,7 +3553,8 @@ helpBtn?.addEventListener('click', () => {
 function applyUpdateMode(value) {
     const sticky = value === 'sticky';
     if (updateBtn) {
-        updateBtn.classList.toggle('is-on', sticky);
+        updateBtn.classList.toggle('is-sticky', sticky);
+        updateBtn.classList.remove('is-on');
         updateBtn.title = sticky
             ? 'Update mode: Sticky — keep last graph until new results'
             : 'Update mode: Live — empty graph when no call hierarchy';
@@ -3519,7 +3569,7 @@ function applyUpdateMode(value) {
 }
 
 updateBtn?.addEventListener('click', () => {
-    const next = updateBtn.classList.contains('is-on') ? 'live' : 'sticky';
+    const next = updateBtn.classList.contains('is-sticky') ? 'live' : 'sticky';
     applyUpdateMode(next);
     vscode.postMessage({ type: 'setUpdateMode', value: next });
 });
@@ -3893,7 +3943,8 @@ window.addEventListener('message', ev => {
         render(msg.graph || { nodes: [], edges: [], empty: 'No call hierarchy at this position.' });
     } else if (msg.type === 'state') {
         if (pinBtn) {
-            pinBtn.classList.toggle('is-on', !!msg.pinned);
+            pinBtn.setAttribute('aria-pressed', msg.pinned ? 'true' : 'false');
+            syncPinBtn();
         }
         applyUpdateMode(msg.updateMode);
         applyCompactFilter(!!msg.compactFilter);
@@ -4100,5 +4151,7 @@ document.addEventListener('keydown', e => {
 });
 
 syncStyleBtn();
+syncPinBtn();
+syncJumpTrailBtn();
 applyZoomChrome();
 vscode.postMessage({ type: 'ready' });
