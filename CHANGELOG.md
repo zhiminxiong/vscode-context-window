@@ -9,6 +9,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 #### Changed
 
 - Footer Sticky Scroll icon: the three stacked bars are thinner, and the pin is smaller, so they match the stroke weight of the other view toggles.
+- Footer Jump Trail icon: more space between the middle dot and the two chevrons.
 
 ## [1.1.1] 2026.09.05
 
