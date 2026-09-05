@@ -177,8 +177,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         stickyScroll: this._resolveStickyScrollEnabled(
                             cw,
                             vscode.workspace.getConfiguration('editor')
-                        )
+                        ),
+                        jumpMode: normalizeJumpMode(cw.get('jumpMode', 'definition'))
                     });
+                    if (e.affectsConfiguration('contextView.contextWindow.jumpMode')) {
+                        this.postMessageToWebview({ type: 'clearDefinitionList' });
+                        this.invalidateCacheKey();
+                        this.update();
+                    }
                     return;
                 }
                 // 重新获取配置并发送给webview
@@ -586,7 +592,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return false;
         }
         const appearance = [
-            'jumpMode', 'updateMode', 'jumpTrailMaxItems', 'lineBlameHover',
+            'updateMode', 'jumpTrailMaxItems', 'lineBlameHover',
             'fontSize', 'fontFamily', 'minimap', 'useDefaultTokenizer', 'fixToken',
             'fixStickyScroll', 'occurrencesHighlight', 'contextDoubleClickSelectsSymbol',
             'selectionBackground', 'inactiveSelectionBackground',
@@ -651,7 +657,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
-    // 底栏上拉列表切换跳转模式。写入后 onDidChangeConfiguration 会回推 webview 并按新 provider 重查。
+    // 底栏上拉列表切换跳转模式。写入后走 updateViewFlags，只同步模式并按新 provider 重查，不重建主题。
     private async handleSetJumpMode(message: any) {
         try {
             const mode = normalizeJumpMode(message?.mode);

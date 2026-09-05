@@ -1036,6 +1036,12 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                             disposeHoverProvider();
                                         }
                                     }
+                                    if (typeof message.jumpMode === 'string') {
+                                        cfg.jumpMode = message.jumpMode;
+                                        if (typeof window.updateJumpMode === 'function') {
+                                            window.updateJumpMode();
+                                        }
+                                    }
                                     if (typeof window.updateViewToggles === 'function') {
                                         window.updateViewToggles();
                                     }
