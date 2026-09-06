@@ -291,6 +291,24 @@ function methodInTypeSymbols(flat: FlatSymbol[], owner: FlatSymbol, ident: strin
     ));
 }
 
+function isSuperDispatchLine(text: string, ident: string): boolean {
+    return new RegExp(`\\b(?:super|base)\\s*\\.\\s*${escapeRegExp(ident)}\\b`).test(text)
+        || new RegExp(`::\\s*${escapeRegExp(ident)}\\s*\\(`).test(text);
+}
+
+function isThisDispatchLine(text: string, ident: string): boolean {
+    if (isSuperDispatchLine(text, ident) || isIdentDeclLine(text, ident)) {
+        return false;
+    }
+    if (new RegExp(`\\bthis\\s*(?:\\.|->)\\s*${escapeRegExp(ident)}\\b`).test(text)) {
+        return true;
+    }
+    if (new RegExp(`(?:\\.|->|::)\\s*${escapeRegExp(ident)}\\b`).test(text)) {
+        return false;
+    }
+    return new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`).test(text);
+}
+
 function isIdentDeclLine(text: string, ident: string): boolean {
     if (/\b(?:override|function)\b/.test(text)
         && new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`).test(text)) {
@@ -2285,6 +2303,105 @@ export class CallRelationModel {
         return out;
     }
 
+    private async selfAndAncestorTypes(item: vscode.CallHierarchyItem): Promise<TypeRef[]> {
+        const owner = await this.containingTypeAt(
+            item.uri,
+            item.selectionRange?.start ?? item.range.start
+        );
+        if (!owner) {
+            return [];
+        }
+        return [
+            { uri: owner.uri, symbol: owner.symbol, depth: 0 },
+            ...await this.collectAncestorTypes(item)
+        ];
+    }
+
+    private async methodDeclHasOverride(uri: vscode.Uri, method: FlatSymbol): Promise<boolean> {
+        try {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const start = Math.max(0, method.selectionRange.start.line - 1);
+            const end = Math.min(doc.lineCount - 1, method.selectionRange.start.line + 2);
+            for (let line = start; line <= end; line++) {
+                if (/\boverride\b/.test(doc.lineAt(line).text)) {
+                    return true;
+                }
+            }
+        } catch {
+            return false;
+        }
+        return false;
+    }
+
+    private async mostDerivedOverrideOnChain(
+        chain: TypeRef[],
+        ident: string
+    ): Promise<vscode.CallHierarchyItem | undefined> {
+        if (!ident || /^constructor$/i.test(ident)) {
+            return undefined;
+        }
+        const impls: { uri: vscode.Uri; method: FlatSymbol; depth: number; hasOverride: boolean }[] = [];
+        const ordered = [...chain].sort((a, b) => a.depth - b.depth);
+        for (const type of ordered) {
+            let symbols: unknown;
+            try {
+                symbols = await vscode.commands.executeCommand(
+                    'vscode.executeDocumentSymbolProvider',
+                    type.uri
+                );
+            } catch {
+                continue;
+            }
+            const flat: FlatSymbol[] = [];
+            flattenSymbols(symbols, flat);
+            const method = methodInTypeSymbols(flat, type.symbol, ident);
+            if (!method) {
+                continue;
+            }
+            impls.push({
+                uri: type.uri,
+                method,
+                depth: type.depth,
+                hasOverride: await this.methodDeclHasOverride(type.uri, method)
+            });
+        }
+        if (!impls.some(impl => impl.hasOverride)) {
+            return undefined;
+        }
+        const pick = impls[0];
+        const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
+            'vscode.prepareCallHierarchy',
+            pick.uri,
+            pick.method.selectionRange.start
+        );
+        return prepared?.[0];
+    }
+
+    private async outgoingSitesAreThisDispatch(
+        uri: vscode.Uri,
+        ranges: vscode.Range[] | undefined,
+        ident: string
+    ): Promise<boolean> {
+        if (!ident || !ranges?.length) {
+            return false;
+        }
+        try {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            for (const range of ranges) {
+                const start = Math.min(Math.max(0, range.start.line), doc.lineCount - 1);
+                const end = Math.min(Math.max(start, range.end.line), doc.lineCount - 1);
+                for (let line = start; line <= end; line++) {
+                    if (isThisDispatchLine(doc.lineAt(line).text, ident)) {
+                        return true;
+                    }
+                }
+            }
+        } catch {
+            return false;
+        }
+        return false;
+    }
+
     private async directBaseTypes(type: TypeRef): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
         const fromHierarchy = await this.basesFromTypeHierarchy(type);
         if (fromHierarchy.length) {
@@ -2550,16 +2667,31 @@ export class CallRelationModel {
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
         const ident = identFromToken(item.name);
+        const chain = await this.selfAndAncestorTypes(item);
+        const derivedByIdent = new Map<string, vscode.CallHierarchyItem | undefined>();
         for (const call of calls || []) {
             if (!call?.to) {
                 continue;
             }
-            const target = call.to;
+            let target = call.to;
             let sites = call.fromRanges;
             if (itemKey(call.to) === key) {
                 sites = await this.rewriteSelfSuper(item.uri, call.fromRanges, ident, item, key);
                 if (!sites.length) {
                     continue;
+                }
+            }
+            const calleeIdent = identFromToken(target.name);
+            if (calleeIdent && await this.outgoingSitesAreThisDispatch(item.uri, sites, calleeIdent)) {
+                if (!derivedByIdent.has(calleeIdent)) {
+                    derivedByIdent.set(
+                        calleeIdent,
+                        await this.mostDerivedOverrideOnChain(chain, calleeIdent)
+                    );
+                }
+                const derived = derivedByIdent.get(calleeIdent);
+                if (derived) {
+                    target = derived;
                 }
             }
             const k = this.remember(target);
