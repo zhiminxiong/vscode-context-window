@@ -1048,6 +1048,8 @@ body.is-loading .cr-bar {
     left: -7px;
     width: 16px;
     height: 16px;
+    border: none;
+    padding: 0;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -1059,6 +1061,12 @@ body.is-loading .cr-bar {
     color: #fff;
     pointer-events: none;
     box-shadow: 0 0 0 2px var(--vscode-editor-background), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+button.cr-cycle {
+    pointer-events: auto;
+    cursor: pointer;
+    font: inherit;
 }
 
 .cr-twin {

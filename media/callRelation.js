@@ -658,12 +658,59 @@ function isCyclicNode(graph, node) {
     return false;
 }
 
-function createCycleBadge() {
-    const badge = document.createElement('span');
+function jumpToNextTwin(node, twins, ev, badge) {
+    const list = twins.slice().sort(sortByLayout);
+    const i = list.findIndex(t => t.id === node.id);
+    const next = list[(i < 0 ? 0 : i + 1) % list.length];
+    if (!next || next.id === node.id) {
+        return;
+    }
+    const r = badge.getBoundingClientRect();
+    const ox = ev.clientX - r.left;
+    const oy = ev.clientY - r.top;
+    const fromEl = badge.closest('.cr-node');
+    selectNode(next, false);
+    scrollKeepPointer(next.id, ev.clientX, ev.clientY, ox, oy, '.cr-cycle, .cr-twin');
+    if (fromEl) {
+        fromEl.dispatchEvent(new PointerEvent('pointerleave', {
+            bubbles: true,
+            clientX: ev.clientX,
+            clientY: ev.clientY
+        }));
+    }
+    const toEl = nodeElById(next.id);
+    if (toEl) {
+        toEl.dispatchEvent(new PointerEvent('pointerenter', {
+            bubbles: true,
+            clientX: ev.clientX,
+            clientY: ev.clientY
+        }));
+        hideNodeTip();
+        markTipUsed(toEl);
+    }
+}
+
+function createCycleBadge(node) {
+    const twins = node && node.itemKey ? symbolTwins(node.itemKey) : [];
+    const canJump = twins.length > 1;
+    const badge = document.createElement(canJump ? 'button' : 'span');
     badge.className = 'cr-cycle';
-    badge.setAttribute('aria-hidden', 'true');
-    badge.title = 'Repeats an ancestor on this path';
+    badge.setAttribute('aria-hidden', canJump ? 'false' : 'true');
+    badge.title = canJump
+        ? 'Repeats an ancestor on this path. Click to jump to another call path.'
+        : 'Repeats an ancestor on this path';
     badge.textContent = '↻';
+    if (canJump) {
+        badge.type = 'button';
+        badge.setAttribute('aria-label', twins.length === 2
+            ? 'Repeats an ancestor — click to jump to the other call path'
+            : `Repeats an ancestor — click to jump among ${twins.length} call paths`);
+        badge.addEventListener('click', ev => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            jumpToNextTwin(node, twins, ev, badge);
+        });
+    }
     return badge;
 }
 
@@ -721,35 +768,7 @@ function createTwinBadge(node, twins) {
     badge.addEventListener('click', ev => {
         ev.preventDefault();
         ev.stopPropagation();
-        const list = twins.slice().sort(sortByLayout);
-        const i = list.findIndex(t => t.id === node.id);
-        const next = list[(i < 0 ? 0 : i + 1) % list.length];
-        if (!next || next.id === node.id) {
-            return;
-        }
-        const r = badge.getBoundingClientRect();
-        const ox = ev.clientX - r.left;
-        const oy = ev.clientY - r.top;
-        const fromEl = badge.closest('.cr-node');
-        selectNode(next, false);
-        scrollKeepPointer(next.id, ev.clientX, ev.clientY, ox, oy, '.cr-twin');
-        if (fromEl) {
-            fromEl.dispatchEvent(new PointerEvent('pointerleave', {
-                bubbles: true,
-                clientX: ev.clientX,
-                clientY: ev.clientY
-            }));
-        }
-        const toEl = nodeElById(next.id);
-        if (toEl) {
-            toEl.dispatchEvent(new PointerEvent('pointerenter', {
-                bubbles: true,
-                clientX: ev.clientX,
-                clientY: ev.clientY
-            }));
-            hideNodeTip();
-            markTipUsed(toEl);
-        }
+        jumpToNextTwin(node, twins, ev, badge);
     });
     return badge;
 }
@@ -2654,9 +2673,12 @@ function fillNodeTip(tip, node) {
                 vias.push(via);
             }
             const total = others.length + 1;
+            const jumpHint = isCyclicNode(lastGraph, node)
+                ? 'Click ↻ to jump.'
+                : `Click ×${total} to jump.`;
             alias.textContent = vias.length === 1
-                ? `Same function on ${total} call paths — also under ${vias[0]}. Click ×${total} to jump.`
-                : `Same function on ${total} call paths — also under ${vias.join(', ')}. Click ×${total} to jump.`;
+                ? `Same function on ${total} call paths — also under ${vias[0]}. ${jumpHint}`
+                : `Same function on ${total} call paths — also under ${vias.join(', ')}. ${jumpHint}`;
             tip.appendChild(alias);
         }
     }
@@ -3274,7 +3296,7 @@ function render(graph) {
             addThumb(el, head, node);
         }
         if (el.classList.contains('is-cycle')) {
-            el.appendChild(createCycleBadge());
+            el.appendChild(createCycleBadge(node));
         } else if (node.kind === 'symbol' && node.itemKey) {
             const twins = symbolTwins(node.itemKey);
             if (twins.length > 1) {
@@ -3337,7 +3359,7 @@ function bindPan(el) {
             return;
         }
         const hit = e.target;
-        if (hit && hit.closest && hit.closest('.cr-toggle, .cr-thumb, .cr-twin, .cr-edge-group, .cr-site-menu')) {
+        if (hit && hit.closest && hit.closest('.cr-toggle, .cr-thumb, .cr-twin, .cr-cycle, .cr-edge-group, .cr-site-menu')) {
             return;
         }
         const onNode = !!(hit && hit.closest && hit.closest('.cr-node'));
