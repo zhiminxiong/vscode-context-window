@@ -2153,9 +2153,9 @@ export class CallRelationModel {
 
     /**
      * Override incoming is empty for virtual dispatch. Search every same-named
-     * class/interface slot on this type's ancestor chain. Keep nearest
-     * ancestor-chain `this.xxx()`; keep all `obj.xxx()` / `action.xxx()`.
-     * Sibling-hierarchy `this.xxx()` is dropped.
+     * class/interface slot on this type's ancestor chain. A call site is
+     * classified by its enclosing type: on this chain (keep nearest), shares
+     * heritage but not on this chain (sibling, drop), otherwise external (keep).
      */
     private async mergeOverrideIncoming(
         item: vscode.CallHierarchyItem,
@@ -2167,7 +2167,8 @@ export class CallRelationModel {
         if (!ident || /^constructor$/i.test(ident) || item.kind === vscode.SymbolKind.Constructor) {
             return;
         }
-        const ancestors = await this.collectAncestorTypes(item);
+        const family = await this.selfAndAncestorTypes(item);
+        const ancestors = family.filter(type => type.depth > 0);
         if (!ancestors.length) {
             return;
         }
@@ -2199,7 +2200,8 @@ export class CallRelationModel {
         if (!locations.length) {
             return;
         }
-        const ancestorKeys = new Map(ancestors.map(a => [typeRefKey(a.uri, a.symbol), a.depth]));
+        const familyKeys = new Map(family.map(a => [typeRefKey(a.uri, a.symbol), a.depth]));
+        const heritageShare = new Map<string, boolean>();
         const groups = new Map<string, {
             item: vscode.CallHierarchyItem;
             sites: vscode.Range[];
@@ -2248,18 +2250,14 @@ export class CallRelationModel {
                 if (!enc) {
                     return;
                 }
-                const thisDispatch = isThisDispatchLine(lineText, ident);
-                let depth = 0;
-                if (thisDispatch) {
-                    const owner = await this.containingTypeAt(enc.uri ?? loc.uri, enc.selectionRange.start);
-                    if (!owner) {
-                        return;
-                    }
-                    const ancestorDepth = ancestorKeys.get(typeRefKey(owner.uri, owner.symbol));
-                    if (ancestorDepth === undefined) {
-                        return;
-                    }
-                    depth = ancestorDepth;
+                const kind = await this.classifyOverrideCaller(
+                    enc,
+                    loc.uri,
+                    familyKeys,
+                    heritageShare
+                );
+                if (kind === 'sibling') {
+                    return;
                 }
                 const caller = await this.prepareFromEnclosing(enc, loc.uri);
                 if (!caller) {
@@ -2274,7 +2272,12 @@ export class CallRelationModel {
                     group.sites.push(loc.range);
                     return;
                 }
-                groups.set(fromKey, { item: caller, sites: [loc.range], depth, external: !thisDispatch });
+                groups.set(fromKey, {
+                    item: caller,
+                    sites: [loc.range],
+                    depth: kind.depth,
+                    external: kind.kind === 'external'
+                });
             }));
         }
         if (!groups.size) {
@@ -2301,17 +2304,38 @@ export class CallRelationModel {
         }
     }
 
-    private async collectAncestorTypes(item: vscode.CallHierarchyItem): Promise<TypeRef[]> {
-        const owner = await this.containingTypeAt(
-            item.uri,
-            item.selectionRange?.start ?? item.range.start
-        );
+    private async classifyOverrideCaller(
+        enc: { uri?: vscode.Uri; selectionRange: vscode.Range },
+        locUri: vscode.Uri,
+        familyKeys: Map<string, number>,
+        heritageShare: Map<string, boolean>
+    ): Promise<'sibling' | { kind: 'chain' | 'external'; depth: number }> {
+        const owner = await this.containingTypeAt(enc.uri ?? locUri, enc.selectionRange.start);
         if (!owner) {
-            return [];
+            return { kind: 'external', depth: 0 };
         }
+        const ownerKey = typeRefKey(owner.uri, owner.symbol);
+        const onChain = familyKeys.get(ownerKey);
+        if (onChain !== undefined) {
+            return { kind: 'chain', depth: onChain };
+        }
+        let shares = heritageShare.get(ownerKey);
+        if (shares === undefined) {
+            const bases = await this.collectAncestorTypesFrom({
+                uri: owner.uri,
+                symbol: owner.symbol,
+                depth: 0
+            });
+            shares = bases.some(base => familyKeys.has(typeRefKey(base.uri, base.symbol)));
+            heritageShare.set(ownerKey, shares);
+        }
+        return shares ? 'sibling' : { kind: 'external', depth: 0 };
+    }
+
+    private async collectAncestorTypesFrom(start: TypeRef): Promise<TypeRef[]> {
         const out: TypeRef[] = [];
-        const seen = new Set<string>([typeRefKey(owner.uri, owner.symbol)]);
-        const queue: TypeRef[] = [{ uri: owner.uri, symbol: owner.symbol, depth: 0 }];
+        const seen = new Set<string>([typeRefKey(start.uri, start.symbol)]);
+        const queue: TypeRef[] = [{ uri: start.uri, symbol: start.symbol, depth: 0 }];
         while (queue.length && out.length < MAX_HERITAGE_TYPES) {
             const cur = queue.shift()!;
             const bases = await this.directBaseTypes(cur);
@@ -2327,6 +2351,17 @@ export class CallRelationModel {
             }
         }
         return out;
+    }
+
+    private async collectAncestorTypes(item: vscode.CallHierarchyItem): Promise<TypeRef[]> {
+        const owner = await this.containingTypeAt(
+            item.uri,
+            item.selectionRange?.start ?? item.range.start
+        );
+        if (!owner) {
+            return [];
+        }
+        return this.collectAncestorTypesFrom({ uri: owner.uri, symbol: owner.symbol, depth: 0 });
     }
 
     private async selfAndAncestorTypes(item: vscode.CallHierarchyItem): Promise<TypeRef[]> {
