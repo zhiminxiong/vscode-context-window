@@ -263,7 +263,8 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             // 同步 VSCode 的括号对着色开关（覆盖 Monaco 默认的 enabled:true）。
                             bracketPairColorization: {
                                 ...(bracketPairColorization || {}),
-                                enabled: contextEditorCfg.bracketPairColorization !== false
+                                enabled: contextEditorCfg.bracketPairColorization !== false,
+                                independentColorPoolPerBracketType: contextEditorCfg.independentColorPoolPerBracketType === true
                             },
                             // 自定义 Hover Provider 走扩展端 LSP（vscode.executeHoverProvider），
                             // 不依赖 Monaco 内置 Worker，规避了「webview 中 Worker 长期 pending → 浮窗一直 loading」。
@@ -295,12 +296,14 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                         // createModel 默认强制开启 Monaco 括号对着色，需按 VSCode 设置显式覆盖。
                         const cfg = window.vsCodeEditorConfiguration?.contextEditorCfg || {};
-                        model.updateOptions({
-                            bracketColorizationOptions: {
-                                enabled: cfg.bracketPairColorization !== false,
-                                independentColorPoolPerBracketType: false
-                            }
-                        });
+                        const pairOpts = {
+                            enabled: cfg.bracketPairColorization !== false,
+                            independentColorPoolPerBracketType: cfg.independentColorPoolPerBracketType === true
+                        };
+                        model.updateOptions({ bracketColorizationOptions: pairOpts });
+                        try {
+                            editor.updateOptions({ bracketPairColorization: pairOpts });
+                        } catch (_) { /* editor 尚未创建 */ }
                     }
 
                     // 创建编辑器实例

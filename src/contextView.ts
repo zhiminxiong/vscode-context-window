@@ -156,6 +156,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 if (e.affectsConfiguration('editor.tokenColorCustomizations') ||
                     e.affectsConfiguration('editor.fontWeight') ||
                     e.affectsConfiguration('editor.bracketPairColorization.enabled') ||
+                    e.affectsConfiguration('editor.bracketPairColorization.independentColorPoolPerBracketType') ||
                     // 主编辑器 sticky scroll 开关变化时，若本插件未显式设置（跟随模式），
                     // 需回推最新有效值刷新 webview 的粘附行显示。
                     e.affectsConfiguration('editor.stickyScroll.enabled')) {
@@ -747,6 +748,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 useDefaultTokenizer: contextWindowConfig.get('useDefaultTokenizer', true),
                 // VSCode 的括号对着色开关：下发给 webview，使 Monaco 括号对着色行为与 VSCode 一致。
                 bracketPairColorization: editorConfig.get<boolean>('bracketPairColorization.enabled', true),
+                // () / [] / {} / <> 是否各自从 foreground1 重新计数。VSCode 默认 false；
+                // 用户开了则 start() 的括号不会跟外层 class 的 { 抢同一档色。
+                independentColorPoolPerBracketType: editorConfig.get<boolean>('bracketPairColorization.independentColorPoolPerBracketType', false),
                 cacheSizeLimit: contextWindowConfig.get('cacheSizeLimit', 30),
                 fixStickyScroll: contextWindowConfig.get('fixStickyScroll', false),
                 // 是否启用自定义 hover 提示（右键菜单可切换，默认 false）。

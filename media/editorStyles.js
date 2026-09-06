@@ -109,7 +109,20 @@ export const editorStyles = `
                 -moz-user-select: none;
                 -ms-user-select: none;
             }
+
+            /* VS Code 括号对着色盖在 token 上面。Monaco 的 .mtk* 与 .bracket-highlighting-N
+               同优先级且后写入，punctuation.definition.block（{）会一直停在 punctuation 的紫色。 */
+            ${bracketHighlightOverrideCss()}
         `;
+
+function bracketHighlightOverrideCss() {
+    const rules = [];
+    for (let level = 0; level < 30; level++) {
+        rules.push(`.monaco-editor .bracket-highlighting-${level} { color: var(--vscode-editorBracketHighlight-foreground${(level % 6) + 1}) !important; }`);
+    }
+    rules.push('.monaco-editor .unexpected-closing-bracket { color: var(--vscode-editorBracketHighlight-unexpectedBracket-foreground) !important; }');
+    return rules.join('\n            ');
+}
 
 // 将样式注入到文档 head
 export function injectEditorStyles() {
