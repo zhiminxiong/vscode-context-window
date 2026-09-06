@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { enclosingCallable, isAnonymousSymbolName, isReferenceRelationKind, isUsableEnclosingName, symbolAtPosition } from './enclosingSymbol';
+import { enclosingCallable, isAnonymousSymbolName, isTypeRelationKind, isUsableEnclosingName, isValueRelationKind, symbolAtPosition } from './enclosingSymbol';
 
 export type ChildSort = 'name' | 'order';
 
@@ -1241,7 +1241,7 @@ export class CallRelationModel {
         if (!this.isCurrent(seqPrepare)) {
             return undefined;
         }
-        if (valueSym && isReferenceRelationKind(valueSym.kind)) {
+        if (valueSym && isTypeRelationKind(valueSym.kind)) {
             return this.loadReferenceRoot(uri, position, seqPrepare, t0);
         }
 
@@ -1257,6 +1257,9 @@ export class CallRelationModel {
         }
         if (!prepared?.length) {
             costLog('loadRoot empty', Date.now() - t0, loc);
+            if (valueSym && isValueRelationKind(valueSym.kind)) {
+                return this.loadReferenceRoot(uri, position, seqPrepare, t0);
+            }
             const name = await tokenAt(uri, position);
             if (!this.isCurrent(seqPrepare)) {
                 return undefined;

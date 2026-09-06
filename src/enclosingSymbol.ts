@@ -76,6 +76,10 @@ export function isReferenceRelationKind(kind: vscode.SymbolKind): boolean {
     return VALUE_KINDS.has(kind) || TYPE_KINDS.has(kind);
 }
 
+export function isTypeRelationKind(kind: vscode.SymbolKind): boolean {
+    return TYPE_KINDS.has(kind);
+}
+
 /** Call signatures in .d.ts are often named "()". TS call hierarchy uses `<function>`. */
 export function isAnonymousSymbolName(name: string): boolean {
     const n = (name || '').trim();
@@ -219,6 +223,9 @@ export async function symbolAtPosition(
         return undefined;
     }
     if (word && fromDef && (isAnonymousSymbolName(fromDef.name) || identFromName(fromDef.name) !== word)) {
+        if (await identFollowedByParen(uri, position)) {
+            return undefined;
+        }
         const wr = await wordRangeAt(uri, position);
         if (wr) {
             return {
@@ -234,6 +241,20 @@ export async function symbolAtPosition(
     return fromDef && !isAnonymousSymbolName(fromDef.name)
         ? fromDef
         : undefined;
+}
+
+/** `RecalculateBounds()` is a method, not a property, even if document symbols miss it. */
+async function identFollowedByParen(uri: vscode.Uri, position: vscode.Position): Promise<boolean> {
+    try {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const range = doc.getWordRangeAtPosition(position);
+        if (!range) {
+            return false;
+        }
+        return /^\s*\(/.test(doc.lineAt(range.end.line).text.slice(range.end.character));
+    } catch {
+        return false;
+    }
 }
 
 async function wordRangeAt(
