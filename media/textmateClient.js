@@ -142,7 +142,19 @@ class TMState {
 const BALANCED_BRACKETS_MASK = 1024;
 const TOKEN_TYPE_MASK = 768;
 
-function matchMonacoScope(scope) {
+const LANGUAGEID_MASK = 255;
+
+function encodedLanguageIdOf(languageId) {
+    try {
+        if (_monaco && typeof _monaco.languages.getEncodedLanguageId === 'function') {
+            const id = _monaco.languages.getEncodedLanguageId(languageId);
+            if (typeof id === 'number' && id > 0) { return id; }
+        }
+    } catch (_) { /* codec not ready */ }
+    return 0;
+}
+
+function matchMonacoScope(scope, encodedLangId) {
     try {
         const editors = (typeof _monaco.editor.getEditors === 'function') ? _monaco.editor.getEditors() : [];
         for (let i = 0; i < editors.length; i++) {
@@ -150,7 +162,7 @@ function matchMonacoScope(scope) {
             const tt = svc && svc.getColorTheme && svc.getColorTheme().tokenTheme;
             if (!tt) { continue; }
             if (typeof tt.match === 'function') {
-                const m = tt.match(0, scope);
+                const m = tt.match(encodedLangId || 0, scope);
                 if (typeof m === 'number') { return m; }
             }
             if (typeof tt._match === 'function') {
@@ -196,7 +208,8 @@ function loadGrammarForLanguage(languageId, scope) {
     });
 }
 
-function makeProvider(grammar) {
+function makeProvider(grammar, languageId) {
+    let encodedLangId = encodedLanguageIdOf(languageId);
     return {
         getInitialState() { return new TMState(_INITIAL); },
         tokenize(line, state) {
@@ -217,6 +230,7 @@ function makeProvider(grammar) {
         // 于是 => / >= 里的 >、注释里的 < 都会进尖括号树。这里改走 tokenizeEncoded，
         // 用 TextMate 的 balanced 位（含 unbalancedBracketScopes）。
         tokenizeEncoded(line, state) {
+            if (!encodedLangId) { encodedLangId = encodedLanguageIdOf(languageId); }
             const ruleStack = (state && state.ruleStack) ? state.ruleStack : _INITIAL;
             let r;
             let r2;
@@ -232,15 +246,18 @@ function makeProvider(grammar) {
             for (let i = 0; i < r.tokens.length; i++) {
                 const t = r.tokens[i];
                 const picked = pickScope(t.scopes);
-                let meta = matchMonacoScope(picked);
-                if (!meta) { meta = (1 << 15); }
+                let meta = matchMonacoScope(picked, encodedLangId);
+                if (!meta) { meta = (1 << 15) | encodedLangId; }
                 // tokenizeLine2 常把 metadata 相同的相邻 token 收成一段，按 startIndex 精确对齐会丢 bit。
                 while (j + 2 < bin.length && bin[j + 2] <= t.startIndex) { j += 2; }
                 const tmMeta = (j + 1 < bin.length) ? bin[j + 1] : 0;
                 let balanced = (tmMeta & BALANCED_BRACKETS_MASK) !== 0;
                 if (scopesSkipBrackets(t.scopes)) { balanced = false; }
                 const tokenType = (tmMeta & TOKEN_TYPE_MASK);
-                meta = (meta & ~BALANCED_BRACKETS_MASK & ~TOKEN_TYPE_MASK) | tokenType | (balanced ? BALANCED_BRACKETS_MASK : 0);
+                // 语言 id 必须是 typescript 等真实语言。写成 0 会落到 vs.editor.nullLanguage，
+                // 括号配置是空的，{ } 进不了着色树，方法 { 和 class { 就都只剩 punctuation 紫。
+                meta = (meta & ~LANGUAGEID_MASK & ~BALANCED_BRACKETS_MASK & ~TOKEN_TYPE_MASK)
+                    | encodedLangId | tokenType | (balanced ? BALANCED_BRACKETS_MASK : 0);
                 encoded.push(t.startIndex, meta >>> 0);
             }
             return { tokens: new Uint32Array(encoded), endState: new TMState(r.ruleStack) };
@@ -264,7 +281,7 @@ export function ensureGrammar(languageId) {
             if (grammar) {
                 _grammarByLang.set(languageId, grammar);
                 if (!_registeredLang.has(languageId)) {
-                    const provider = makeProvider(grammar);
+                    const provider = makeProvider(grammar, languageId);
 
                     // 关键（消除偶现回到 Monarch 蓝色的根因）：Monaco 内置语言的 Monarch 分词器是经
                     // registerTokensProviderFactory 惰性异步加载的。首屏内容到达时会触发该 factory 的 resolve()
