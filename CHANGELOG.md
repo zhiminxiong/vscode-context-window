@@ -19,6 +19,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Template interpolations such as `${lod}` keep the TextMate `${` / `}` tokens and their colors. The view uses the language’s VS Code configuration (`${` paired with `}`, not in colorized brackets) so bracket pair colorization does not split `${` or recolor `}`.
 - Bracket pair colors overlay TextMate token colors, as in VS Code. A method `{` (`punctuation.definition.block`) keeps highlight 2 instead of the user’s `punctuation` purple. `()` `[]` `<>` use VS Code’s per-type color pool, so they do not share a level with `{}`. Encoded TextMate tokens now carry Monaco’s language id, so a class `{` and a nested method `{` get highlight 1 and 2 instead of both staying on the punctuation color.
 - `=>` `>=` and comment/`string` `<` `>` are not treated as `<>`. TextMate `unbalancedBracketScopes` (and comment/string token types) keep those operators on their token color.
+- Relation: an override lists the nearest same-named caller on its own base-class chain (for example `MoveableActionBase.Prepare` for `ActionPlayerShowOff.OnPrepare`). Ancestors come from type hierarchy when the language server has it, otherwise from class-header semantic tokens plus Go to Definition. Sibling-hierarchy callers are not added.
 
 ## [1.1.1] 2026.09.05
 

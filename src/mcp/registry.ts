@@ -57,7 +57,8 @@ const relationsTool: McpToolDefinition = {
         'you get every reference, grouped under the function that contains it. Which of the two you',
         'get is decided by the language server from the symbol itself and is reported back as',
         '"mode"; you cannot ask for one or the other.',
-        'This is real call-graph data, so it follows overrides and super calls and marks recursion,',
+        'This is real call-graph data, so it follows overrides (nearest base-class this.method()',
+        'dispatch on the type’s own ancestor chain), super calls, and marks recursion,',
         'which a text search cannot do.',
         'Give the 1-based line. The column is optional: without it the symbol declared on that line',
         'is used, or pass "symbol" to name the identifier on the line you mean.'

@@ -204,6 +204,141 @@ async function splitSuperCallRanges(
     return { superHit, superRanges, otherRanges };
 }
 
+const TYPE_CONTAINER_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
+    vscode.SymbolKind.Class,
+    vscode.SymbolKind.Struct,
+    vscode.SymbolKind.Interface
+]);
+
+const CALL_ITEM_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
+    vscode.SymbolKind.Method,
+    vscode.SymbolKind.Function,
+    vscode.SymbolKind.Constructor
+]);
+
+const TYPE_SEMANTIC_TYPES = new Set(['class', 'struct', 'interface', 'enum', 'type']);
+const MAX_HERITAGE_TYPES = 16;
+
+interface FlatSymbol {
+    name: string;
+    kind: vscode.SymbolKind;
+    range: vscode.Range;
+    selectionRange: vscode.Range;
+}
+
+interface TypeRef {
+    uri: vscode.Uri;
+    symbol: FlatSymbol;
+    depth: number;
+}
+
+interface TypeHierarchyLike {
+    name: string;
+    kind: vscode.SymbolKind;
+    uri: vscode.Uri;
+    range: vscode.Range;
+    selectionRange: vscode.Range;
+}
+
+function typeRefKey(uri: vscode.Uri, symbol: FlatSymbol): string {
+    const sel = symbol.selectionRange?.start ?? symbol.range.start;
+    return `${uri.toString()}\0${symbol.name}\0${sel.line}\0${sel.character}`;
+}
+
+function flattenSymbols(raw: unknown, out: FlatSymbol[]): void {
+    if (!Array.isArray(raw)) {
+        return;
+    }
+    for (const node of raw) {
+        if (!node || typeof node !== 'object') {
+            continue;
+        }
+        const s = node as vscode.DocumentSymbol & vscode.SymbolInformation;
+        const range = s.range ?? s.location?.range;
+        const selectionRange = s.selectionRange ?? range;
+        if (s.name && range && s.kind !== undefined) {
+            out.push({
+                name: s.name,
+                kind: s.kind,
+                range,
+                selectionRange
+            });
+        }
+        if (Array.isArray(s.children) && s.children.length) {
+            flattenSymbols(s.children, out);
+        }
+    }
+}
+
+function pickContainingType(flat: FlatSymbol[], position: vscode.Position): FlatSymbol | undefined {
+    let best: FlatSymbol | undefined;
+    for (const sym of flat) {
+        if (!TYPE_CONTAINER_KINDS.has(sym.kind) || !rangeContains(sym.range, position)) {
+            continue;
+        }
+        if (!best || rangeContains(best.range, sym.range.start)) {
+            best = sym;
+        }
+    }
+    return best;
+}
+
+function methodInTypeSymbols(flat: FlatSymbol[], owner: FlatSymbol, ident: string): FlatSymbol | undefined {
+    return flat.find(sym => (
+        CALL_ITEM_KINDS.has(sym.kind)
+        && identFromToken(sym.name) === ident
+        && rangeContains(owner.range, sym.selectionRange.start)
+    ));
+}
+
+function isIdentDeclLine(text: string, ident: string): boolean {
+    if (/\b(?:override|function)\b/.test(text)
+        && new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`).test(text)) {
+        return true;
+    }
+    return /^\s*(?:public|private|protected|internal|export|async|static|readonly|virtual)\b/.test(text)
+        && new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`).test(text);
+}
+
+function decodeSemanticTokens(
+    data: ArrayLike<number>,
+    legendTypes: string[]
+): { line: number; character: number; length: number; type: string }[] {
+    const out: { line: number; character: number; length: number; type: string }[] = [];
+    let line = 0;
+    let character = 0;
+    for (let i = 0; i + 4 < data.length; i += 5) {
+        const deltaLine = data[i];
+        const deltaStart = data[i + 1];
+        const length = data[i + 2];
+        const typeIdx = data[i + 3];
+        line += deltaLine;
+        character = deltaLine === 0 ? character + deltaStart : deltaStart;
+        const type = legendTypes[typeIdx] || '';
+        out.push({ line, character, length, type });
+    }
+    return out;
+}
+
+function unwrapTokenData(raw: unknown): ArrayLike<number> | undefined {
+    if (!raw) {
+        return undefined;
+    }
+    if (Array.isArray(raw)) {
+        return raw;
+    }
+    if (raw instanceof Uint32Array) {
+        return raw;
+    }
+    if (typeof raw === 'object' && raw && 'data' in raw) {
+        const data = (raw as { data: unknown }).data;
+        if (Array.isArray(data) || data instanceof Uint32Array) {
+            return data;
+        }
+    }
+    return undefined;
+}
+
 /** LSP fromRanges often start at the whole call expression, not the callee name. */
 export async function callSiteIdentRange(site: RelationOpenTarget): Promise<{
     start: { line: number; character: number };
@@ -1994,6 +2129,371 @@ export class CallRelationModel {
         return ranges || [];
     }
 
+    /**
+     * Override incoming is empty for `this.OnPrepare()` in a base class.
+     * Walk ancestors (type hierarchy, else class-header semantic tokens + definition),
+     * take the nearest same-named method as the virtual slot, then keep only the
+     * nearest caller on this type's ancestor chain.
+     */
+    private async mergeOverrideIncoming(
+        item: vscode.CallHierarchyItem,
+        key: string,
+        items: vscode.CallHierarchyItem[],
+        seen: Set<string>,
+        ident: string
+    ): Promise<void> {
+        if (!ident || /^constructor$/i.test(ident) || item.kind === vscode.SymbolKind.Constructor) {
+            return;
+        }
+        const ancestors = await this.collectAncestorTypes(item);
+        if (!ancestors.length) {
+            return;
+        }
+        const slot = await this.nearestVirtualSlot(ancestors, ident);
+        if (!slot) {
+            return;
+        }
+        const refs = await this.execLspHeld<unknown[]>(
+            'vscode.executeReferenceProvider',
+            slot.uri,
+            slot.method.selectionRange.start
+        );
+        const locations = (refs || [])
+            .map(raw => this.asLocation(raw))
+            .filter((loc): loc is vscode.Location => !!loc);
+        if (!locations.length) {
+            return;
+        }
+        const ancestorKeys = new Map(ancestors.map(a => [typeRefKey(a.uri, a.symbol), a.depth]));
+        const groups = new Map<string, {
+            item: vscode.CallHierarchyItem;
+            sites: vscode.Range[];
+            depth: number;
+        }>();
+        const chunk = 12;
+        for (let i = 0; i < locations.length; i += chunk) {
+            await Promise.all(locations.slice(i, i + chunk).map(async loc => {
+                if (isLibPath(loc.uri.fsPath)
+                    || this.isDeclSite(item, loc)
+                    || this.isDeclSite(
+                        new vscode.CallHierarchyItem(
+                            slot.method.kind,
+                            slot.method.name,
+                            '',
+                            slot.uri,
+                            slot.method.range,
+                            slot.method.selectionRange
+                        ),
+                        loc
+                    )) {
+                    return;
+                }
+                let lineText = '';
+                try {
+                    const doc = await vscode.workspace.openTextDocument(loc.uri);
+                    lineText = doc.lineAt(Math.min(loc.range.start.line, doc.lineCount - 1)).text;
+                } catch {
+                    return;
+                }
+                if (isIdentDeclLine(lineText, ident)
+                    || new RegExp(`\\b(?:super|base)\\s*\\.\\s*${escapeRegExp(ident)}\\b`).test(lineText)
+                    || new RegExp(`::\\s*${escapeRegExp(ident)}\\s*\\(`).test(lineText)
+                    || !new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`).test(lineText)) {
+                    return;
+                }
+                const enc = await enclosingCallable(loc.uri, loc.range.start.line, ident);
+                if (!enc) {
+                    return;
+                }
+                const owner = await this.containingTypeAt(enc.uri ?? loc.uri, enc.selectionRange.start);
+                if (!owner) {
+                    return;
+                }
+                const depth = ancestorKeys.get(typeRefKey(owner.uri, owner.symbol));
+                if (depth === undefined) {
+                    return;
+                }
+                const caller = new vscode.CallHierarchyItem(
+                    enc.kind,
+                    enc.name,
+                    enc.detail,
+                    enc.uri ?? loc.uri,
+                    enc.range,
+                    enc.selectionRange
+                );
+                const fromKey = itemKey(caller);
+                if (fromKey === key || identFromToken(caller.name) === ident) {
+                    return;
+                }
+                const group = groups.get(fromKey);
+                if (group) {
+                    group.sites.push(loc.range);
+                    return;
+                }
+                groups.set(fromKey, { item: caller, sites: [loc.range], depth });
+            }));
+        }
+        if (!groups.size) {
+            return;
+        }
+        let nearest = Number.POSITIVE_INFINITY;
+        for (const group of groups.values()) {
+            if (group.depth < nearest) {
+                nearest = group.depth;
+            }
+        }
+        for (const group of groups.values()) {
+            if (group.depth !== nearest) {
+                continue;
+            }
+            const fromKey = itemKey(group.item);
+            if (seen.has(fromKey)) {
+                continue;
+            }
+            seen.add(fromKey);
+            const k = this.remember(group.item);
+            items.push(this.items.get(k)!);
+            this.rememberCallSite(key, -1, group.item, group.item.uri, group.sites, item.name);
+        }
+    }
+
+    private async collectAncestorTypes(item: vscode.CallHierarchyItem): Promise<TypeRef[]> {
+        const owner = await this.containingTypeAt(
+            item.uri,
+            item.selectionRange?.start ?? item.range.start
+        );
+        if (!owner) {
+            return [];
+        }
+        const out: TypeRef[] = [];
+        const seen = new Set<string>([typeRefKey(owner.uri, owner.symbol)]);
+        const queue: TypeRef[] = [{ uri: owner.uri, symbol: owner.symbol, depth: 0 }];
+        while (queue.length && out.length < MAX_HERITAGE_TYPES) {
+            const cur = queue.shift()!;
+            const bases = await this.directBaseTypes(cur);
+            for (const base of bases) {
+                const k = typeRefKey(base.uri, base.symbol);
+                if (seen.has(k)) {
+                    continue;
+                }
+                seen.add(k);
+                const next = { uri: base.uri, symbol: base.symbol, depth: cur.depth + 1 };
+                out.push(next);
+                queue.push(next);
+            }
+        }
+        return out;
+    }
+
+    private async directBaseTypes(type: TypeRef): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
+        const fromHierarchy = await this.basesFromTypeHierarchy(type);
+        if (fromHierarchy.length) {
+            return fromHierarchy;
+        }
+        return this.basesFromSemanticTokens(type);
+    }
+
+    private async basesFromTypeHierarchy(
+        type: TypeRef
+    ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
+        const prepared = await this.execLspHeld<TypeHierarchyLike[]>(
+            'vscode.prepareTypeHierarchy',
+            type.uri,
+            type.symbol.selectionRange.start
+        );
+        const root = (prepared || []).find(t => t && TYPE_CONTAINER_KINDS.has(t.kind)) || prepared?.[0];
+        if (!root) {
+            return [];
+        }
+        const supers = await this.execLspHeld<TypeHierarchyLike[]>(
+            'vscode.provideSupertypes',
+            root
+        );
+        const out: { uri: vscode.Uri; symbol: FlatSymbol }[] = [];
+        const seen = new Set<string>();
+        for (const next of supers || []) {
+            if (!next?.uri) {
+                continue;
+            }
+            const resolved = await this.resolveTypeAt(next.uri, next.selectionRange?.start ?? next.range.start);
+            if (!resolved) {
+                continue;
+            }
+            const k = typeRefKey(resolved.uri, resolved.symbol);
+            if (seen.has(k)) {
+                continue;
+            }
+            seen.add(k);
+            out.push(resolved);
+        }
+        return out;
+    }
+
+    private async basesFromSemanticTokens(
+        type: TypeRef
+    ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
+        let doc: vscode.TextDocument;
+        try {
+            doc = await vscode.workspace.openTextDocument(type.uri);
+        } catch {
+            return [];
+        }
+        const header = this.classHeaderRange(doc, type.symbol);
+        const legend = await this.semanticLegend(type.uri);
+        const data = await this.semanticTokenData(type.uri, header);
+        if (!legend?.length || !data) {
+            return [];
+        }
+        const own = identFromToken(type.symbol.name);
+        const hits = decodeSemanticTokens(data, legend).filter(tok => {
+            if (!TYPE_SEMANTIC_TYPES.has(tok.type)) {
+                return false;
+            }
+            if (!rangeContains(header, new vscode.Position(tok.line, tok.character))) {
+                return false;
+            }
+            const text = doc.getText(new vscode.Range(
+                tok.line,
+                tok.character,
+                tok.line,
+                tok.character + tok.length
+            ));
+            return identFromToken(text) !== own;
+        });
+        const out: { uri: vscode.Uri; symbol: FlatSymbol }[] = [];
+        const seen = new Set<string>();
+        for (const tok of hits) {
+            const resolved = await this.resolveTypeAt(
+                type.uri,
+                new vscode.Position(tok.line, tok.character)
+            );
+            if (!resolved || resolved.uri.toString() === type.uri.toString()
+                && typeRefKey(resolved.uri, resolved.symbol) === typeRefKey(type.uri, type.symbol)) {
+                continue;
+            }
+            const k = typeRefKey(resolved.uri, resolved.symbol);
+            if (seen.has(k)) {
+                continue;
+            }
+            seen.add(k);
+            out.push(resolved);
+        }
+        return out;
+    }
+
+    private classHeaderRange(doc: vscode.TextDocument, symbol: FlatSymbol): vscode.Range {
+        const start = symbol.range.start;
+        const afterName = symbol.selectionRange.end;
+        const rest = doc.getText(new vscode.Range(afterName, symbol.range.end));
+        const brace = rest.indexOf('{');
+        const end = brace >= 0
+            ? doc.positionAt(doc.offsetAt(afterName) + brace)
+            : symbol.range.end;
+        return new vscode.Range(start, end);
+    }
+
+    private async semanticLegend(uri: vscode.Uri): Promise<string[] | undefined> {
+        for (const command of [
+            'vscode.provideDocumentSemanticTokensLegend',
+            'vscode.executeDocumentSemanticTokensLegend'
+        ]) {
+            const raw = await this.execLspHeld<{ tokenTypes?: string[] }>(command, uri);
+            if (raw && Array.isArray(raw.tokenTypes) && raw.tokenTypes.length) {
+                return raw.tokenTypes;
+            }
+        }
+        return undefined;
+    }
+
+    private async semanticTokenData(
+        uri: vscode.Uri,
+        range: vscode.Range
+    ): Promise<ArrayLike<number> | undefined> {
+        const ranged = unwrapTokenData(await this.execLspHeld(
+            'vscode.provideDocumentRangeSemanticTokens',
+            uri,
+            range
+        ));
+        if (ranged) {
+            return ranged;
+        }
+        return unwrapTokenData(await this.execLspHeld(
+            'vscode.provideDocumentSemanticTokens',
+            uri
+        )) || unwrapTokenData(await this.execLspHeld(
+            'vscode.executeDocumentSemanticTokensProvider',
+            uri
+        ));
+    }
+
+    private async resolveTypeAt(
+        uri: vscode.Uri,
+        position: vscode.Position
+    ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol } | undefined> {
+        let defs: unknown;
+        try {
+            defs = await vscode.commands.executeCommand(
+                'vscode.executeDefinitionProvider',
+                uri,
+                position
+            );
+        } catch {
+            return undefined;
+        }
+        for (const raw of Array.isArray(defs) ? defs : []) {
+            const loc = this.asLocation(raw);
+            if (!loc || isLibPath(loc.uri.fsPath)) {
+                continue;
+            }
+            const hit = await this.containingTypeAt(loc.uri, loc.range.start);
+            if (hit) {
+                return hit;
+            }
+        }
+        return undefined;
+    }
+
+    private async containingTypeAt(
+        uri: vscode.Uri,
+        position: vscode.Position
+    ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol } | undefined> {
+        let symbols: unknown;
+        try {
+            symbols = await vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', uri);
+        } catch {
+            return undefined;
+        }
+        const flat: FlatSymbol[] = [];
+        flattenSymbols(symbols, flat);
+        const symbol = pickContainingType(flat, position);
+        return symbol ? { uri, symbol } : undefined;
+    }
+
+    private async nearestVirtualSlot(
+        ancestors: TypeRef[],
+        ident: string
+    ): Promise<{ uri: vscode.Uri; method: FlatSymbol } | undefined> {
+        const ordered = [...ancestors].sort((a, b) => a.depth - b.depth);
+        for (const ancestor of ordered) {
+            let symbols: unknown;
+            try {
+                symbols = await vscode.commands.executeCommand(
+                    'vscode.executeDocumentSymbolProvider',
+                    ancestor.uri
+                );
+            } catch {
+                continue;
+            }
+            const flat: FlatSymbol[] = [];
+            flattenSymbols(symbols, flat);
+            const method = methodInTypeSymbols(flat, ancestor.symbol, ident);
+            if (method) {
+                return { uri: ancestor.uri, method };
+            }
+        }
+        return undefined;
+    }
+
     private async fetchIncoming(item: vscode.CallHierarchyItem, key: string, _seq: number): Promise<void> {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
@@ -2028,6 +2528,7 @@ export class CallRelationModel {
             items.push(this.items.get(k)!);
             this.rememberCallSite(key, -1, call.from, call.from.uri, sites, item.name);
         }
+        await this.mergeOverrideIncoming(item, key, items, seen, ident);
         if (!this.incoming.has(key)) {
             this.incoming.set(key, items);
         }
