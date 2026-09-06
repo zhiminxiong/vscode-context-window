@@ -2152,10 +2152,10 @@ export class CallRelationModel {
     }
 
     /**
-     * Override incoming is empty for `this.OnPrepare()` in a base class.
-     * Walk ancestors (type hierarchy, else class-header semantic tokens + definition),
-     * take the nearest same-named method as the virtual slot, then keep only the
-     * nearest caller on this type's ancestor chain.
+     * Override incoming is empty for virtual dispatch. Search every same-named
+     * class/interface slot on this type's ancestor chain. Keep nearest
+     * ancestor-chain `this.xxx()`; keep all `obj.xxx()` / `action.xxx()`.
+     * Sibling-hierarchy `this.xxx()` is dropped.
      */
     private async mergeOverrideIncoming(
         item: vscode.CallHierarchyItem,
@@ -2171,18 +2171,31 @@ export class CallRelationModel {
         if (!ancestors.length) {
             return;
         }
-        const slot = await this.nearestVirtualSlot(ancestors, ident);
-        if (!slot) {
+        const slots = await this.collectVirtualSlots(ancestors, ident);
+        if (!slots.length) {
             return;
         }
-        const refs = await this.execLspHeld<unknown[]>(
-            'vscode.executeReferenceProvider',
-            slot.uri,
-            slot.method.selectionRange.start
-        );
-        const locations = (refs || [])
-            .map(raw => this.asLocation(raw))
-            .filter((loc): loc is vscode.Location => !!loc);
+        const locSeen = new Set<string>();
+        const locations: vscode.Location[] = [];
+        for (const slot of slots) {
+            const refs = await this.execLspHeld<unknown[]>(
+                'vscode.executeReferenceProvider',
+                slot.uri,
+                slot.method.selectionRange.start
+            );
+            for (const raw of refs || []) {
+                const loc = this.asLocation(raw);
+                if (!loc) {
+                    continue;
+                }
+                const k = `${loc.uri.toString()}\0${loc.range.start.line}\0${loc.range.start.character}`;
+                if (locSeen.has(k)) {
+                    continue;
+                }
+                locSeen.add(k);
+                locations.push(loc);
+            }
+        }
         if (!locations.length) {
             return;
         }
@@ -2191,23 +2204,31 @@ export class CallRelationModel {
             item: vscode.CallHierarchyItem;
             sites: vscode.Range[];
             depth: number;
+            external: boolean;
         }>();
         const chunk = 12;
         for (let i = 0; i < locations.length; i += chunk) {
             await Promise.all(locations.slice(i, i + chunk).map(async loc => {
-                if (isLibPath(loc.uri.fsPath)
-                    || this.isDeclSite(item, loc)
-                    || this.isDeclSite(
-                        new vscode.CallHierarchyItem(
-                            slot.method.kind,
-                            slot.method.name,
-                            '',
-                            slot.uri,
-                            slot.method.range,
-                            slot.method.selectionRange
-                        ),
-                        loc
-                    )) {
+                if (isLibPath(loc.uri.fsPath) || this.isDeclSite(item, loc)) {
+                    return;
+                }
+                if (slots.some(slot => this.isDeclSite(
+                    new vscode.CallHierarchyItem(
+                        slot.method.kind,
+                        slot.method.name,
+                        '',
+                        slot.uri,
+                        slot.method.range,
+                        slot.method.selectionRange
+                    ),
+                    loc
+                ))) {
+                    return;
+                }
+                if (items.some(existing => (
+                    existing.uri.toString() === loc.uri.toString()
+                    && rangeContains(existing.range, loc.range.start)
+                ))) {
                     return;
                 }
                 let lineText = '';
@@ -2227,13 +2248,18 @@ export class CallRelationModel {
                 if (!enc) {
                     return;
                 }
-                const owner = await this.containingTypeAt(enc.uri ?? loc.uri, enc.selectionRange.start);
-                if (!owner) {
-                    return;
-                }
-                const depth = ancestorKeys.get(typeRefKey(owner.uri, owner.symbol));
-                if (depth === undefined) {
-                    return;
+                const thisDispatch = isThisDispatchLine(lineText, ident);
+                let depth = 0;
+                if (thisDispatch) {
+                    const owner = await this.containingTypeAt(enc.uri ?? loc.uri, enc.selectionRange.start);
+                    if (!owner) {
+                        return;
+                    }
+                    const ancestorDepth = ancestorKeys.get(typeRefKey(owner.uri, owner.symbol));
+                    if (ancestorDepth === undefined) {
+                        return;
+                    }
+                    depth = ancestorDepth;
                 }
                 const caller = await this.prepareFromEnclosing(enc, loc.uri);
                 if (!caller) {
@@ -2248,7 +2274,7 @@ export class CallRelationModel {
                     group.sites.push(loc.range);
                     return;
                 }
-                groups.set(fromKey, { item: caller, sites: [loc.range], depth });
+                groups.set(fromKey, { item: caller, sites: [loc.range], depth, external: !thisDispatch });
             }));
         }
         if (!groups.size) {
@@ -2256,12 +2282,12 @@ export class CallRelationModel {
         }
         let nearest = Number.POSITIVE_INFINITY;
         for (const group of groups.values()) {
-            if (group.depth < nearest) {
+            if (!group.external && group.depth < nearest) {
                 nearest = group.depth;
             }
         }
         for (const group of groups.values()) {
-            if (group.depth !== nearest) {
+            if (!group.external && group.depth !== nearest) {
                 continue;
             }
             const fromKey = itemKey(group.item);
@@ -2586,10 +2612,12 @@ export class CallRelationModel {
         return symbol ? { uri, symbol } : undefined;
     }
 
-    private async nearestVirtualSlot(
+    private async collectVirtualSlots(
         ancestors: TypeRef[],
         ident: string
-    ): Promise<{ uri: vscode.Uri; method: FlatSymbol } | undefined> {
+    ): Promise<{ uri: vscode.Uri; method: FlatSymbol }[]> {
+        const out: { uri: vscode.Uri; method: FlatSymbol }[] = [];
+        const seen = new Set<string>();
         const ordered = [...ancestors].sort((a, b) => a.depth - b.depth);
         for (const ancestor of ordered) {
             let symbols: unknown;
@@ -2604,11 +2632,17 @@ export class CallRelationModel {
             const flat: FlatSymbol[] = [];
             flattenSymbols(symbols, flat);
             const method = methodInTypeSymbols(flat, ancestor.symbol, ident);
-            if (method) {
-                return { uri: ancestor.uri, method };
+            if (!method) {
+                continue;
             }
+            const k = `${ancestor.uri.toString()}\0${method.selectionRange.start.line}\0${method.selectionRange.start.character}`;
+            if (seen.has(k)) {
+                continue;
+            }
+            seen.add(k);
+            out.push({ uri: ancestor.uri, method });
         }
-        return undefined;
+        return out;
     }
 
     private async prepareFromEnclosing(
