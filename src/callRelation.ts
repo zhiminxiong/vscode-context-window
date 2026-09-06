@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { enclosingCallable, isAnonymousSymbolName, isReferenceRelationKind, symbolAtPosition } from './enclosingSymbol';
+import { enclosingCallable, isAnonymousSymbolName, isReferenceRelationKind, isUsableEnclosingName, symbolAtPosition } from './enclosingSymbol';
 
 export type ChildSort = 'name' | 'order';
 
@@ -69,6 +69,10 @@ export interface RelationOpenTarget {
     name: string;
     file?: string;
     snippet?: string;
+}
+
+function isArrowLikeName(name: string): boolean {
+    return isAnonymousSymbolName(name) || /\bcallback$/i.test((name || '').trim());
 }
 
 /** TS names accessors "(get) foo" / "(set) foo"; anonymous fns "setTimeout() callback". */
@@ -2231,14 +2235,10 @@ export class CallRelationModel {
                 if (depth === undefined) {
                     return;
                 }
-                const caller = new vscode.CallHierarchyItem(
-                    enc.kind,
-                    enc.name,
-                    enc.detail,
-                    enc.uri ?? loc.uri,
-                    enc.range,
-                    enc.selectionRange
-                );
+                const caller = await this.prepareFromEnclosing(enc, loc.uri);
+                if (!caller) {
+                    return;
+                }
                 const fromKey = itemKey(caller);
                 if (fromKey === key || identFromToken(caller.name) === ident) {
                     return;
@@ -2611,6 +2611,43 @@ export class CallRelationModel {
         return undefined;
     }
 
+    private async prepareFromEnclosing(
+        enc: { name: string; kind: vscode.SymbolKind; detail: string; range: vscode.Range; selectionRange: vscode.Range; uri?: vscode.Uri },
+        fallbackUri: vscode.Uri
+    ): Promise<vscode.CallHierarchyItem | undefined> {
+        if (!isUsableEnclosingName(enc.name) || isArrowLikeName(enc.name)) {
+            return undefined;
+        }
+        const uri = enc.uri ?? fallbackUri;
+        const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
+            'vscode.prepareCallHierarchy',
+            uri,
+            enc.selectionRange.start
+        );
+        const caller = prepared?.[0];
+        if (!caller || isArrowLikeName(caller.name)) {
+            return undefined;
+        }
+        return caller;
+    }
+
+    private async liftArrowToEnclosing(
+        from: vscode.CallHierarchyItem,
+        sites: vscode.Range[] | undefined
+    ): Promise<vscode.CallHierarchyItem | undefined> {
+        if (!isArrowLikeName(from.name)) {
+            return undefined;
+        }
+        const line = sites?.[0]?.start.line
+            ?? from.selectionRange?.start.line
+            ?? from.range.start.line;
+        const enc = await enclosingCallable(from.uri, line);
+        if (!enc) {
+            return undefined;
+        }
+        return this.prepareFromEnclosing(enc, from.uri);
+    }
+
     private async fetchIncoming(item: vscode.CallHierarchyItem, key: string, _seq: number): Promise<void> {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
@@ -2630,20 +2667,25 @@ export class CallRelationModel {
             if (!call?.from) {
                 continue;
             }
+            let from = call.from;
             let sites = call.fromRanges;
-            if (itemKey(call.from) === key) {
-                sites = await this.rewriteSelfSuper(call.from.uri, call.fromRanges, ident, item, key);
+            if (itemKey(from) === key) {
+                sites = await this.rewriteSelfSuper(from.uri, call.fromRanges, ident, item, key);
                 if (!sites.length) {
                     continue;
                 }
             }
-            const k = this.remember(call.from);
+            const lifted = await this.liftArrowToEnclosing(from, sites);
+            if (lifted) {
+                from = lifted;
+            }
+            const k = this.remember(from);
             if (seen.has(k)) {
                 continue;
             }
             seen.add(k);
             items.push(this.items.get(k)!);
-            this.rememberCallSite(key, -1, call.from, call.from.uri, sites, item.name);
+            this.rememberCallSite(key, -1, from, from.uri, sites, item.name);
         }
         await this.mergeOverrideIncoming(item, key, items, seen, ident);
         if (!this.incoming.has(key)) {

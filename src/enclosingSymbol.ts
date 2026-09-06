@@ -76,10 +76,13 @@ export function isReferenceRelationKind(kind: vscode.SymbolKind): boolean {
     return VALUE_KINDS.has(kind) || TYPE_KINDS.has(kind);
 }
 
-/** Call signatures in .d.ts are often named "()". */
+/** Call signatures in .d.ts are often named "()". TS call hierarchy uses `<function>`. */
 export function isAnonymousSymbolName(name: string): boolean {
     const n = (name || '').trim();
-    return !n || n === '()' || /^<?anonymous>?$/i.test(n);
+    return !n
+        || n === '()'
+        || /^<?anonymous>?$/i.test(n)
+        || /^<?function>?$/i.test(n);
 }
 
 /**
