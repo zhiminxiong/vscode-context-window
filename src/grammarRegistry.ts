@@ -8,13 +8,20 @@ import * as jsonc from 'jsonc-parser';
 //   - scopeToFile：    scopeName → 语法文件绝对路径，webview 按需请求时据此读取并下发原始内容；
 //   - injections：     目标 scope → 注入语法 scope 列表（contributes.grammars[].injectTo），
 //                      供 Registry.getInjections 解析注入语法（如 TODO 高亮、字符串内嵌等）；
-//   - languageToConfigFile：languageId → language-configuration.json（brackets 含 `${` 等）。
+//   - languageToConfigFile：languageId → language-configuration.json（brackets 含 `${` 等）；
+//   - languageToTokenConfig：languageId → unbalancedBracketScopes / tokenTypes（语法 contributes.grammars）。
 //
 // 这样 webview 拿到的语法和括号规则「和用户 VSCode 里跑的完全一致」，无需自行维护语法库。
+
+export interface GrammarTokenConfig {
+    unbalancedBracketScopes?: string[];
+    tokenTypes?: Record<string, string>;
+}
 
 export interface GrammarMaps {
     languageToScope: Record<string, string>;
     injections: Record<string, string[]>;
+    languageToTokenConfig: Record<string, GrammarTokenConfig>;
 }
 
 let _scopeToFile: Map<string, string> | undefined;
@@ -41,6 +48,7 @@ function pickPrimaryScope(candidates: string[]): string {
 
 function build(): void {
     const scopeToFile = new Map<string, string>();
+    const scopeToTokenConfig = new Map<string, GrammarTokenConfig>();
     const languageToConfigFile = new Map<string, string>();
     const langCandidates: Record<string, string[]> = {};
     const injections: Record<string, string[]> = {};
@@ -54,7 +62,16 @@ function build(): void {
                 // 同一 scope 被多个扩展贡献时，与 VSCode 核心保持一致：后注册的覆盖前者（last wins），
                 // 确保插件取到的语法与 VSCode 实际渲染用的那份一致（例如同时装了多份 source.cs C# 语法时）。
                 scopeToFile.set(g.scopeName, abs);
-                // 收集该 language 的所有候选 scope，稍后挑主语法（排除 embedded/injection、取层级最浅）
+                // 语法贡献里的括号/token 类型：VSCode 用它们标「=> / >= 里的 > 不是尖括号」。
+                if (Array.isArray(g.unbalancedBracketScopes) || (g.tokenTypes && typeof g.tokenTypes === 'object')) {
+                    const tokenTypes = (g.tokenTypes && typeof g.tokenTypes === 'object')
+                        ? { ...g.tokenTypes as Record<string, string> }
+                        : undefined;
+                    scopeToTokenConfig.set(g.scopeName, {
+                        ...(Array.isArray(g.unbalancedBracketScopes) ? { unbalancedBracketScopes: g.unbalancedBracketScopes.slice() } : {}),
+                        ...(tokenTypes ? { tokenTypes } : {}),
+                    });
+                }
                 if (typeof g.language === 'string' && g.language) {
                     (langCandidates[g.language] = langCandidates[g.language] || []).push(g.scopeName);
                 }
@@ -80,13 +97,17 @@ function build(): void {
     }
 
     const languageToScope: Record<string, string> = {};
+    const languageToTokenConfig: Record<string, GrammarTokenConfig> = {};
     for (const lang of Object.keys(langCandidates)) {
-        languageToScope[lang] = pickPrimaryScope(langCandidates[lang]);
+        const scope = pickPrimaryScope(langCandidates[lang]);
+        languageToScope[lang] = scope;
+        const tokenCfg = scopeToTokenConfig.get(scope);
+        if (tokenCfg) { languageToTokenConfig[lang] = tokenCfg; }
     }
 
     _scopeToFile = scopeToFile;
     _languageToConfigFile = languageToConfigFile;
-    _maps = { languageToScope, injections };
+    _maps = { languageToScope, injections, languageToTokenConfig };
 }
 
 // 语言/注入映射（一次构建后缓存）。

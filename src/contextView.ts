@@ -1958,12 +1958,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const wasmUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'vscode-oniguruma', 'release', 'onig.wasm')
         ).toString();
-        const grammarMaps = textmateEnabled ? getGrammarMaps() : { languageToScope: {}, injections: {} };
+        const grammarMaps = textmateEnabled ? getGrammarMaps() : { languageToScope: {}, injections: {}, languageToTokenConfig: {} };
         const textmateConfig = {
             enabled: textmateEnabled,
             wasmUri,
             languageToScope: grammarMaps.languageToScope,
-            injections: grammarMaps.injections
+            injections: grammarMaps.injections,
+            languageToTokenConfig: grammarMaps.languageToTokenConfig
         };
 
         const nonce = getNonce();

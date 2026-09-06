@@ -24,6 +24,7 @@ let _enabled = false;
 
 let _languageToScope = {};
 let _injections = {};
+let _languageToTokenConfig = {};
 
 let _themeScopeSet = new Set();
 
@@ -138,6 +139,63 @@ class TMState {
     }
 }
 
+const BALANCED_BRACKETS_MASK = 1024;
+const TOKEN_TYPE_MASK = 768;
+
+function matchMonacoScope(scope) {
+    try {
+        const editors = (typeof _monaco.editor.getEditors === 'function') ? _monaco.editor.getEditors() : [];
+        for (let i = 0; i < editors.length; i++) {
+            const svc = editors[i] && editors[i]._standaloneThemeService;
+            const tt = svc && svc.getColorTheme && svc.getColorTheme().tokenTheme;
+            if (!tt) { continue; }
+            if (typeof tt.match === 'function') {
+                const m = tt.match(0, scope);
+                if (typeof m === 'number') { return m; }
+            }
+            if (typeof tt._match === 'function') {
+                const m = tt._match(scope);
+                if (typeof m === 'number') { return m; }
+            }
+        }
+    } catch (_) { /* theme not ready */ }
+    return 0;
+}
+
+function mapTokenTypes(raw) {
+    if (!raw || typeof raw !== 'object') { return undefined; }
+    const names = { other: 0, comment: 1, string: 2, regexp: 3, regex: 3 };
+    const out = {};
+    for (const key of Object.keys(raw)) {
+        const v = raw[key];
+        if (typeof v === 'number') { out[key] = v; continue; }
+        const n = names[String(v).toLowerCase()];
+        if (n !== undefined) { out[key] = n; }
+    }
+    return Object.keys(out).length ? out : undefined;
+}
+
+function scopesSkipBrackets(scopes) {
+    if (!scopes) { return false; }
+    for (let i = 0; i < scopes.length; i++) {
+        const s = scopes[i];
+        if (s.startsWith('comment') || s.startsWith('string') || s.startsWith('regexp')) { return true; }
+    }
+    return false;
+}
+
+function loadGrammarForLanguage(languageId, scope) {
+    const raw = _languageToTokenConfig[languageId] || {};
+    const tokenTypes = mapTokenTypes(raw.tokenTypes);
+    const unbalanced = Array.isArray(raw.unbalancedBracketScopes) ? raw.unbalancedBracketScopes : [];
+    // 与 VSCode 一致：默认所有括号都配对，再按 unbalancedBracketScopes 排除（=> / >= 里的 > 不是 <>）。
+    return _registry.loadGrammarWithConfiguration(scope, 1, {
+        ...(tokenTypes ? { tokenTypes } : {}),
+        balancedBracketSelectors: ['*'],
+        unbalancedBracketSelectors: unbalanced
+    });
+}
+
 function makeProvider(grammar) {
     return {
         getInitialState() { return new TMState(_INITIAL); },
@@ -154,6 +212,38 @@ function makeProvider(grammar) {
                 tokens.push({ startIndex: t.startIndex, scopes: pickScope(t.scopes) });
             }
             return { tokens, endState: new TMState(r.ruleStack) };
+        },
+        // Monaco 只提供 tokenize() 时会给每个 token 打上 balanced 位，再按字符扫 <>，
+        // 于是 => / >= 里的 >、注释里的 < 都会进尖括号树。这里改走 tokenizeEncoded，
+        // 用 TextMate 的 balanced 位（含 unbalancedBracketScopes）。
+        tokenizeEncoded(line, state) {
+            const ruleStack = (state && state.ruleStack) ? state.ruleStack : _INITIAL;
+            let r;
+            let r2;
+            try {
+                r = grammar.tokenizeLine(line, ruleStack);
+                r2 = grammar.tokenizeLine2(line, ruleStack);
+            } catch (e) {
+                return { tokens: new Uint32Array([0, 0]), endState: new TMState(ruleStack) };
+            }
+            const encoded = [];
+            let j = 0;
+            const bin = r2.tokens;
+            for (let i = 0; i < r.tokens.length; i++) {
+                const t = r.tokens[i];
+                const picked = pickScope(t.scopes);
+                let meta = matchMonacoScope(picked);
+                if (!meta) { meta = (1 << 15); }
+                // tokenizeLine2 常把 metadata 相同的相邻 token 收成一段，按 startIndex 精确对齐会丢 bit。
+                while (j + 2 < bin.length && bin[j + 2] <= t.startIndex) { j += 2; }
+                const tmMeta = (j + 1 < bin.length) ? bin[j + 1] : 0;
+                let balanced = (tmMeta & BALANCED_BRACKETS_MASK) !== 0;
+                if (scopesSkipBrackets(t.scopes)) { balanced = false; }
+                const tokenType = (tmMeta & TOKEN_TYPE_MASK);
+                meta = (meta & ~BALANCED_BRACKETS_MASK & ~TOKEN_TYPE_MASK) | tokenType | (balanced ? BALANCED_BRACKETS_MASK : 0);
+                encoded.push(t.startIndex, meta >>> 0);
+            }
+            return { tokens: new Uint32Array(encoded), endState: new TMState(r.ruleStack) };
         }
     };
 }
@@ -170,7 +260,7 @@ export function ensureGrammar(languageId) {
 
     const p = (async () => {
         try {
-            const grammar = await _registry.loadGrammar(scope);
+            const grammar = await loadGrammarForLanguage(languageId, scope);
             if (grammar) {
                 _grammarByLang.set(languageId, grammar);
                 if (!_registeredLang.has(languageId)) {
@@ -309,6 +399,7 @@ export async function setupTextmate({ monaco, vscode, cfg }) {
     _vscode = vscode;
     _languageToScope = cfg.languageToScope || {};
     _injections = cfg.injections || {};
+    _languageToTokenConfig = cfg.languageToTokenConfig || {};
     updateThemeScopes();
 
     // 1) 动态加载打包好的 textmate 运行时
