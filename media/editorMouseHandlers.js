@@ -73,6 +73,13 @@ export function setupEditorMouseHandlers(ctx) {
         return ev.detail || (ev.browserEvent && ev.browserEvent.detail) || 1;
     };
 
+    // Ctrl+F 查找框在编辑器 overlay 上。双击输入框是在选词，不是空白区双击跳转。
+    const isFindWidgetEvent = (e) => {
+        const ev = e && e.event && e.event.browserEvent;
+        const el = ev && ev.target;
+        return !!(el && typeof el.closest === 'function' && el.closest('.find-widget'));
+    };
+
     // 行号栏双击选容器符号：用递增 reqId 丢掉过期回包。
     let enclosingReqId = 0;
 
@@ -672,6 +679,10 @@ export function setupEditorMouseHandlers(ctx) {
         // 使用 e.event.buttons 判断鼠标按键
         //const isLeftClick = (e.event.buttons & 1) === 1; // 左键
         //const isRightClick = (e.event.buttons & 2) === 2; // 右键
+
+        if (isFindWidgetEvent(e)) {
+            return true;
+        }
 
         // === Sticky Scroll（粘附行）鼠标行为 ===
         // 左键：普通单击（含 shift / 双击）不拦截，交给 Monaco 自带的 CLICK 监听（滚动并定位到该行）；
