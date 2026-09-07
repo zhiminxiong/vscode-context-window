@@ -145,7 +145,10 @@ function isBareBlockBoundary(trimmed) {
 //
 // 规则：从 '{' 往上找第一个有内容的行（注释已被掩码成空白，天然跳过）；
 //   · 若正处在未闭合的 ()/[] 括号组内（多行签名的续行，如参数列表换行），
-//     继续上溯到开启该括号组的那一行（即 constructor(...) 的首行）；
+//     继续上溯到开启该括号组的那一行（即 constructor(...) 的首行）。
+//     该行就是声明行：即使它以 '{' 结尾也不能当裸块丢掉——典型情况是默认参数对象
+//     与函数体不在同一行，例如 `function f(options = {` … `}, x = 1) {`，
+//     函数体的 '{' 必须上提到 `function f(...)`，否则 sticky 会粘在 `}, x = 1) {`。
 //   · 否则沿用原有规则：以 '}' 开头、或以 ';' '}' '{' 结尾 → 裸块，不上提；
 //     缩进更深 → 续行，继续往上。
 function findDeclarationLine(masked, braceIndex, braceCol, tabSize) {
@@ -162,7 +165,7 @@ function findDeclarationLine(masked, braceIndex, braceCol, tabSize) {
             // 仍在多行签名的括号组内：继续上溯，直到找到开括号所在行。
             depth += netClosers(text);
             if (depth <= 0) {
-                return isBareBlockBoundary(trimmed) ? -1 : i;
+                return i;
             }
             continue;
         }
@@ -205,22 +208,31 @@ export function createBraceFoldingRangeProvider(monaco) {
                     if (ch === '{') {
                         let startLine = i + 1;
                         // 是否尝试把块起始行上提到真正的声明行，取决于 '{' 左侧内容（已掩码）：
+                        //   · netClosers < 0：本行 '{' 开在尚未闭合的 ()/[] 里（默认参数对象
+                        //     `function f(options = {`）。这个区间若也从声明行起算，会和后面
+                        //     上提过来的函数体区间抢同一个 start；Monaco sanitizeRanges 只保留
+                        //     先出现的那个，函数体被丢掉，sticky 就会粘在 `}, x) {`。
+                        //     配对仍要入栈，但不发区间（函数体区间会盖住对象内部）。
                         //   · netClosers > 0：左侧净剩右括号（如换行签名的 ') {'、'if (...\n) {'），
                         //     说明签名在上面的行开启 —— 上提，回溯到签名首行（保证 sticky 完整、折叠与 VSCode 一致）。
                         //   · netClosers == 0 且左侧全为空白：孤立 '{'（Allman/GNU 风格）—— 上提到声明行。
                         //   · 其余（如 'foo() {' 本行自闭合、'=> {'、'= {' 行内起块）：保持本行，不上提。
                         const head = text.slice(0, j);
                         const nc = netClosers(head);
-                        const shouldLift = isFirstBraceOnLine && (nc > 0 || (nc === 0 && head.trim() === ''));
-                        if (shouldLift) {
-                            const declIndex = findDeclarationLine(masked, i, j, tabSize);
-                            if (declIndex !== -1) { startLine = declIndex + 1; }
+                        if (nc < 0) {
+                            startLine = 0;
+                        } else {
+                            const shouldLift = isFirstBraceOnLine && (nc > 0 || head.trim() === '');
+                            if (shouldLift) {
+                                const declIndex = findDeclarationLine(masked, i, j, tabSize);
+                                if (declIndex !== -1) { startLine = declIndex + 1; }
+                            }
                         }
                         openStack.push(startLine);
                         isFirstBraceOnLine = false;
                     } else if (ch === '}') {
                         const startLine = openStack.pop();
-                        if (startLine === undefined) { continue; } // 多余的 '}'（掩码漏判/语法不完整），忽略
+                        if (!startLine) { continue; } // 多余 '}'，或默认参数对象（不发区间）
                         // 与折叠语义一致：折叠后保留 '}' 所在行可见，故区间末行取它的上一行。
                         // sticky 侧会按 [start, end + 1] 判定包含关系，覆盖范围与缩进模型等价。
                         const endLine = i;
