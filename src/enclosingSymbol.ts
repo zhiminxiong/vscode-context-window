@@ -86,23 +86,15 @@ export function isAnonymousSymbolName(name: string): boolean {
 }
 
 /**
- * TS names arrow callbacks after nearby tokens. A string argument such as
- * `registerCommand('contextView.callRelation.find', () => {` becomes
- * `find') callback`, which is not a real symbol.
+ * TS names arrows after nearby tokens (`then() callback`, `PlayTimeline() callback`,
+ * or `find') callback` from a string arg). Those are not real callers.
  */
 export function isUsableEnclosingName(name: string): boolean {
     if (isAnonymousSymbolName(name)) {
         return false;
     }
     const stripped = (name || '').replace(/^\((?:get|set)\)\s+/i, '').replace(/^(?:get|set)\s+/i, '').trim();
-    if (!stripped || /['"`]/.test(stripped)) {
-        return false;
-    }
-    const callback = /^(.*?)\(\)\s+callback$/i.exec(stripped);
-    if (callback) {
-        return /^[\w$.]+$/.test(callback[1].trim());
-    }
-    return !/\bcallback$/i.test(stripped);
+    return !!stripped && !/['"`]/.test(stripped) && !/\bcallback$/i.test(stripped);
 }
 
 function rangeContainsPosition(range: vscode.Range, position: vscode.Position): boolean {

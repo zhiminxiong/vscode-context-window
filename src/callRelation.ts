@@ -288,11 +288,15 @@ function pickContainingType(flat: FlatSymbol[], position: vscode.Position): Flat
 }
 
 function methodInTypeSymbols(flat: FlatSymbol[], owner: FlatSymbol, ident: string): FlatSymbol | undefined {
-    return flat.find(sym => (
+    const matches = flat.filter(sym => (
         CALL_ITEM_KINDS.has(sym.kind)
         && identFromToken(sym.name) === ident
+        && !isArrowLikeName(sym.name)
         && rangeContains(owner.range, sym.selectionRange.start)
     ));
+    return matches.find(sym =>
+        sym.kind === vscode.SymbolKind.Method || sym.kind === vscode.SymbolKind.Constructor
+    ) || matches[0];
 }
 
 function isSuperDispatchLine(text: string, ident: string): boolean {
