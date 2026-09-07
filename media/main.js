@@ -274,6 +274,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                 delay: 300,
                                 sticky: true
                             },
+                            find: {
+                                addExtraSpaceOnTop: true,
+                                autoFindInSelection: 'never',
+                                seedSearchStringFromSelection: 'select'
+                            },
                             // 启用快速建议
                             quickSuggestions: true,
                             // 启用导航历史
@@ -391,8 +396,8 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         occurrencesHighlight: contextEditorCfg.occurrencesHighlight ? 'singleFile' : 'off',
                         // 与 createEditorOptions 保持一致：自定义 hover 走扩展端 LSP，启用浮窗
                         hover: { enabled: true, delay: 300, sticky: true },
-                        find: {                     // 禁用查找功能
-                            addExtraSpaceOnTop: false,
+                        find: {
+                            addExtraSpaceOnTop: true,
                             autoFindInSelection: 'never',
                             seedSearchStringFromSelection: 'select'
                         }

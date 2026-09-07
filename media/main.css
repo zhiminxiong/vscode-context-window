@@ -620,6 +620,17 @@ body.has-jump-trail #container {
     bottom: 0 !important;
 }
 
+/* main.css 早于 Monaco 的 findWidget.css，同优先级会被盖掉。
+   只补边框/阴影/上沿空隙，不改内部 padding，避免输入区和按钮偏下。 */
+body .monaco-editor .find-widget {
+    overflow: visible !important;
+    margin-top: 8px !important;
+    padding: 0 4px 0 9px !important;
+    border: 1px solid var(--vscode-editorWidget-border, rgba(0, 0, 0, 0.18)) !important;
+    border-radius: 6px !important;
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.16)) !important;
+}
+
 #main {
 
     display: none;
