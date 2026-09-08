@@ -5,6 +5,7 @@ import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolve
 import { getGrammarMaps, getGrammarContent, getLanguageConfiguration } from './grammarRegistry';
 import { blameLine, blameLineDiff, openBlameDiff } from './lineBlame';
 import { enclosingSymbolRange } from './enclosingSymbol';
+import { collectCallerLocationsAt } from './findRelation';
 
 export const FLOAT_CONTEXT_VIEW_TYPE = 'FloatContextView';
 
@@ -13,11 +14,11 @@ enum UpdateMode {
     Sticky = 'sticky',
 }
 
-type JumpMode = 'definition' | 'typeDefinition' | 'implementation' | 'references';
+type JumpMode = 'definition' | 'typeDefinition' | 'implementation' | 'references' | 'relation';
 
-const JUMP_MODES: readonly JumpMode[] = ['definition', 'typeDefinition', 'implementation', 'references'];
+const JUMP_MODES: readonly JumpMode[] = ['definition', 'typeDefinition', 'implementation', 'references', 'relation'];
 
-const JUMP_PROVIDER_COMMAND: Record<JumpMode, string> = {
+const JUMP_PROVIDER_COMMAND: Record<Exclude<JumpMode, 'relation'>, string> = {
     definition: 'vscode.executeDefinitionProvider',
     typeDefinition: 'vscode.executeTypeDefinitionProvider',
     implementation: 'vscode.executeImplementationProvider',
@@ -109,6 +110,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _semanticRulesLanguageId: string | undefined;  // 最近一次按该语言解析过语义配色
 
     private _progressDepth = 0;  // 进度条嵌套计数：归零才隐藏，避免并发更新时进度条错配
+    /** Find Relation (in ContextView) 会自己按点击位置跳，避免 jumpMode 写入后再用主编辑器光标刷一次。 */
+    private _skipJumpModeContentRefresh = false;
 
     private _persistTimer?: NodeJS.Timeout;
     private _restorePromise?: Promise<void>;
@@ -187,7 +190,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     if (e.affectsConfiguration('contextView.contextWindow.jumpMode')) {
                         this.postMessageToWebview({ type: 'clearDefinitionList' });
                         this.invalidateCacheKey();
-                        this.update();
+                        if (!this._skipJumpModeContentRefresh) {
+                            this.update();
+                        }
                     }
                     return;
                 }
@@ -202,7 +207,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 if (e.affectsConfiguration('contextView.contextWindow.jumpMode')) {
                     this.postMessageToWebview({ type: 'clearDefinitionList' });
                     this.invalidateCacheKey();
-                    this.update();
+                    if (!this._skipJumpModeContentRefresh) {
+                        this.update();
+                    }
                 }
             }
         }, null, this._disposables);
@@ -1190,6 +1197,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         character: typeof message.character === 'number' ? message.character : this.currentColumn
                     };
                     await vscode.commands.executeCommand('contextView.callRelation.findRelation', loc);
+                    break;
+                }
+                case 'findCallRelationInContext': {
+                    const loc = {
+                        uri: this.currentUri?.toString(),
+                        line: typeof message.line === 'number' ? message.line : this.currentLine,
+                        character: typeof message.character === 'number' ? message.character : this.currentColumn
+                    };
+                    await vscode.commands.executeCommand('contextView.callRelation.findRelationInContext', loc);
                     break;
                 }
                 case 'copyToClipboard':
@@ -2322,7 +2338,36 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
     // 统一的跳转解析入口：主编辑区跟踪与面板内点击都走当前 jumpMode。
     private async getDefinitionsAt(uri: vscode.Uri, position: vscode.Position) {
-        return await this.executeJumpProvider(JUMP_PROVIDER_COMMAND[this.getJumpMode()], uri, position);
+        const mode = this.getJumpMode();
+        if (mode === 'relation') {
+            const collected = await collectCallerLocationsAt(uri, position, { silent: true });
+            return collected?.locations ?? [];
+        }
+        return await this.executeJumpProvider(JUMP_PROVIDER_COMMAND[mode], uri, position);
+    }
+
+    /** 切到 Relation 并在 Context 里列出 caller，展示与 jump References 相同。 */
+    async findRelationInContext(loc?: { uri?: vscode.Uri; position?: vscode.Position }): Promise<void> {
+        const editor = vscode.window.activeTextEditor;
+        const uri = loc?.uri ?? editor?.document.uri;
+        const position = loc?.position ?? editor?.selection.active;
+        if (!uri || !position) {
+            void vscode.window.showInformationMessage('Open a file and put the cursor on a function to find its callers.');
+            return;
+        }
+        this._skipJumpModeContentRefresh = true;
+        try {
+            const cfg = vscode.workspace.getConfiguration('contextView.contextWindow');
+            await cfg.update('jumpMode', 'relation', true);
+        } catch (err) {
+            console.error('[context-window] set jumpMode relation failed:', err);
+        } finally {
+            this._skipJumpModeContentRefresh = false;
+        }
+        this.handleJumpDefinition({
+            uri: uri.toString(),
+            position: { line: position.line, character: position.character }
+        }, editor);
     }
 
     private getJumpMode(): JumpMode {

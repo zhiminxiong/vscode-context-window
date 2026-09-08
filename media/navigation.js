@@ -23,6 +23,7 @@
         typeDefinition: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3 2h10v12H3V2zm1 1v2.2h8V3H4zm0 3.2V13h8V6.2H4zM6.2 8h3.6v1H6.2V8z"/></svg>',
         implementation: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 4h8v10H2V4zm1 1v8h6V5H3zm3-2h8v10h-1V4H6V3z"/></svg>',
         references: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 3h12v1.25H2V3zm0 4.4h12v1.25H2V7.4zm0 4.35h8v1.25H2v-1.25z"/></svg>',
+        relation: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" transform="translate(-8 0)" d="M11 2C12.1046 2 13 2.89543 13 4V6.00469C13 6.53494 13.0077 6.79889 13.0891 7.00209C13.1517 7.15835 13.2842 7.33309 13.7236 7.55276C13.893 7.63745 14 7.81058 14 7.99997C14 8.18935 13.893 8.36249 13.7236 8.44719C13.2843 8.66685 13.1519 8.84151 13.0892 8.99819C13.0077 9.20211 13 9.46732 13 10V12C13 13.1046 12.1046 14 11 14C10.7239 14 10.5 13.7761 10.5 13.5C10.5 13.2239 10.7239 13 11 13C11.5523 13 12 12.5523 12 12L12 9.94145C11.9997 9.49235 11.9994 9.03033 12.1608 8.6268C12.2579 8.384 12.4035 8.17962 12.5993 8.00002C12.4035 7.82057 12.258 7.61645 12.1609 7.37408C11.9993 6.971 11.9997 6.51001 12 6.063L12 4C12 3.44772 11.5523 3 11 3C10.7239 3 10.5 2.77614 10.5 2.5C10.5 2.22386 10.7239 2 11 2Z"/><path fill="currentColor" d="M8 7h4v2H8z"/><path fill="currentColor" d="M11 5l4 3-4 3V9h-1V7h1V5z"/></svg>',
         jumpTrail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>',
         lineBlame: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/></svg>',
         hoverTips: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M14.5 2h-13l-.5.5v9l.5.5H4v2.5l.854.146L7.207 12H14.5l.5-.5v-9l-.5-.5zm-.5 9H6.793L5 12.793V11H2V3h12v8z"/></svg>',
@@ -41,7 +42,8 @@
             { id: 'definition', label: 'Definition', short: 'Definition', title: 'Go to Definition (default)' },
             { id: 'typeDefinition', label: 'Type Definition', short: 'Type Definition', title: 'Go to Type Definition' },
             { id: 'implementation', label: 'Implementation', short: 'Implementation', title: 'Go to Implementation' },
-            { id: 'references', label: 'References', short: 'References', title: 'List references and open in Context' }
+            { id: 'references', label: 'References', short: 'References', title: 'List references and open in Context' },
+            { id: 'relation', label: 'Relation', short: 'Relation', title: 'List callers and open in Context' }
         ];
 
         function currentMode() {

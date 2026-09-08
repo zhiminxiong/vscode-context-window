@@ -14,7 +14,7 @@ export async function findRelation(loc?: { uri?: vscode.Uri; position?: vscode.P
         return;
     }
 
-    const collected = await collectCallers(uri, position);
+    const collected = await collectCallerLocationsAt(uri, position);
     if (!collected) {
         return;
     }
@@ -30,59 +30,72 @@ export async function findRelation(loc?: { uri?: vscode.Uri; position?: vscode.P
     }
 }
 
-type CollectedCallers = {
+export type CollectedCallers = {
     locations: vscode.Location[];
     title: string;
     truncated?: boolean;
     empty?: string;
 };
 
-async function collectCallers(
+export async function collectCallerLocationsAt(
     uri: vscode.Uri,
     position: vscode.Position,
-    token?: vscode.CancellationToken
+    options?: { silent?: boolean; token?: vscode.CancellationToken }
 ): Promise<CollectedCallers | undefined> {
+    const silent = !!options?.silent;
+    const token = options?.token;
     const model = new CallRelationModel();
+    const run = async (
+        progress: { report(value: { message?: string }): void },
+        progressToken: vscode.CancellationToken
+    ) => {
+        const cancel = () => model.reset();
+        const sub = progressToken.onCancellationRequested(cancel);
+        const extra = token?.onCancellationRequested(cancel);
+        try {
+            progress.report({ message: 'Loading call hierarchy…' });
+            const load = await model.loadRoot(uri, position);
+            if (progressToken.isCancellationRequested || token?.isCancellationRequested) {
+                return undefined;
+            }
+            if (!load || load.graph.empty) {
+                if (!silent) {
+                    void vscode.window.showInformationMessage(
+                        load?.graph.empty || 'No call hierarchy at this position.'
+                    );
+                }
+                return { locations: [], title: load?.graph.title || '', empty: load?.graph.empty };
+            }
+            progress.report({ message: `Collecting callers of ${load.graph.title}…` });
+            const result = await model.collectCallerLocations((fetched, n) => {
+                progress.report({
+                    message: `Collecting callers of ${load.graph.title}… ${n} sites (${fetched} symbols)`
+                });
+            });
+            if (progressToken.isCancellationRequested || token?.isCancellationRequested || result.empty === 'Cancelled.') {
+                return undefined;
+            }
+            return result;
+        } finally {
+            sub.dispose();
+            extra?.dispose();
+            model.reset();
+        }
+    };
     try {
+        if (silent) {
+            return await run({ report() { /* jump 跟踪时不弹通知 */ } }, token ?? { isCancellationRequested: false, onCancellationRequested: () => ({ dispose() { } }) });
+        }
         return await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: 'Find Relation',
             cancellable: true
-        }, async (progress, progressToken) => {
-            const cancel = () => model.reset();
-            const sub = progressToken.onCancellationRequested(cancel);
-            const extra = token?.onCancellationRequested(cancel);
-            try {
-                progress.report({ message: 'Loading call hierarchy…' });
-                const load = await model.loadRoot(uri, position);
-                if (progressToken.isCancellationRequested || token?.isCancellationRequested) {
-                    return undefined;
-                }
-                if (!load || load.graph.empty) {
-                    void vscode.window.showInformationMessage(
-                        load?.graph.empty || 'No call hierarchy at this position.'
-                    );
-                    return undefined;
-                }
-                progress.report({ message: `Collecting callers of ${load.graph.title}…` });
-                const result = await model.collectCallerLocations((fetched, n) => {
-                    progress.report({
-                        message: `Collecting callers of ${load.graph.title}… ${n} sites (${fetched} symbols)`
-                    });
-                });
-                if (progressToken.isCancellationRequested || token?.isCancellationRequested || result.empty === 'Cancelled.') {
-                    return undefined;
-                }
-                return result;
-            } finally {
-                sub.dispose();
-                extra?.dispose();
-                model.reset();
-            }
-        });
+        }, run);
     } catch (err) {
         const text = err instanceof Error ? err.message : String(err);
-        void vscode.window.showErrorMessage(`Find Relation failed: ${text}`);
+        if (!silent) {
+            void vscode.window.showErrorMessage(`Find Relation failed: ${text}`);
+        }
         return undefined;
     }
 }
@@ -125,7 +138,7 @@ class FindRelationTreeInput {
     async resolve(): Promise<CallerTreeModel | undefined> {
         let locations = this.locations;
         if (!locations) {
-            const again = await collectCallers(this.location.uri, this.location.range.start);
+            const again = await collectCallerLocationsAt(this.location.uri, this.location.range.start);
             locations = again?.locations;
         }
         if (!locations?.length) {

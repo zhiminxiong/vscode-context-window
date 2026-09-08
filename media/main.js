@@ -728,6 +728,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             {
                                 label: 'Find Relation',
                                 action: () => vscode.postMessage({ type: 'findCallRelation', ...loc })
+                            },
+                            {
+                                label: 'Find Relation (in ContextView)',
+                                action: () => vscode.postMessage({ type: 'findCallRelationInContext', ...loc })
                             }
                         ]);
                     }

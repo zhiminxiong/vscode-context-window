@@ -89,6 +89,11 @@ export function activate(context: vscode.ExtensionContext) {
         }));
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('contextView.callRelation.findRelationInContext', (arg?: { uri?: string; line?: number; character?: number }) => {
+            return provider.findRelationInContext(parseRelationLoc(arg));
+        }));
+
+    context.subscriptions.push(
         registerRelationQuickSearch(context, loc => {
             const independent = vscode.workspace.getConfiguration('contextView.callRelation')
                 .get<boolean>('quickOpenIndependent', false);

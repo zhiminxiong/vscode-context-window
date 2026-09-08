@@ -134,6 +134,12 @@
         "category": "Context View"
       },
       {
+        "command": "contextView.callRelation.findRelationInContext",
+        "title": "Find Relation (in ContextView)",
+        "icon": "$(type-hierarchy)",
+        "category": "Context View"
+      },
+      {
         "command": "contextView.callRelation.quickOpen",
         "title": "Search and Open Relation",
         "icon": "$(search)",
@@ -270,6 +276,11 @@
         {
           "command": "contextView.callRelation.findRelation",
           "group": "navigation@11",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "contextView.callRelation.findRelationInContext",
+          "group": "navigation@12",
           "when": "editorTextFocus"
         }
       ]
@@ -468,13 +479,15 @@
             "definition",
             "typeDefinition",
             "implementation",
-            "references"
+            "references",
+            "relation"
           ],
           "enumDescriptions": [
             "Go to Definition (default). Same as the current click behavior.",
             "Go to Type Definition. Click a variable to see its type, not where it is declared.",
             "Go to Implementation. Jump to implementations of an interface or virtual function.",
-            "Find References. Click a symbol to list references in Context, then click one to open that location in the panel (not the main editor)."
+            "Find References. Click a symbol to list references in Context, then click one to open that location in the panel (not the main editor).",
+            "Find Relation. List direct callers in Context, then click one to open that location in the panel (not the main editor)."
           ],
           "description": "What a click in the Context Window jumps to. Change it from the pull-up at the right of the Context footer."
         },

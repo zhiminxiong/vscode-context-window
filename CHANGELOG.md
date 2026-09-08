@@ -9,6 +9,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 #### Added
 
 - **Find Relation**: reuses Show Relation's call hierarchy and lists every direct caller site in the sidebar REFERENCES view (same panel as Find All References). Click a result to open that location in the editor. Editor and Context Window right-click menus, plus the command palette.
+- **Find Relation (in ContextView)** and jump mode **Relation**: same caller list as jump References, shown in the Context definition list. The menu switches jump type to Relation.
 
 #### Changed
 
