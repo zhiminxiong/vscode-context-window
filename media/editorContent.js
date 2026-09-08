@@ -223,6 +223,7 @@ export function createUpdateEditorContent(ctx) {
 
         //console.log('[definition] Updating editor content with range:', range);
 
+        const prevUri = state.renderedUri;
         state.uri = newUri;
 
         // 更新 URI 和文件名显示
@@ -260,6 +261,8 @@ export function createUpdateEditorContent(ctx) {
                 state.returnTokenDecorations = editor.deltaDecorations(state.returnTokenDecorations, []);
             }
 
+            const sameFile = !!(newUri && prevUri === newUri && model);
+            let contentChanged = !model;
             if (!model) {
                 // 创建新模型
                 model = monaco.editor.createModel(newContent || '', languageId || 'plaintext');
@@ -271,22 +274,28 @@ export function createUpdateEditorContent(ctx) {
                 if (model.getLanguageId() !== languageId && languageId) {
                     monaco.editor.setModelLanguage(model, languageId);
                 }
-                // 更新内容（只有在内容变化时才更新）
-                if (newContent && model.getValue() !== newContent) {
-                    //console.log('[definition] Model content updated');
-                    model.setValue(newContent);
+                // 同文件且正文未变：不 setValue，避免整份重开。
+                if (newContent && (!sameFile || model.getValue() !== newContent)) {
+                    if (model.getValue() !== newContent) {
+                        model.setValue(newContent);
+                        contentChanged = true;
+                    }
                 }
             }
 
-            applyIndentationForModel(model);
+            state.renderedUri = newUri || prevUri;
 
-            const lineCount = model.getLineCount();
-            const requiredChars = Math.max(1, lineCount.toString().length);
+            if (!sameFile || contentChanged) {
+                applyIndentationForModel(model);
 
-            editor.updateOptions({ lineNumbersMinChars: requiredChars });
-            // 强制刷新 sticky scroll（跨渲染帧 disable→enable），更新顶部粘附行显示
-            refreshStickyScroll();
-            editor.layout();
+                const lineCount = model.getLineCount();
+                const requiredChars = Math.max(1, lineCount.toString().length);
+
+                editor.updateOptions({ lineNumbersMinChars: requiredChars });
+                // 强制刷新 sticky scroll（跨渲染帧 disable→enable），更新顶部粘附行显示
+                refreshStickyScroll();
+                editor.layout();
+            }
 
             // const existingDecorations = editor.getDecorationsInRange(new monaco.Range(
             //     1, 1,

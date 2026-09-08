@@ -1693,7 +1693,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     definition = await this.showDefinitionPicker(definitions, editor, position);
                 }
 
-                const contentInfo = await this._renderer.renderDefinition(editor.document.languageId, definition);
+                const target = definitionTarget(definition);
+                const contentInfo = (target && this.reuseShownContent(target.uri, target.range))
+                    || await this._renderer.renderDefinition(editor.document.languageId, definition);
                 // message.position 是「离开当前段时点击的行/列」，行列一起记，返回时才能落回该 token。
                 // message.token 是用户点的词，即这一跳的目的地名字。
                 this.addToHistory(contentInfo, message.position.line, message.position.character, message.token);
@@ -1788,7 +1790,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
-    // 定义列表项被选中：渲染对应定义
+    // 定义列表项被选中：同文件只改定位，换文件才重新加载。
     private handleDefinitionItemSelected(message: any, editor: vscode.TextEditor | undefined) {
         if (!this._pickItems || message.index === undefined) {
             return;
@@ -1798,24 +1800,29 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return;
         }
 
+        const apply = (contentInfo: FileContentInfo) => {
+            if (this._history.length > this._historyIndex) {
+                this._history[this._historyIndex].content = contentInfo;
+                this._history[this._historyIndex].symbolName = nameFromContent(contentInfo);
+                this.schedulePersist();
+            }
+            this.updateContent(contentInfo);
+            this.invalidateCacheKey();
+        };
+
+        const target = definitionTarget(selected.definition);
+        const reused = target ? this.reuseShownContent(target.uri, target.range) : undefined;
+        if (reused) {
+            apply(reused);
+            return;
+        }
+
         const updatePromise = (async () => {
             try {
-                const contentInfo = await this._renderer.renderDefinition(
+                apply(await this._renderer.renderDefinition(
                     editor?.document.languageId || 'plaintext',
                     selected.definition
-                );
-
-                // 先改当前槽再 updateContent，跳转链名字与展示内容一致。
-                if (this._history.length > this._historyIndex) {
-                    this._history[this._historyIndex].content = contentInfo;
-                    this._history[this._historyIndex].symbolName = nameFromContent(contentInfo);
-                    this.schedulePersist();
-                }
-
-                this.updateContent(contentInfo);
-
-                // 同 handleJumpDefinition：从多定义列表里选了另一条，展示内容已与主编辑区光标脱钩
-                this.invalidateCacheKey();
+                ));
             } catch (error) {
                 this.postMessageToWebview({
                     type: 'showContentError',
@@ -1825,12 +1832,30 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         })();
 
         setTimeout(() => {
-            // 内层 IIFE 已经自己 try/catch 了，这里兜的是 withProgress 本身
-            // （postMessage 等）意外抛出的情况。
             void this.withProgress<void>(() => updatePromise).catch(err => {
                 console.error('[context-window] definition item selected failed:', err);
             });
         }, 0);
+    }
+
+    /** 当前面板已在展示该文件且版本未变时，只换 range，不重读正文。 */
+    private reuseShownContent(uri: vscode.Uri, range: vscode.Range): FileContentInfo | undefined {
+        const shown = this._lastContent;
+        if (!shown?.jmpUri || shown.jmpUri.toString() !== uri.toString()) {
+            return undefined;
+        }
+        const key = uri.toString();
+        const open = vscode.workspace.textDocuments.find(d => !d.isClosed && d.uri.toString() === key);
+        if (open && open.version !== shown.documentVersion) {
+            return undefined;
+        }
+        return {
+            ...shown,
+            range: {
+                start: { line: range.start.line, character: range.start.character },
+                end: { line: range.end.line, character: range.end.character }
+            }
+        };
     }
 
     private resetWebviewPanel(panel: vscode.WebviewPanel) {
@@ -2490,6 +2515,23 @@ function normalizeJumpMode(value: unknown): JumpMode {
     return (typeof value === 'string' && (JUMP_MODES as readonly string[]).includes(value))
         ? value as JumpMode
         : 'definition';
+}
+
+function definitionTarget(def: vscode.Location | vscode.LocationLink | undefined): { uri: vscode.Uri; range: vscode.Range } | undefined {
+    if (!def) {
+        return undefined;
+    }
+    const loc = def as vscode.Location & vscode.LocationLink;
+    if (loc.uri && loc.range) {
+        return { uri: loc.uri, range: loc.range };
+    }
+    if (loc.targetUri) {
+        const range = loc.targetSelectionRange ?? loc.targetRange;
+        if (range) {
+            return { uri: loc.targetUri, range };
+        }
+    }
+    return undefined;
 }
 
 function basenameFromUri(uri?: string): string {
