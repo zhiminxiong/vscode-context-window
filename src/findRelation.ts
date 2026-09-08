@@ -43,7 +43,7 @@ export async function collectCallerLocationsAt(
         const extra = token?.onCancellationRequested(cancel);
         try {
             progress.report({ message: 'Loading relation…' });
-            const load = await model.loadRoot(uri, position);
+            const load = await model.loadIncomingRoot(uri, position);
             if (progressToken.isCancellationRequested || token?.isCancellationRequested) {
                 return undefined;
             }
@@ -105,8 +105,11 @@ async function showInReferencesView(
 
     const ext = vscode.extensions.getExtension('vscode.references-view')
         || vscode.extensions.getExtension('ms-vscode.references-view');
-    const api = ext ? await ext.activate() as { setInput?(input: FindRelationTreeInput): void } : undefined;
-    if (typeof api?.setInput !== 'function') {
+    const api = ext ? await ext.activate() as { setInput?(input: FindRelationTreeInput): void | Thenable<void> } : undefined;
+    const setInput = api?.setInput
+        ? (input: FindRelationTreeInput) => api.setInput!(input)
+        : undefined;
+    if (typeof setInput !== 'function') {
         const collected = await collectCallerLocationsAt(uri, position, { silent: true });
         if (!collected?.locations.length) {
             void vscode.window.showInformationMessage(collected?.empty || 'No relations at this position.');
@@ -120,8 +123,8 @@ async function showInReferencesView(
     } catch {
         // 面板里还没有结果时，这条命令可能不可用。
     }
-    // 立刻灌入 input：收集放在 resolve() 里，REFERENCES 树自带的加载进度会转，完成后消失。
-    api.setInput(new FindRelationTreeInput(anchor));
+    // resolve() 立刻交出空树，旧列表先消失；收集完再刷新。
+    await Promise.resolve(setInput(new FindRelationTreeInput(anchor)));
 }
 
 class FindRelationTreeInput {
@@ -131,7 +134,8 @@ class FindRelationTreeInput {
     constructor(readonly location: vscode.Location) { }
 
     async resolve(): Promise<CallerTreeModel | undefined> {
-        return vscode.window.withProgress(
+        const model = new CallerTreeModel([], 'Loading relation…');
+        void vscode.window.withProgress(
             { location: { viewId: 'references-view.tree' } },
             async () => {
                 const collected = await collectCallerLocationsAt(
@@ -140,14 +144,17 @@ class FindRelationTreeInput {
                     { silent: true }
                 );
                 if (!collected) {
-                    return undefined;
+                    model.replace([], 'Cancelled.');
+                    return;
                 }
                 if (!collected.locations.length) {
-                    return new CallerTreeModel([], collected.empty || `No relations of “${collected.title}”.`);
+                    model.replace([], collected.empty || `No relations of “${collected.title}”.`);
+                    return;
                 }
-                return new CallerTreeModel(collected.locations);
+                model.replace(collected.locations);
             }
         );
+        return model;
     }
 
     with(location: vscode.Location): FindRelationTreeInput {
@@ -175,14 +182,20 @@ class RefRow {
 type TreeRow = FileRow | RefRow;
 
 class CallerTreeModel {
-    readonly provider: vscode.TreeDataProvider<TreeRow>;
-    readonly message: string;
+    readonly provider: CallerTreeDataProvider;
+    message: string | undefined;
     readonly navigation = this;
     readonly highlights = this;
     readonly dnd = this;
     readonly items: FileRow[] = [];
 
     constructor(locations: vscode.Location[], message?: string) {
+        this.provider = new CallerTreeDataProvider(this);
+        this.replace(locations, message);
+    }
+
+    replace(locations: vscode.Location[], message?: string): void {
+        this.items.length = 0;
         const gen = ++treeGen;
         let last: FileRow | undefined;
         const sorted = [...locations].sort(compareLocations);
@@ -198,11 +211,11 @@ class CallerTreeModel {
         this.message = message ?? (files === 1
             ? `${total} result${total === 1 ? '' : 's'} in 1 file`
             : `${total} results in ${files} files`);
-        this.provider = new CallerTreeDataProvider(this);
+        this.provider.refresh();
     }
 
     dispose(): void {
-        (this.provider as CallerTreeDataProvider).dispose();
+        this.provider.dispose();
     }
 
     location(item: TreeRow): vscode.Location {
@@ -254,6 +267,10 @@ class CallerTreeDataProvider implements vscode.TreeDataProvider<TreeRow> {
     readonly onDidChangeTreeData = this.emitter.event;
 
     constructor(private readonly model: CallerTreeModel) { }
+
+    refresh(): void {
+        this.emitter.fire(undefined);
+    }
 
     dispose(): void {
         this.emitter.dispose();

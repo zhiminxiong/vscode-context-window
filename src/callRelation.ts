@@ -992,7 +992,8 @@ export class CallRelationModel {
         uri: vscode.Uri,
         position: vscode.Position,
         seq: number,
-        t0: number
+        t0: number,
+        opts?: { lean?: boolean }
     ): Promise<{ graph: RelationGraph; seq: number } | undefined> {
         const name = await tokenAt(uri, position);
         const refs = await this.execLsp<vscode.Location[]>(
@@ -1026,16 +1027,18 @@ export class CallRelationModel {
         this.resetCenter(this.root);
         const rootKey = itemKey(this.root);
         this.outgoing.set(rootKey, []);
-        const sel = this.root.selectionRange?.start ?? this.root.range.start;
-        this.rootTypeName = await resolveValueType(
-            this.root.uri,
-            sel,
-            identFromToken(this.root.name) || name
-        );
-        if (!this.isCurrent(seq)) {
-            return undefined;
+        if (!opts?.lean) {
+            const sel = this.root.selectionRange?.start ?? this.root.range.start;
+            this.rootTypeName = await resolveValueType(
+                this.root.uri,
+                sel,
+                identFromToken(this.root.name) || name
+            );
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            this.paintNow(seq);
         }
-        this.paintNow(seq);
         const locations = (refs || [])
             .map(loc => this.asLocation(loc))
             .filter((loc): loc is vscode.Location => !!loc && !this.isDeclSite(root, loc));
@@ -1083,7 +1086,9 @@ export class CallRelationModel {
             this.rememberCallSite(rootKey, -1, group.item, group.item.uri, group.sites, root.name);
         }
         this.incoming.set(rootKey, callers);
-        const graph = await this.buildVisible(seq, true);
+        const graph = opts?.lean
+            ? this.buildGraph()
+            : await this.buildVisible(seq, true);
         if (!graph || !this.isCurrent(seq)) {
             return undefined;
         }
@@ -1092,7 +1097,7 @@ export class CallRelationModel {
                 ? `No references for “${name}” outside its declaration.`
                 : 'No references at this position.';
         }
-        costLog('reference root', Date.now() - t0, `${itemLabel(root)} n=${callers.length}`);
+        costLog('reference root', Date.now() - t0, `${itemLabel(root)} n=${callers.length}${opts?.lean ? ' lean' : ''}`);
         return { graph, seq };
     }
 
@@ -1346,6 +1351,84 @@ export class CallRelationModel {
         return { graph, seq };
     }
 
+    /**
+     * Find Relation: same root as loadRoot, but only first-level incoming.
+     * No outgoing, no neighbor prefetch, no call-site recenter via the
+     * enclosing caller's outgoing.
+     */
+    async loadIncomingRoot(
+        uri: vscode.Uri,
+        position: vscode.Position
+    ): Promise<{ graph: RelationGraph; seq: number } | undefined> {
+        const t0 = Date.now();
+        const loc = `${fileLabel(uri)}:${position.line + 1}:${position.character + 1}`;
+        this.cancel();
+        const seq = this.seq;
+        costLog('loadIncomingRoot begin', 0, loc);
+
+        const valueSym = await symbolAtPosition(uri, position);
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
+        if (valueSym && isReferenceRelationKind(valueSym.kind)) {
+            return this.loadReferenceRoot(uri, position, seq, t0, { lean: true });
+        }
+
+        const prepared = await this.execLsp<vscode.CallHierarchyItem[]>(
+            seq,
+            'vscode.prepareCallHierarchy',
+            uri,
+            position
+        );
+        if (!this.isCurrent(seq)) {
+            costLog('loadIncomingRoot cancelled', Date.now() - t0, `${loc} after prepare`);
+            return undefined;
+        }
+        if (!prepared?.length) {
+            costLog('loadIncomingRoot empty', Date.now() - t0, loc);
+            return this.lspEmptyGraph(seq);
+        }
+
+        const next = prepared.find(item => rangeContains(item.range, position)) || prepared[0];
+        if (isAnonymousSymbolName(next.name)) {
+            const name = await tokenAt(uri, position);
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            if (name) {
+                return this.loadReferenceRoot(uri, position, seq, t0, { lean: true });
+            }
+            return this.lspEmptyGraph(seq);
+        }
+        return this.adoptIncomingOnly(next, seq, t0);
+    }
+
+    private async adoptIncomingOnly(
+        next: vscode.CallHierarchyItem,
+        seq: number,
+        t0: number
+    ): Promise<{ graph: RelationGraph; seq: number } | undefined> {
+        this.shown.clear();
+        this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.collapseLock.clear();
+        this.prevRoot = undefined;
+        this.incomingHint = undefined;
+        this.relationMode = 'call';
+        this.root = next;
+        this.remember(this.root);
+        this.resetCenter(this.root);
+        await this.ensureIncoming(this.root, seq);
+        if (!this.isCurrent(seq) || !this.root) {
+            costLog('loadIncomingRoot cancelled', Date.now() - t0, itemLabel(next));
+            return undefined;
+        }
+        const graph = this.buildGraph();
+        costLog('loadIncomingRoot done', Date.now() - t0, `${itemLabel(this.root)} n=${this.incoming.get(itemKey(this.root))?.length ?? 0}`);
+        return { graph, seq };
+    }
+
     async expandMore(nodeId: string): Promise<RelationLoad | undefined> {
         const seq = this.seq;
         const current = this.shown.get(nodeId) ?? CALL_PAGE;
@@ -1428,10 +1511,9 @@ export class CallRelationModel {
     }
 
     /**
-     * Show Relation's incoming side, without paging: callers of a function, or
-     * reference sites of a variable / field / type. Does not walk
-     * callers-of-callers — that would list e.g. `new Foo()` when the only
-     * caller is a method on Foo.
+     * First-level incoming only: callers of a function, or reference sites of
+     * a variable / field / type. Does not walk callers-of-callers — that would
+     * list e.g. `new Foo()` when the only caller is a method on Foo.
      */
     async collectCallerLocations(
         onProgress?: (fetched: number, locations: number) => void
