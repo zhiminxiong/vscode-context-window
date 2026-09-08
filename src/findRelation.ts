@@ -15,21 +15,7 @@ export async function findRelation(loc?: { uri?: vscode.Uri; position?: vscode.P
         return;
     }
 
-    const collected = await collectCallerLocationsAt(uri, position);
-    if (!collected) {
-        return;
-    }
-    if (!collected.locations.length) {
-        void vscode.window.showInformationMessage(collected.empty || `No relations of “${collected.title}”.`);
-        return;
-    }
-    await showInReferencesView(uri, position, collected.title, collected.locations);
-    if (collected.truncated) {
-        const kind = collected.mode === 'reference' ? 'reference sites' : 'caller sites';
-        void vscode.window.showInformationMessage(
-            `Find Relation listed ${collected.locations.length} ${kind} of “${collected.title}” (cap reached).`
-        );
-    }
+    await showInReferencesView(uri, position);
 }
 
 export type CollectedCallers = {
@@ -111,9 +97,7 @@ export async function collectCallerLocationsAt(
 
 async function showInReferencesView(
     uri: vscode.Uri,
-    position: vscode.Position,
-    title: string,
-    locations: vscode.Location[]
+    position: vscode.Position
 ): Promise<void> {
     const doc = await vscode.workspace.openTextDocument(uri);
     const word = doc.getWordRangeAtPosition(position) || doc.getWordRangeAtPosition(position, /[^\s]+/);
@@ -123,7 +107,12 @@ async function showInReferencesView(
         || vscode.extensions.getExtension('ms-vscode.references-view');
     const api = ext ? await ext.activate() as { setInput?(input: FindRelationTreeInput): void } : undefined;
     if (typeof api?.setInput !== 'function') {
-        await vscode.commands.executeCommand('editor.action.showReferences', uri, position, locations);
+        const collected = await collectCallerLocationsAt(uri, position, { silent: true });
+        if (!collected?.locations.length) {
+            void vscode.window.showInformationMessage(collected?.empty || 'No relations at this position.');
+            return;
+        }
+        await vscode.commands.executeCommand('editor.action.showReferences', uri, position, collected.locations);
         return;
     }
     try {
@@ -131,33 +120,38 @@ async function showInReferencesView(
     } catch {
         // 面板里还没有结果时，这条命令可能不可用。
     }
-    api.setInput(new FindRelationTreeInput(anchor, title, locations));
+    // 立刻灌入 input：收集放在 resolve() 里，REFERENCES 树自带的加载进度会转，完成后消失。
+    api.setInput(new FindRelationTreeInput(anchor));
 }
 
 class FindRelationTreeInput {
     readonly contextValue = 'vscode.executeReferenceProvider';
     readonly title = 'References';
 
-    constructor(
-        readonly location: vscode.Location,
-        private readonly symbolName: string,
-        private readonly locations?: vscode.Location[]
-    ) { }
+    constructor(readonly location: vscode.Location) { }
 
     async resolve(): Promise<CallerTreeModel | undefined> {
-        let locations = this.locations;
-        if (!locations) {
-            const again = await collectCallerLocationsAt(this.location.uri, this.location.range.start);
-            locations = again?.locations;
-        }
-        if (!locations?.length) {
-            return undefined;
-        }
-        return new CallerTreeModel(locations);
+        return vscode.window.withProgress(
+            { location: { viewId: 'references-view.tree' } },
+            async () => {
+                const collected = await collectCallerLocationsAt(
+                    this.location.uri,
+                    this.location.range.start,
+                    { silent: true }
+                );
+                if (!collected) {
+                    return undefined;
+                }
+                if (!collected.locations.length) {
+                    return new CallerTreeModel([], collected.empty || `No relations of “${collected.title}”.`);
+                }
+                return new CallerTreeModel(collected.locations);
+            }
+        );
     }
 
     with(location: vscode.Location): FindRelationTreeInput {
-        return new FindRelationTreeInput(location, this.symbolName);
+        return new FindRelationTreeInput(location);
     }
 }
 
@@ -188,7 +182,7 @@ class CallerTreeModel {
     readonly dnd = this;
     readonly items: FileRow[] = [];
 
-    constructor(locations: vscode.Location[]) {
+    constructor(locations: vscode.Location[], message?: string) {
         const gen = ++treeGen;
         let last: FileRow | undefined;
         const sorted = [...locations].sort(compareLocations);
@@ -201,9 +195,9 @@ class CallerTreeModel {
         }
         const total = locations.length;
         const files = this.items.length;
-        this.message = files === 1
+        this.message = message ?? (files === 1
             ? `${total} result${total === 1 ? '' : 's'} in 1 file`
-            : `${total} results in ${files} files`;
+            : `${total} results in ${files} files`);
         this.provider = new CallerTreeDataProvider(this);
     }
 
