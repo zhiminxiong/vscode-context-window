@@ -430,6 +430,16 @@ export function createLineBlame(ctx) {
         return pending;
     }
 
+    // 行尾摘要一出现就预拉，对齐主编辑器 editorLineBlame：浮窗打开时多数已在缓存里，
+    // 直接出照片，不再先闪首字母。拉失败忽略，makeAvatar 仍用牌子。
+    function prefetchAvatar(h) {
+        const url = h && h.avatarUrl;
+        if (!url || avatarBlobs.has(url)) {
+            return;
+        }
+        loadAvatar(url).catch(() => { /* 404 / 断网：悬停仍用首字母 */ });
+    }
+
     function makeAvatar(h) {
         const name = h.authorName || h.author || '?';
         const letter = makeLetterAvatar(name);
@@ -995,6 +1005,7 @@ export function createLineBlame(ctx) {
             versionId: model.getVersionId()
         };
         attachCachedDiff(lastShown);
+        prefetchAvatar(nextHover);
         ensureWidget();
         syncFont();
         syncLiveClass();
