@@ -175,9 +175,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     const cw = vscode.workspace.getConfiguration('contextView.contextWindow');
                     this.postMessageToWebview({
                         type: 'updateViewFlags',
-                        // {si} 指示器反映的是本面板的那份开关（右键双击），与主编辑器的
-                        // doubleClickSelectsBracketPair 相互独立，见 _getVSCodeEditorConfiguration 处的说明。
-                        doubleClickSelectsBracketPair: cw.get('contextDoubleClickSelectsBracketPair', true),
+                        doubleClickSelectsBracketPair: cw.get('doubleClickSelectsBracketPair', true),
                         jumpTrail: cw.get('jumpTrail', true),
                         lineBlame: cw.get('lineBlame', true),
                         enableHover: cw.get('enableHover', false),
@@ -769,13 +767,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 // 使 Monaco 编辑器内做与 VSCode 编辑器一致的指令着色。
                 fixToken: contextWindowConfig.get('fixToken', false),
                 directiveColor: this._readDirectiveColor(),
-                // 「双击选中整对括号/引号（含定界符）」开关。主编辑器与 Context Window 各一份：
-                //   · doubleClickSelectsBracketPair        → 主编辑器（左键双击，见 extension.ts）；
-                //   · contextDoubleClickSelectsBracketPair → 本面板（右键双击，见 editorMouseHandlers.js）。
-                // 两者独立：主编辑器那份依赖「从选区反推双击」，在括号前拖动有无法消除的歧义，用户可能关掉它；
-                // 而本面板跑在 Monaco 上、能拿到可靠的点击计数，没有该问题，故默认开、不随主编辑器一起关。
-                // {si} 指示器展示/切换的是本面板这份（它就在本面板底部）。
-                doubleClickSelectsBracketPair: contextWindowConfig.get('contextDoubleClickSelectsBracketPair', true),
+                // 「双击选中整对括号/引号（含定界符）」：主编辑器左键双击与本面板右键双击共用。
+                // {si} 指示器展示并切换这一项。
+                doubleClickSelectsBracketPair: contextWindowConfig.get('doubleClickSelectsBracketPair', true),
                 // Context Window 行号栏双击选中当前行所属的最小函数/类/命名空间。默认开。
                 contextDoubleClickSelectsSymbol: contextWindowConfig.get('contextDoubleClickSelectsSymbol', true),
                 // Monaco 内置「光标处同词高亮」开关，默认关。本面板的光标是程序设置的（跳转/返回定位），
@@ -1161,10 +1155,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     await this.handleOpenLineBlameChanges(message);
                     break;
                 case 'toggleSelectBracketPair':
-                    // {si} 指示器就在本面板底部，切的是本面板那份（右键双击）开关，
-                    // 与主编辑器的 doubleClickSelectsBracketPair 相互独立。
-                    // 只改行为开关，不回推主题。指示器已在 webview 里先翻转。
-                    await vscode.commands.executeCommand('contextView.contextWindow.toggleSelectBracketPair', { quiet: true, target: 'context' });
+                    // {si} 与快捷键/右键菜单切同一项。只改行为开关，不回推主题。
+                    await vscode.commands.executeCommand('contextView.contextWindow.toggleSelectBracketPair', { quiet: true });
                     break;
                 case 'doubleClick':
                     await this.handleDoubleClick(message);
@@ -2346,13 +2338,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         return await this.executeJumpProvider(JUMP_PROVIDER_COMMAND[mode], uri, position);
     }
 
-    /** 切到 Relation 并在 Context 里列出 caller，展示与 jump References 相同。 */
+    /** 切到 Relation 并在 Context 里列出 Show Relation 的 incoming（caller 或引用）。 */
     async findRelationInContext(loc?: { uri?: vscode.Uri; position?: vscode.Position }): Promise<void> {
         const editor = vscode.window.activeTextEditor;
         const uri = loc?.uri ?? editor?.document.uri;
         const position = loc?.position ?? editor?.selection.active;
         if (!uri || !position) {
-            void vscode.window.showInformationMessage('Open a file and put the cursor on a function to find its callers.');
+            void vscode.window.showInformationMessage('Open a file and put the cursor on a symbol to find its relations.');
             return;
         }
         this._skipJumpModeContentRefresh = true;

@@ -283,34 +283,22 @@ export function activate(context: vscode.ExtensionContext) {
 
 /**
  * 「双击选中整对括号/引号」开关命令：contextView.contextWindow.toggleSelectBracketPair。
- * 供快捷键、编辑器右键菜单、以及插件底部导航栏的 {si} 指示器点击调用。
- *
- * 主编辑器与 Context Window 各有一份独立开关（沿用 doubleClickSelectsSymbol /
- * contextDoubleClickSelectsSymbol 的既有命名惯例）：
- *   · CONFIG_SELECT_BRACKET_PAIR         → 主编辑器（左键双击，只能从选区反推，见下方长注释）；
- *   · CONFIG_CONTEXT_SELECT_BRACKET_PAIR → Context Window（右键双击，Monaco 有可靠的点击计数）。
- * 二者必须能分别开关：主编辑器那份在「括号前按下往右拖」时存在原理性歧义，用户可能只想关掉它，
- * 而面板里那份没有该问题、不应被一起关掉。
- * 故本命令用 target 区分：
- *   · 'context'（{si} 指示器点击，由 webview 转发）→ 切 Context Window 那份；
- *   · 默认 / 'editor'（快捷键、编辑器右键菜单）→ 切主编辑器那份。
+ * 一份配置同时管主编辑器（左键双击）和 Context Window（右键双击）。
+ * 快捷键、编辑器右键菜单、底部 {si} 指示器都切这一项。
  */
 function registerBracketPairSelectionToggle(context: vscode.ExtensionContext) {
     context.subscriptions.push(
-        vscode.commands.registerCommand('contextView.contextWindow.toggleSelectBracketPair', async (opts?: { quiet?: boolean; target?: 'editor' | 'context' }) => {
+        vscode.commands.registerCommand('contextView.contextWindow.toggleSelectBracketPair', async (opts?: { quiet?: boolean }) => {
             const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
-            const isContext = opts?.target === 'context';
-            const key = isContext ? CONFIG_CONTEXT_SELECT_BRACKET_PAIR : CONFIG_SELECT_BRACKET_PAIR;
-            // 取「当前生效值」再翻转。两项在 package.json 里都声明了 default: true，
-            // 故这里不传 get() 的 fallback——传了反而容易与 package.json 脱节（改默认值时漏改一处，
-            // 就会出现「首次点击不生效」：读到 false、写入 true，而实际生效值本来就是 true）。
-            const next = !cfg.get<boolean>(key);
-            await cfg.update(key, next, vscode.ConfigurationTarget.Global);
+            // 不传 get() 的 fallback：package.json 已声明 default: true，
+            // 重复一遍会在改默认值时漏改一处，出现「首次点击不生效」。
+            const next = !cfg.get<boolean>(CONFIG_SELECT_BRACKET_PAIR);
+            await cfg.update(CONFIG_SELECT_BRACKET_PAIR, next, vscode.ConfigurationTarget.Global);
             if (!opts?.quiet) {
-                const where = isContext ? 'Context Window' : 'main editor';
                 vscode.window.setStatusBarMessage(
-                    next ? `Double-click selects the whole bracket/quote pair (including delimiters) in the ${where}: ON — click to disable`
-                    : `Double-click selects the whole bracket/quote pair (including delimiters) in the ${where}: OFF — click to enable`,
+                    next
+                        ? 'Double-click selects the whole bracket/quote pair (including delimiters): ON — click to disable'
+                        : 'Double-click selects the whole bracket/quote pair (including delimiters): OFF — click to enable',
                     1500
                 );
             }
@@ -321,10 +309,8 @@ function registerBracketPairSelectionToggle(context: vscode.ExtensionContext) {
 // 该功能的配置节 / 键名（重命名自旧的 selectBracketPairOnDoubleClick）。
 // 与 VSCode 内置 editor.doubleClickSelectsBlock（只选括号内内容）对照：本项选中「整对括号/引号，含定界符本身」。
 const CONFIG_SECTION = 'contextView.contextWindow';
-// 主编辑器（左键双击）。默认开；判定只能从选区反推，在括号前拖动存在无法消除的歧义，靠自愈补救。
+// 主编辑器左键双击 + Context Window 右键双击共用。默认开。
 const CONFIG_SELECT_BRACKET_PAIR = 'doubleClickSelectsBracketPair';
-// Context Window（右键双击）。默认开：webview 跑在 Monaco 上，能直接读到点击计数，没有上述歧义。
-const CONFIG_CONTEXT_SELECT_BRACKET_PAIR = 'contextDoubleClickSelectsBracketPair';
 
 // 开括号 → 对应闭括号（含尖括号 <>，用于模板/泛型 如 vector<int>）
 const BRACKET_PAIRS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}', '<': '>' };

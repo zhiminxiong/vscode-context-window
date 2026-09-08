@@ -402,12 +402,7 @@
         "contextView.contextWindow.doubleClickSelectsBracketPair": {
           "type": "boolean",
           "default": true,
-          "description": "In the main editor, double-clicking right next to a bracket ( [ { < or a quote \" ' ` selects the whole matching pair INCLUDING the brackets/quotes themselves. Complements VSCode's built-in editor.doubleClickSelectsBlock, which selects only the content inside. On by default. Toggle it from the editor right-click menu or the keyboard shortcut. Note that VSCode never exposes double-click events to extensions, so the double-click is inferred from the shape of the selection (word selection always yields one complete run of same-class characters, a drag does not); a drag that happens to stop exactly on a run boundary still looks like a double-click (the } of a `});` line is the classic example), in which case just keep dragging and normal drag selection resumes."
-        },
-        "contextView.contextWindow.contextDoubleClickSelectsBracketPair": {
-          "type": "boolean",
-          "default": true,
-          "description": "Same feature inside the Context Window, where it is bound to a RIGHT-button double-click. On by default, and independent of the main-editor switch above: the Context Window runs on Monaco and does get a reliable click count, so it has none of the drag ambiguity described above and can stay on even when the main-editor one is off."
+          "description": "Double-clicking next to a bracket ( [ { < or a quote \" ' ` selects the whole matching pair INCLUDING the delimiters. Applies to the main editor (left double-click) and the Context Window (right-button double-click). Complements VS Code’s built-in editor.doubleClickSelectsBlock, which selects only the content inside. On by default. Toggle from the footer {si} indicator, the editor right-click menu, or the keyboard shortcut. In the main editor, VS Code never exposes double-click events to extensions, so the double-click is inferred from the shape of the selection (word selection always yields one complete run of same-class characters, a drag does not); a drag that happens to stop exactly on a run boundary still looks like a double-click (the } of a `});` line is the classic example), in which case just keep dragging and normal drag selection resumes."
         },
         "contextView.contextWindow.doubleClickSelectsBracketPairDragGuard": {
           "type": "number",
@@ -487,7 +482,7 @@
             "Go to Type Definition. Click a variable to see its type, not where it is declared.",
             "Go to Implementation. Jump to implementations of an interface or virtual function.",
             "Find References. Click a symbol to list references in Context, then click one to open that location in the panel (not the main editor).",
-            "Find Relation. List direct callers in Context, then click one to open that location in the panel (not the main editor)."
+            "Find Relation. Same as Show Relation's incoming side: callers of a function, or references of a variable / field / type. Click one to open that location in the panel (not the main editor)."
           ],
           "description": "What a click in the Context Window jumps to. Change it from the pull-up at the right of the Context footer."
         },

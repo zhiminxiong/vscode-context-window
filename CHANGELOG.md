@@ -8,11 +8,12 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Added
 
-- **Find Relation**: reuses Show Relation's call hierarchy and lists every direct caller site in the sidebar REFERENCES view (same panel as Find All References). Click a result to open that location in the editor. Editor and Context Window right-click menus, plus the command palette.
-- **Find Relation (in ContextView)** and jump mode **Relation**: same caller list as jump References, shown in the Context definition list. The menu switches jump type to Relation.
+- **Find Relation**: reuses Show Relation's incoming walk — callers of a function, or reference sites of a variable / field / type — and lists every site in the sidebar REFERENCES view (same panel as Find All References). Click a result to open that location in the editor. Editor and Context Window right-click menus, plus the command palette.
+- **Find Relation (in ContextView)** and jump mode **Relation**: same incoming list as Show Relation, shown in the Context definition list. The menu switches jump type to Relation.
 
 #### Changed
 
+- Double-click bracket/quote pair selection is one switch again (`contextView.contextWindow.doubleClickSelectsBracketPair`). It covers the main editor and the Context Window; the footer `{si}` indicator, the editor right-click menu, and the keyboard shortcut all toggle that same setting. The separate `contextDoubleClickSelectsBracketPair` key is removed.
 - Footer Sticky Scroll icon: the three stacked bars are thinner, and the pin is smaller, so they match the stroke weight of the other view toggles.
 - Footer Jump Trail icon: Lucide `route` (start and end nodes on a path), not a middle dot or name stubs.
 - Switching Jump mode (Definition / Type Definition / Implementation / References) no longer rebuilds the Monaco theme, so the editor colors do not flash before the new lookup lands.

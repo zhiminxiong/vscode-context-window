@@ -2,15 +2,16 @@ import * as vscode from 'vscode';
 import { CallRelationModel } from './callRelation';
 
 /**
- * Reuse Show Relation's incoming walk, then put every caller site into the
- * built-in REFERENCES sidebar (not the peek widget).
+ * Reuse Show Relation's incoming walk (callers of a function, or reference
+ * sites of a variable / field / type), then put every site into the built-in
+ * REFERENCES sidebar (not the peek widget).
  */
 export async function findRelation(loc?: { uri?: vscode.Uri; position?: vscode.Position }): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     const uri = loc?.uri ?? editor?.document.uri;
     const position = loc?.position ?? editor?.selection.active;
     if (!uri || !position) {
-        void vscode.window.showInformationMessage('Open a file and put the cursor on a function to find its callers.');
+        void vscode.window.showInformationMessage('Open a file and put the cursor on a symbol to find its relations.');
         return;
     }
 
@@ -19,13 +20,14 @@ export async function findRelation(loc?: { uri?: vscode.Uri; position?: vscode.P
         return;
     }
     if (!collected.locations.length) {
-        void vscode.window.showInformationMessage(collected.empty || `No callers of “${collected.title}”.`);
+        void vscode.window.showInformationMessage(collected.empty || `No relations of “${collected.title}”.`);
         return;
     }
     await showInReferencesView(uri, position, collected.title, collected.locations);
     if (collected.truncated) {
+        const kind = collected.mode === 'reference' ? 'reference sites' : 'caller sites';
         void vscode.window.showInformationMessage(
-            `Find Relation listed ${collected.locations.length} caller sites of “${collected.title}” (cap reached).`
+            `Find Relation listed ${collected.locations.length} ${kind} of “${collected.title}” (cap reached).`
         );
     }
 }
@@ -33,6 +35,7 @@ export async function findRelation(loc?: { uri?: vscode.Uri; position?: vscode.P
 export type CollectedCallers = {
     locations: vscode.Location[];
     title: string;
+    mode?: 'call' | 'reference';
     truncated?: boolean;
     empty?: string;
 };
@@ -53,7 +56,7 @@ export async function collectCallerLocationsAt(
         const sub = progressToken.onCancellationRequested(cancel);
         const extra = token?.onCancellationRequested(cancel);
         try {
-            progress.report({ message: 'Loading call hierarchy…' });
+            progress.report({ message: 'Loading relation…' });
             const load = await model.loadRoot(uri, position);
             if (progressToken.isCancellationRequested || token?.isCancellationRequested) {
                 return undefined;
@@ -61,15 +64,21 @@ export async function collectCallerLocationsAt(
             if (!load || load.graph.empty) {
                 if (!silent) {
                     void vscode.window.showInformationMessage(
-                        load?.graph.empty || 'No call hierarchy at this position.'
+                        load?.graph.empty || 'No relation at this position.'
                     );
                 }
-                return { locations: [], title: load?.graph.title || '', empty: load?.graph.empty };
+                return {
+                    locations: [],
+                    title: load?.graph.title || '',
+                    mode: load?.graph.mode,
+                    empty: load?.graph.empty
+                };
             }
-            progress.report({ message: `Collecting callers of ${load.graph.title}…` });
+            const what = load.graph.mode === 'reference' ? 'references' : 'callers';
+            progress.report({ message: `Collecting ${what} of ${load.graph.title}…` });
             const result = await model.collectCallerLocations((fetched, n) => {
                 progress.report({
-                    message: `Collecting callers of ${load.graph.title}… ${n} sites (${fetched} symbols)`
+                    message: `Collecting ${what} of ${load.graph.title}… ${n} sites (${fetched} symbols)`
                 });
             });
             if (progressToken.isCancellationRequested || token?.isCancellationRequested || result.empty === 'Cancelled.') {

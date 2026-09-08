@@ -1400,28 +1400,24 @@ export class CallRelationModel {
     }
 
     /**
-     * All direct incoming call sites of the current center (Show Relation's
-     * caller side, without paging). Does not walk callers-of-callers — that
-     * would list e.g. `new Foo()` when the only caller is a method on Foo.
+     * Show Relation's incoming side, without paging: callers of a function, or
+     * reference sites of a variable / field / type. Does not walk
+     * callers-of-callers — that would list e.g. `new Foo()` when the only
+     * caller is a method on Foo.
      */
     async collectCallerLocations(
         onProgress?: (fetched: number, locations: number) => void
     ): Promise<{
         locations: vscode.Location[];
         title: string;
+        mode: 'call' | 'reference';
         truncated?: boolean;
         empty?: string;
     }> {
         const title = this.root ? itemLabel(this.root) : '';
+        const mode = this.relationMode;
         if (!this.root) {
-            return { locations: [], title, empty: 'No call hierarchy at this position.' };
-        }
-        if (this.relationMode === 'reference') {
-            return {
-                locations: [],
-                title,
-                empty: `Find Relation lists callers of a function. “${title}” has no call hierarchy.`
-            };
+            return { locations: [], title, mode, empty: 'No relation at this position.' };
         }
         const seq = this.seq;
         const maxLocations = 2000;
@@ -1440,11 +1436,13 @@ export class CallRelationModel {
         };
 
         if (!this.isCurrent(seq)) {
-            return { locations: [], title, empty: 'Cancelled.' };
+            return { locations: [], title, mode, empty: 'Cancelled.' };
         }
-        await this.ensureIncoming(this.root, seq);
-        if (!this.isCurrent(seq)) {
-            return { locations: [], title, empty: 'Cancelled.' };
+        if (mode === 'call') {
+            await this.ensureIncoming(this.root, seq);
+            if (!this.isCurrent(seq)) {
+                return { locations: [], title, mode, empty: 'Cancelled.' };
+            }
         }
         const parentKey = itemKey(this.root);
         const callers = this.incoming.get(parentKey) || [];
@@ -1473,9 +1471,16 @@ export class CallRelationModel {
         }
         onProgress?.(1, locations.length);
         if (!locations.length) {
-            return { locations, title, empty: `No callers of “${title}”.` };
+            return {
+                locations,
+                title,
+                mode,
+                empty: mode === 'reference'
+                    ? `No references of “${title}” outside its declaration.`
+                    : `No callers of “${title}”.`
+            };
         }
-        return { locations, title, truncated };
+        return { locations, title, mode, truncated };
     }
 
     async expandAll(): Promise<RelationLoad | undefined> {
