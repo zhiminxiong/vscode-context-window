@@ -8,7 +8,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Added
 
-- **Find Relation**: reuses Show Relation's incoming walk — callers of a function, or reference sites of a variable / field / type — and lists every site in the sidebar REFERENCES view (same panel as Find All References). Click a result to open that location in the editor. Editor and Context Window right-click menus, plus the command palette. The walk loads only first-level incoming (no outgoing, no neighbor prefetch). Starting a search clears the previous REFERENCES list first.
+- **Find Relation**: reuses Show Relation's incoming walk — callers of a function, or reference sites of a variable / field / type — and lists every site in the sidebar REFERENCES view (same panel as Find All References). Click a result to open that location in the editor. Editor and Context Window right-click menus, plus the command palette. The walk loads only first-level incoming (no outgoing, no neighbor prefetch). Starting a search clears the previous REFERENCES list first and cancels the previous Find.
 - **Find Relation (in ContextView)** and jump mode **Relation**: same incoming list as Show Relation, shown in the Context definition list. The menu switches jump type to Relation.
 
 #### Changed
@@ -21,7 +21,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Fixed
 
-- Relation incoming: `super` / `base` / `::` parent calls and the method declaration line are not treated as callers of a child override. TypeScript’s call hierarchy often reports those sites on the override; they are dropped per site, so a method that also has a real `this.xxx()` / `obj.xxx()` call is kept.
+- Relation incoming: `super` / `base` / `::` parent calls and the method declaration line are not treated as callers of a child override. TypeScript’s call hierarchy often reports those sites on the override; they are dropped per site, so a method that also has a real `this.xxx()` / `obj.xxx()` call is kept. Incoming / outgoing results are not written to the cache if the graph was reset (close the window, or start another load) while the language server was still answering.
 - Semantic tokens such as `console` (`variable.defaultLibrary`) take their color from the current language’s TextMate probe (`support.variable.ts` in TypeScript), including the user’s `tokenColorCustomizations`, instead of a generic `variable` / `support.variable` fallback.
 - Template interpolations such as `${lod}` keep the TextMate `${` / `}` tokens and their colors. The view uses the language’s VS Code configuration (`${` paired with `}`, not in colorized brackets) so bracket pair colorization does not split `${` or recolor `}`.
 - Bracket pair colors overlay TextMate token colors, as in VS Code. A method `{` (`punctuation.definition.block`) keeps highlight 2 instead of the user’s `punctuation` purple. `()` `[]` `<>` use VS Code’s per-type color pool, so they do not share a level with `{}`. Encoded TextMate tokens now carry Monaco’s language id, so a class `{` and a nested method `{` get highlight 1 and 2 instead of both staying on the punctuation color.

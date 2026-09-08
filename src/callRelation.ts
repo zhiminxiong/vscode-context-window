@@ -2365,6 +2365,7 @@ export class CallRelationModel {
         if (!ident || /^constructor$/i.test(ident) || item.kind === vscode.SymbolKind.Constructor) {
             return;
         }
+        const epoch = this.cacheEpoch;
         const family = await this.selfAndAncestorTypes(item);
         const ancestors = family.filter(type => type.depth > 0);
         if (!ancestors.length) {
@@ -2476,7 +2477,7 @@ export class CallRelationModel {
                 });
             }));
         }
-        if (!groups.size) {
+        if (!groups.size || this.cacheEpoch !== epoch) {
             return;
         }
         let nearest = Number.POSITIVE_INFINITY;
@@ -2955,6 +2956,10 @@ export class CallRelationModel {
             this.rememberCallSite(key, -1, from, from.uri, sites, item.name);
         }
         await this.mergeOverrideIncoming(item, key, items, seen, ident);
+        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
+            costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after merge`);
+            return;
+        }
         if (!this.incoming.has(key)) {
             this.incoming.set(key, items);
         }
@@ -3010,6 +3015,10 @@ export class CallRelationModel {
             seen.add(k);
             items.push(this.items.get(k)!);
             this.rememberCallSite(key, 1, target, item.uri, sites, target.name);
+        }
+        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
+            costLog('outgoing dropped', Date.now() - t0, `${itemLabel(item)} after rewrite`);
+            return;
         }
         if (!this.outgoing.has(key)) {
             this.outgoing.set(key, items);

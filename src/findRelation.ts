@@ -26,6 +26,23 @@ export type CollectedCallers = {
     empty?: string;
 };
 
+let findGen = 0;
+let findCts: vscode.CancellationTokenSource | undefined;
+
+function beginFindGeneration(): { gen: number; token: vscode.CancellationToken } {
+    findCts?.cancel();
+    findCts?.dispose();
+    findCts = new vscode.CancellationTokenSource();
+    return { gen: ++findGen, token: findCts.token };
+}
+
+function findStillCurrent(gen: number, ...tokens: (vscode.CancellationToken | undefined)[]): boolean {
+    if (gen !== findGen) {
+        return false;
+    }
+    return tokens.every(t => !t || !t.isCancellationRequested);
+}
+
 export async function collectCallerLocationsAt(
     uri: vscode.Uri,
     position: vscode.Position,
@@ -33,6 +50,7 @@ export async function collectCallerLocationsAt(
 ): Promise<CollectedCallers | undefined> {
     const silent = !!options?.silent;
     const token = options?.token;
+    const session = beginFindGeneration();
     const model = new CallRelationModel();
     const run = async (
         progress: { report(value: { message?: string }): void },
@@ -41,10 +59,11 @@ export async function collectCallerLocationsAt(
         const cancel = () => model.reset();
         const sub = progressToken.onCancellationRequested(cancel);
         const extra = token?.onCancellationRequested(cancel);
+        const sessionSub = session.token.onCancellationRequested(cancel);
         try {
             progress.report({ message: 'Loading relation…' });
             const load = await model.loadIncomingRoot(uri, position);
-            if (progressToken.isCancellationRequested || token?.isCancellationRequested) {
+            if (!findStillCurrent(session.gen, progressToken, token, session.token)) {
                 return undefined;
             }
             if (!load || load.graph.empty) {
@@ -67,13 +86,14 @@ export async function collectCallerLocationsAt(
                     message: `Collecting ${what} of ${load.graph.title}… ${n} sites (${fetched} symbols)`
                 });
             });
-            if (progressToken.isCancellationRequested || token?.isCancellationRequested || result.empty === 'Cancelled.') {
+            if (!findStillCurrent(session.gen, progressToken, token, session.token) || result.empty === 'Cancelled.') {
                 return undefined;
             }
             return result;
         } finally {
             sub.dispose();
             extra?.dispose();
+            sessionSub.dispose();
             model.reset();
         }
     };
@@ -144,7 +164,6 @@ class FindRelationTreeInput {
                     { silent: true }
                 );
                 if (!collected) {
-                    model.replace([], 'Cancelled.');
                     return;
                 }
                 if (!collected.locations.length) {
