@@ -379,8 +379,27 @@
         },
         "contextView.contextWindow.doubleClickSelectsBracketPair": {
           "type": "boolean",
-          "default": false,
-          "description": "Double-clicking right next to a bracket ( [ { < or a quote \" ' ` selects the whole matching pair INCLUDING the brackets/quotes themselves. Complements VSCode's built-in editor.doubleClickSelectsBlock, which selects only the content inside. Toggle it from the status bar ({si}), the editor right-click menu, or the keyboard shortcut."
+          "default": true,
+          "description": "In the main editor, double-clicking right next to a bracket ( [ { < or a quote \" ' ` selects the whole matching pair INCLUDING the brackets/quotes themselves. Complements VSCode's built-in editor.doubleClickSelectsBlock, which selects only the content inside. On by default. Toggle it from the editor right-click menu or the keyboard shortcut. Note that VSCode never exposes double-click events to extensions, so the double-click has to be inferred by replaying VSCode's own word-selection algorithm; when the click lands exactly on the start of that word range a drag cannot be told apart from a double-click (the } of a `});` line is the classic example), in which case just keep dragging and normal drag selection resumes. Turn this off to leave the main editor untouched; the Context Window has its own switch below."
+        },
+        "contextView.contextWindow.contextDoubleClickSelectsBracketPair": {
+          "type": "boolean",
+          "default": true,
+          "description": "Same feature inside the Context Window, where it is bound to a RIGHT-button double-click. On by default, and independent of the main-editor switch above: the Context Window runs on Monaco and does get a reliable click count, so it has none of the drag ambiguity described above and can stay on even when the main-editor one is off."
+        },
+        "contextView.contextWindow.doubleClickSelectsBracketPairDragGuard": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "maximum": 400,
+          "description": "Extra drag guard, in milliseconds, for doubleClickSelectsBracketPair. Rejects a selection that arrives sooner than this after the mouse went down, i.e. the first frame of a press-and-drag. The primary check is not time based: VSCode always runs word selection before a double-click can widen anything, so the extension replays that word-selection algorithm and only acts when the incoming selection matches it exactly. Set to 0 to disable this extra guard."
+        },
+        "contextView.contextWindow.doubleClickSelectsBracketPairConfirmDelay": {
+          "type": "number",
+          "default": 90,
+          "minimum": 0,
+          "maximum": 500,
+          "description": "Confirmation window, in milliseconds, for doubleClickSelectsBracketPair. The pair selection is held back this long and dropped if the mouse keeps moving, so nothing touches the selection until a double-click is certain. Note that no purely time based guard can stop a slow drag, since crossing one character may take hundreds of milliseconds; that is what the word-selection check is for, and a drag that still slips through is undone as soon as you keep dragging. Lower it for a snappier response, raise it if a slow drag still triggers the pair selection."
         },
         "contextView.contextWindow.doubleClickSelectsSymbol": {
           "type": "boolean",
