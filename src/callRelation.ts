@@ -326,6 +326,34 @@ function isIdentDeclLine(text: string, ident: string): boolean {
         && new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`).test(text);
 }
 
+/** LSP incoming often includes super/base/:: parent calls and the method header as sites. */
+function isParentOrDeclIncomingLine(text: string, ident: string): boolean {
+    return isIdentDeclLine(text, ident) || isSuperDispatchLine(text, ident);
+}
+
+async function keepNonParentIncomingRanges(
+    uri: vscode.Uri,
+    ranges: vscode.Range[] | undefined,
+    ident: string
+): Promise<vscode.Range[]> {
+    if (!ranges?.length) {
+        return [];
+    }
+    if (!ident) {
+        return [...ranges];
+    }
+    let doc: vscode.TextDocument;
+    try {
+        doc = await vscode.workspace.openTextDocument(uri);
+    } catch {
+        return [...ranges];
+    }
+    return ranges.filter(range => {
+        const line = Math.min(Math.max(0, range.start.line), doc.lineCount - 1);
+        return !isParentOrDeclIncomingLine(doc.lineAt(line).text, ident);
+    });
+}
+
 function decodeSemanticTokens(
     data: ArrayLike<number>,
     legendTypes: string[]
@@ -2328,9 +2356,7 @@ export class CallRelationModel {
                 } catch {
                     return;
                 }
-                if (isIdentDeclLine(lineText, ident)
-                    || new RegExp(`\\b(?:super|base)\\s*\\.\\s*${escapeRegExp(ident)}\\b`).test(lineText)
-                    || new RegExp(`::\\s*${escapeRegExp(ident)}\\s*\\(`).test(lineText)
+                if (isParentOrDeclIncomingLine(lineText, ident)
                     || !new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`).test(lineText)) {
                     return;
                 }
@@ -2827,10 +2853,12 @@ export class CallRelationModel {
             let from = call.from;
             let sites = call.fromRanges;
             if (itemKey(from) === key) {
+                // 自己调自己：super 改写到基类 outgoing，剩下的站点再滤声明行。
                 sites = await this.rewriteSelfSuper(from.uri, call.fromRanges, ident, item, key);
-                if (!sites.length) {
-                    continue;
-                }
+            }
+            sites = await keepNonParentIncomingRanges(from.uri, sites, ident);
+            if (!sites.length) {
+                continue;
             }
             const lifted = await this.liftArrowToEnclosing(from, sites);
             if (lifted) {
