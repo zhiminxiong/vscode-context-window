@@ -42,6 +42,8 @@ This extension implements Source Insight’s Context Window, plus Relation’s C
 
   Right-click in the VS Code editor and choose **Show Relation**. This feature depends entirely on the language server (LSP).
 
+  **Find Relation** lists every direct caller site of the current function (Show Relation's caller side, without paging) in the sidebar REFERENCES view. Click a result to jump the editor there.
+
 ## Configuration
 
 #### Context Window

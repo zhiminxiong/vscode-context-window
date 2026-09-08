@@ -1183,6 +1183,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     await vscode.commands.executeCommand(cmd, loc);
                     break;
                 }
+                case 'findCallRelation': {
+                    const loc = {
+                        uri: this.currentUri?.toString(),
+                        line: typeof message.line === 'number' ? message.line : this.currentLine,
+                        character: typeof message.character === 'number' ? message.character : this.currentColumn
+                    };
+                    await vscode.commands.executeCommand('contextView.callRelation.findRelation', loc);
+                    break;
+                }
                 case 'copyToClipboard':
                     // 粘附行(sticky scroll)区域的选中内容不占用 Monaco 的 model 选区，
                     // 故 Monaco 自带的复制命令拿不到它；而 webview 内的 navigator.clipboard

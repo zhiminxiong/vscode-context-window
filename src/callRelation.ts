@@ -1399,6 +1399,85 @@ export class CallRelationModel {
         return this.buildGraph();
     }
 
+    /**
+     * All direct incoming call sites of the current center (Show Relation's
+     * caller side, without paging). Does not walk callers-of-callers — that
+     * would list e.g. `new Foo()` when the only caller is a method on Foo.
+     */
+    async collectCallerLocations(
+        onProgress?: (fetched: number, locations: number) => void
+    ): Promise<{
+        locations: vscode.Location[];
+        title: string;
+        truncated?: boolean;
+        empty?: string;
+    }> {
+        const title = this.root ? itemLabel(this.root) : '';
+        if (!this.root) {
+            return { locations: [], title, empty: 'No call hierarchy at this position.' };
+        }
+        if (this.relationMode === 'reference') {
+            return {
+                locations: [],
+                title,
+                empty: `Find Relation lists callers of a function. “${title}” has no call hierarchy.`
+            };
+        }
+        const seq = this.seq;
+        const maxLocations = 2000;
+        const locations: vscode.Location[] = [];
+        const seenLoc = new Set<string>();
+        let truncated = false;
+
+        const addPos = (uri: vscode.Uri, start: vscode.Position, end?: vscode.Position) => {
+            const key = `${uri.toString()}:${start.line}:${start.character}`;
+            if (seenLoc.has(key)) {
+                return;
+            }
+            seenLoc.add(key);
+            const stop = end && (end.isAfter(start)) ? end : start.translate(0, 1);
+            locations.push(new vscode.Location(uri, new vscode.Range(start, stop)));
+        };
+
+        if (!this.isCurrent(seq)) {
+            return { locations: [], title, empty: 'Cancelled.' };
+        }
+        await this.ensureIncoming(this.root, seq);
+        if (!this.isCurrent(seq)) {
+            return { locations: [], title, empty: 'Cancelled.' };
+        }
+        const parentKey = itemKey(this.root);
+        const callers = this.incoming.get(parentKey) || [];
+        onProgress?.(1, 0);
+        for (const caller of callers) {
+            const sites = this.callSites.get(`${parentKey}\0-1\0${itemKey(caller)}`);
+            if (sites?.length) {
+                for (const s of sites) {
+                    if (locations.length >= maxLocations) {
+                        truncated = true;
+                        break;
+                    }
+                    const start = new vscode.Position(s.line, s.character);
+                    const width = Math.max(1, identFromToken(s.name || caller.name).length);
+                    addPos(vscode.Uri.parse(s.uri), start, start.translate(0, width));
+                }
+            } else if (locations.length < maxLocations) {
+                const sel = caller.selectionRange ?? caller.range;
+                addPos(caller.uri, sel.start, sel.end);
+            } else {
+                truncated = true;
+            }
+            if (truncated) {
+                break;
+            }
+        }
+        onProgress?.(1, locations.length);
+        if (!locations.length) {
+            return { locations, title, empty: `No callers of “${title}”.` };
+        }
+        return { locations, title, truncated };
+    }
+
     async expandAll(): Promise<RelationLoad | undefined> {
         const seq = this.seq;
         const t0 = Date.now();

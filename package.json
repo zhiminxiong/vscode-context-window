@@ -128,6 +128,12 @@
         "category": "Context View"
       },
       {
+        "command": "contextView.callRelation.findRelation",
+        "title": "Find Relation",
+        "icon": "$(references)",
+        "category": "Context View"
+      },
+      {
         "command": "contextView.callRelation.quickOpen",
         "title": "Search and Open Relation",
         "icon": "$(search)",
@@ -259,6 +265,11 @@
         {
           "command": "contextView.callRelation.showIndependent",
           "group": "navigation@10",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "contextView.callRelation.findRelation",
+          "group": "navigation@11",
           "when": "editorTextFocus"
         }
       ]

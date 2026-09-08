@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ContextWindowProvider } from './contextView';
 import { CallRelationPanel, CALL_RELATION_VIEW_TYPE } from './callRelationPanel';
+import { findRelation } from './findRelation';
 import { registerRelationQuickSearch } from './relationQuickSearch';
 import { isSingleFullLineSelection, registerLineNumberSymbolSelection } from './enclosingSymbol';
 import { registerMcpToolPreview } from './mcp/preview';
@@ -80,6 +81,11 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('contextView.callRelation.showIndependent', (arg?: { uri?: string; line?: number; character?: number }) => {
             void callRelation.showInNewWindow(parseRelationLoc(arg));
+        }));
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('contextView.callRelation.findRelation', (arg?: { uri?: string; line?: number; character?: number }) => {
+            return findRelation(parseRelationLoc(arg));
         }));
 
     context.subscriptions.push(

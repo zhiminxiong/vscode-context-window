@@ -724,6 +724,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             {
                                 label: 'Show Relation (Independent Window)',
                                 action: () => vscode.postMessage({ type: 'showCallRelation', independent: true, ...loc })
+                            },
+                            {
+                                label: 'Find Relation',
+                                action: () => vscode.postMessage({ type: 'findCallRelation', ...loc })
                             }
                         ]);
                     }
