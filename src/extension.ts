@@ -407,23 +407,33 @@ function invalidatePairSelectCache(): void {
     cachedSeparators.clear();
 }
 
-// === VSCode 选词算法的复刻（对应 cursorWordOperations.ts 的 WordOperations）===
-// 用途：算出「若这次真是双击，VSCode 的 _wordSelect 会选出哪个区间」，再与实际收到的选区比对。
-// 双击必然先经过选词（dispatchMouse 里 mouseDownCount===2 && !inSelectionMode → _wordSelect），
-// 所以实际选区若与该指纹不一致，就一定不是双击，而是单击拖拽（MoveToSelect 逐字符扩展）。
-// 这是一条不依赖时间的确定性判据，也是慢速拖拽唯一挡得住的方式。
+// === 「是不是双击选词」的判据：选区是否与词边界对齐 ===
+// 背景：双击必然先经过内核选词（dispatchMouse 里 mouseDownCount===2 && !inSelectionMode →
+// _wordSelect → WordOperations.word），而单击拖拽走 MoveToSelect、逐字符扩展。
+// 扩展拿不到点击计数，只能从选区形状反推，这是唯一不依赖时间、能挡住慢速拖拽的判据。
 //
-// 例（本仓库 contextView.ts 的 `            });` 行，落点紧贴 }）：
-//   · 双击 → nextWord 是 separator 段 `});`，选区 = 该段整体（3 字符）；
-//   · 从落点往右拖第一帧 → 选区只有 `}`（1 字符）。
-//   两者不同 ⇒ 可靠判定为拖拽。同理 foo( 紧贴 ( 双击选的是 `foo`（touching prevWord 的末边界）、
-//   foo() 紧贴 ) 双击选的是 `()`（prevWord 的 separator 段），都与拖拽首帧不同。
+// 【为什么不逐字复刻选词算法】曾经这么做过，但它跨版本不稳：
+// VSCode 在 commit 6055fcf8d8b（2025-10-26,「Fix double-click on punctuation selecting adjacent
+// space instead of character」#273321）改过 word() 的行为——
+//   · 该修复之后：`= (async` 处紧贴 ( 双击 → 选中 `(` 本身；
+//   · 该修复之前：同一处双击 → 选中 ( 左边那个【空格】。
+// 于是「精确等于新版预期」的判据在较老的 VSCode / 其衍生版（如 Cursor）上必然对不上，
+// 表现为「括号左边是空白时双击完全失效」。
 //
-// 说明：这里不实现 Intl.Segmenter 分词（editor.wordSegmenterLocales，默认空、仅 CJK 场景需要）。
-// 未复刻的分支只会让指纹「对不上」→ 不触发本功能、回退成 VSCode 默认选词，属于安全的失败方向。
+// 【改用的判据】选词结果的共同特征与具体版本无关：它总是【一整段同类字符】——
+// WordOperations 的所有分支（touching prev/next word、以及夹在空白中的 else 分支）
+// 给出的区间，边界都落在「字符类别切换处」（Regular / WordSeparator / Whitespace 三类之间）。
+// 故只要求：选区在单行内，且恰好是一段【极大】同类字符（两端要么到行首/行尾，要么邻接不同类）。
+// 这样新旧两种行为都能通过，而拖拽 N 个字符除非恰好停在类别边界，否则一律被拒。
+//
+// 【残余误判】拖拽恰好停在极大同类段的边界上时仍会被当成双击，典型是
+// `            });` 处紧贴 } 慢速拖到行尾——选区 `});` 与双击结果完全相同，
+// 任何静态判据都区分不了。这类由 dragGuard / confirmDelay 减少概率，
+// 并最终由「自愈 B」（继续拖动即撤销括号选定、恢复拖动选定）兜住。
+//
+// 说明：不处理 Intl.Segmenter 分词（editor.wordSegmenterLocales，默认空、仅 CJK 需要）。
+// 那种情况下选区是极大段的子集 → 判为不对齐 → 不触发本功能、回退成默认选词，属于安全的失败方向。
 const enum CharClass { Regular = 0, Whitespace = 1, WordSeparator = 2 }
-type WordKind = 'regular' | 'separator';
-interface FoundWord { start: number; end: number; kind: WordKind }
 
 // editor.wordSeparators 的默认值（USUAL_WORD_SEPARATORS，见 core/wordHelper.ts）。注意其中不含空格。
 const USUAL_WORD_SEPARATORS = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/?';
@@ -435,94 +445,21 @@ function classifyChar(ch: string, separators: string): CharClass {
     return separators.indexOf(ch) >= 0 ? CharClass.WordSeparator : CharClass.Regular;
 }
 
-// 对应 _findEndOfWord：从 startIndex 向右，直到「类型切换」或行尾。
-function findEndOfWord(lineText: string, separators: string, kind: WordKind, startIndex: number): number {
-    for (let i = startIndex; i < lineText.length; i++) {
-        const c = classifyChar(lineText.charAt(i), separators);
-        if (c === CharClass.Whitespace) { return i; }
-        if (kind === 'regular' && c === CharClass.WordSeparator) { return i; }
-        if (kind === 'separator' && c === CharClass.Regular) { return i; }
-    }
-    return lineText.length;
-}
-
-// 对应 _findStartOfWord：从 startIndex 向左，直到「类型切换」或行首。
-function findStartOfWord(lineText: string, separators: string, kind: WordKind, startIndex: number): number {
-    for (let i = startIndex; i >= 0; i--) {
-        const c = classifyChar(lineText.charAt(i), separators);
-        if (c === CharClass.Whitespace) { return i + 1; }
-        if (kind === 'regular' && c === CharClass.WordSeparator) { return i + 1; }
-        if (kind === 'separator' && c === CharClass.Regular) { return i + 1; }
-    }
-    return 0;
-}
-
-// 对应 _doFindPreviousWordOnLine：从 col-1 向左找到第一个词（col 为 0 基落点 = position.column - 1）。
-function findPreviousWordOnLine(lineText: string, separators: string, col: number): FoundWord | undefined {
-    let kind: WordKind | undefined;
-    for (let i = col - 1; i >= 0; i--) {
-        const c = classifyChar(lineText.charAt(i), separators);
-        if (c === CharClass.Regular) {
-            if (kind === 'separator') { return { start: i + 1, end: findEndOfWord(lineText, separators, kind, i + 1), kind }; }
-            kind = 'regular';
-        } else if (c === CharClass.WordSeparator) {
-            if (kind === 'regular') { return { start: i + 1, end: findEndOfWord(lineText, separators, kind, i + 1), kind }; }
-            kind = 'separator';
-        } else if (kind) {
-            return { start: i + 1, end: findEndOfWord(lineText, separators, kind, i + 1), kind };
-        }
-    }
-    return kind ? { start: 0, end: findEndOfWord(lineText, separators, kind, 0), kind } : undefined;
-}
-
-// 对应 _doFindNextWordOnLine：从 col 向右找到第一个词。
-function findNextWordOnLine(lineText: string, separators: string, col: number): FoundWord | undefined {
-    let kind: WordKind | undefined;
-    const len = lineText.length;
-    for (let i = col; i < len; i++) {
-        const c = classifyChar(lineText.charAt(i), separators);
-        if (c === CharClass.Regular) {
-            if (kind === 'separator') { return { start: findStartOfWord(lineText, separators, kind, i - 1), end: i, kind }; }
-            kind = 'regular';
-        } else if (c === CharClass.WordSeparator) {
-            if (kind === 'regular') { return { start: findStartOfWord(lineText, separators, kind, i - 1), end: i, kind }; }
-            kind = 'separator';
-        } else if (kind) {
-            return { start: findStartOfWord(lineText, separators, kind, i - 1), end: i, kind };
-        }
-    }
-    return kind ? { start: findStartOfWord(lineText, separators, kind, len - 1), end: len, kind } : undefined;
-}
-
 /**
- * 对应 WordOperations.word 的 !inSelectionMode 分支：返回双击落点 col（0 基）处的选词区间 [start, end)。
- * 四个 touching 分支与内核逐条对应，注意 separator 词用的是严格不等（col < end，不含末边界）。
- *
- * 「指纹碰撞」（预期区间恰好等于拖拽首帧 [col, col+1)）只发生在很窄的情形：
- * 落点左侧是空白/行首、落点处是单个 separator、其右侧紧跟普通字符或行尾（如 ` {` 结尾的行）。
- * 这种情形形状上与拖一格完全等价、无法用任何静态特征区分，交由 dragGuard / confirmDelay 兜底。
+ * [start, end) 是否恰好是 lineText 里一段【极大】同类字符（即一个完整的「词单元」）。
+ * 三个条件：区间非空、内部字符同类、两端邻接的字符不同类（或已到行首/行尾）。
  */
-function expectedWordSelectionRange(lineText: string, col: number, separators: string): { start: number; end: number } {
-    const prev = findPreviousWordOnLine(lineText, separators, col);
-    const next = findNextWordOnLine(lineText, separators, col);
-
-    if (prev && prev.kind === 'regular' && prev.start <= col && col <= prev.end) {
-        return { start: prev.start, end: prev.end };
+function isMaximalCharClassRun(lineText: string, start: number, end: number, separators: string): boolean {
+    if (end <= start || start < 0 || end > lineText.length) { return false; }
+    const cls = classifyChar(lineText.charAt(start), separators);
+    for (let i = start + 1; i < end; i++) {
+        if (classifyChar(lineText.charAt(i), separators) !== cls) { return false; }
     }
-    if (prev && prev.kind === 'separator' && prev.start <= col && col < prev.end) {
-        return { start: prev.start, end: prev.end };
-    }
-    if (next && next.kind === 'regular' && next.start <= col && col <= next.end) {
-        return { start: next.start, end: next.end };
-    }
-    if (next && next.kind === 'separator' && next.start <= col && col < next.end) {
-        return { start: next.start, end: next.end };
-    }
-    // 落点两侧都不相邻任何词（夹在空白中）：内核取 [prevWord.end, nextWord.start]，缺失侧取行首/行尾。
-    return {
-        start: prev ? prev.end : 0,
-        end: next ? next.start : lineText.length
-    };
+    // 左侧不能还是同类（否则说明选区从段中间开始，是拖拽的中间态）
+    if (start > 0 && classifyChar(lineText.charAt(start - 1), separators) === cls) { return false; }
+    // 右侧同理
+    if (end < lineText.length && classifyChar(lineText.charAt(end), separators) === cls) { return false; }
+    return true;
 }
 
 // 判断 text[i] 是否被反斜杠转义（前导连续反斜杠为奇数个 → 被转义，如 \" 不是字符串边界）。
@@ -622,20 +559,20 @@ const NEAR_BRACKET_TOLERANCE = 0;
  * 程序化改选区 kind 不是 Mouse，只会更新光标跟踪、不会进入双击判定，天然防循环。
  *
  * 如何区分「双击」与「从括号左侧按下不松往右拖拽」：
- * 主判据是【选词指纹】——双击必然先经过内核选词（dispatchMouse: mouseDownCount===2 && !inSelectionMode
- * → _wordSelect），故扩展复刻一遍选词算法（见 expectedWordSelectionRange），要求实际选区与「若这是双击
- * 会选出的区间」逐字相同；单击拖拽走 MoveToSelect 逐字符扩展，形状通常不同，于是可判为拖拽。
+ * 主判据是【词边界对齐】——双击必然先经过内核选词（dispatchMouse: mouseDownCount===2 &&
+ * !inSelectionMode → _wordSelect），其结果总是一整段同类字符；单击拖拽走 MoveToSelect 逐字符扩展，
+ * 除非恰好停在类别边界否则对不齐。判据本身见 isMaximalCharClassRun 上方的说明——那里也解释了
+ * 为什么不去逐字复刻选词算法（VSCode 6055fcf8d8b 改过 word() 行为，复刻会在 Cursor 等衍生版上失效）。
  * 它是确定性的、零延迟的，也是唯一挡得住【慢速拖拽】的判据：慢速拖拽跨一个字符要几百毫秒，
  * 任何基于「事件间隔」的闸门都会被同时穿透（间隔够久 + 窗口内无新事件），这一点务必留意。
  *
- * 【原理上无法消除的一类误判】：当双击落点恰好是选词区间的【起点】时，「双击」与「从落点拖到词尾」
- * 的选区完全等价（anchor / active / 范围全同），任何静态判据都区分不了。本仓库 contextView.ts 的
- * `            });` 行就是典型：落点紧贴 } 时，落点 12 == separator 段 `});` 的词首，慢速拖到行尾
- * 得到的选区与双击选词一模一样。对此唯一正确的应对是【事后补救】而非事前拦截 —— 见自愈 B：
+ * 【原理上无法消除的一类误判】：拖拽恰好停在极大同类段的边界上时，选区与双击结果完全相同。
+ * 本仓库 contextView.ts 的 `            });` 行就是典型：落点紧贴 } 时慢速拖到行尾，
+ * 得到的 `});` 与双击选词一模一样。对此唯一正确的应对是【事后补救】而非事前拦截 —— 见自愈 B：
  * 一旦之后还收到鼠标选区事件（= 用户仍按着在拖），立即撤销括号选定并恢复成原生拖动选定。
  *
  * 因此整体是「三道闸门 + 两处自愈」：
- *   · 闸门 1 选词指纹（确定性，零延迟，主判据）；
+ *   · 闸门 1 词边界对齐（确定性，零延迟，主判据）；
  *   · 闸门 2 dragGuard（默认 60ms，零延迟）：挡掉「按下即快速拖」的起步帧；
  *   · 闸门 3 confirmDelay（默认 90ms）：命中后先不落选区、等窗口静默再落，判定期完全不触碰选区；
  *   · 自愈 A：selectToBracket 的 await 期间若发现鼠标仍在移动，落地后立刻复位；
@@ -649,6 +586,12 @@ const NEAR_BRACKET_TOLERANCE = 0;
  *
  * 另外每次手势只有一次判定机会：首个非空鼠标选区事件之后一律转拖拽态，绝不把选区改回括号，
  * 因此没有「括号 ↔ 拖拽」的来回切换/闪烁。
+ *
+ * 【务必注意的时序陷阱】onDidChangeTextEditorSelection 是跨进程异步事件，所以「我们自己写入的选区」
+ * 引发的回声事件可能在同步标志（busy）复位之后才到达，靠标志过滤不住。必须按内容识别回声，
+ * 见 rememberEcho —— 否则中间态空选区会被当成「用户新按下鼠标」，把 gesture.applied 清掉，
+ * 自愈 B 失效，大面积括号选定就留在编辑器里出不来。所有写选区都要走 setSelection。
+ *
  * 物理限制：扩展只能在 VSCode 渲染选区【之后】收到事件、无法拦在其前。若想在鼠标移动【过程中】持续
  * 显示括号选定，就必须逐帧盖掉 VSCode 的拖拽选区 → 必然来回切换，故不做。
  */
@@ -657,11 +600,45 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
     // 关键：即便双击时光标未移动（第一击不产生事件），这里也已是该位置。
     // at = 该位置产生的时刻，供 dragGuard 做「按下→首个非空选区」的间隔判定。
     let lastCaret: { uri: string; position: vscode.Position; at: number } | undefined;
-    // 程序化操作（定位光标 + selectToBracket）期间置真：忽略由此引发的事件，避免污染 lastCaret / 重入判定。
-    // 注意 busy 期间【不再简单丢弃】鼠标选区事件，而是记入 sawMouseWhileApplying 供落地后自愈。
-    let busy = false;
     // 落地（await selectToBracket）期间观察到的鼠标非空选区事件 —— 说明用户其实在拖拽。
     let sawMouseWhileApplying: vscode.Position | undefined;
+    // 落地流程是否仍在进行（同步标志，仅用于给 sawMouseWhileApplying 划一个记录窗口）。
+    // 【不能】用它来过滤「我们自己改选区引发的事件」——见 rememberEcho 的说明。
+    let busy = false;
+
+    // === 识别「我们自己写入的选区」：必须按内容匹配，不能靠 busy 标志 ===
+    // onDidChangeTextEditorSelection 是【跨进程异步事件】（渲染进程 → 扩展宿主 IPC），
+    // 而 busy 是同步布尔。实际时序是：
+    //   ① editor.selection = 单点        → 事件 E1 排入 IPC 队列
+    //   ② await selectToBracket          → 事件 E2 排队
+    //   ③ finally { busy = false }
+    //   ④ E1、E2 这时才到达 —— busy 早已是 false
+    // 于是 E1（空选区）会被当成「用户新按下一次鼠标」：覆盖 lastCaret、重置 gesture，
+    // 把 gesture.applied 一并清掉 → 自愈 B 再也不会执行 → 大面积括号选定与被劫持的拖拽锚点
+    // 就永久留在编辑器里（reload 窗口后首次 IPC 未预热、延迟最大，故那一次必然复现）。
+    // 因此改用与 enclosingSymbol.ts 相同的做法：记下自己写入的选区，事件到达时按内容比对并跳过。
+    let pendingEchoes: vscode.Selection[] = [];
+
+    const rememberEcho = (sel: vscode.Selection) => {
+        pendingEchoes.push(sel);
+        // 一次落地最多产生 3 个回声（中间态单点 + selectToBracket 结果 + 自愈复位）；
+        // 留点余量并限长，避免异常情况下无限增长或旧回声误吞用户的真实事件。
+        if (pendingEchoes.length > 4) { pendingEchoes.shift(); }
+    };
+
+    const isEcho = (sel: vscode.Selection): boolean => {
+        const i = pendingEchoes.findIndex(e => e.anchor.isEqual(sel.anchor) && e.active.isEqual(sel.active));
+        if (i < 0) { return false; }
+        pendingEchoes.splice(i, 1); // 消费掉，防止同一回声挡住后续同位置的真实操作
+        return true;
+    };
+
+    // 写选区的唯一入口：写完立刻登记回声，保证登记发生在事件到达之前
+    //（命令/赋值是同步的，IPC 事件必然更晚）。
+    const setSelection = (editor: vscode.TextEditor, sel: vscode.Selection) => {
+        editor.selection = sel;
+        rememberEcho(sel);
+    };
     // 本手势（自上次空选区起）的状态：
     //   seq     = 手势序号，让确认窗口的延时回调识别自己是否已过期；
     //   judged  = 本手势的判定机会已用掉（首个非空鼠标选区事件已处理，无论是否命中）；
@@ -699,9 +676,10 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
 
     /**
      * 真正落选区。仅在确认窗口静默（已确认不是拖拽）后调用。
-     * 引号 / 字符串内括号两条分支是同步 setSelection，不存在中间态；
-     * 唯有 selectToBracket 需要「先移光标再执行命令」，故它带自愈：await 期间若发现鼠标仍在移动，
-     * 把选区恢复成以 mousedown 落点为锚的原生拖拽选区，修掉被 selectToBracket 劫持的拖拽锚点。
+     * 所有写选区都走 setSelection（登记回声），否则自己引发的异步事件会被误当成用户操作。
+     * 引号 / 字符串内括号两条分支是同步的；唯有 selectToBracket 需要「先移光标再执行命令」，
+     * 故它带自愈：await 期间若发现鼠标仍在移动，把选区恢复成以 mousedown 落点为锚的原生拖拽选区，
+     * 修掉被 selectToBracket 劫持的拖拽锚点。
      */
     const applyPairSelection = async (
         editor: vscode.TextEditor,
@@ -719,10 +697,10 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
                 // selectToBracket 不认引号，故这里自行计算区间；同步一次性改选区，无需 await。
                 const pair = findMatchingQuoteOnLine(lineText, hitCol, hitChar);
                 if (pair) {
-                    editor.selection = new vscode.Selection(
+                    setSelection(editor, new vscode.Selection(
                         new vscode.Position(clickLine, pair[0]),
                         new vscode.Position(clickLine, pair[1] + 1)
-                    );
+                    ));
                 }
                 return;
             }
@@ -734,10 +712,10 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
                 // （如 log('[x]') 双击 [ 会选中整个 (...)）。改为在该字符串范围内做纯文本配对，选中 [...] 本身。
                 const pair = findMatchingBracketOnLine(lineText, hitCol, hitChar, strRange.start, strRange.end);
                 if (pair) {
-                    editor.selection = new vscode.Selection(
+                    setSelection(editor, new vscode.Selection(
                         new vscode.Position(clickLine, pair[0]),
                         new vscode.Position(clickLine, pair[1] + 1)
-                    );
+                    ));
                 }
                 return;
             }
@@ -747,8 +725,11 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
             // 关键：光标放 hitCol 而非 hitCol+1——对连续括号（如 map(( ）+1 会落到第二个 ( 上，
             // 导致 selectToBracket 选中第二个括号对；放在括号左边界则右邻明确是本括号，选中的就是它这一对。
             const insidePos = new vscode.Position(clickLine, hitCol);
-            editor.selection = new vscode.Selection(insidePos, insidePos);
+            setSelection(editor, new vscode.Selection(insidePos, insidePos));
             await vscode.commands.executeCommand('editor.action.selectToBracket', { selectBrackets: true });
+            // 命令改出来的选区同样是「我们引发的」，登记为回声。
+            // 此处读取是同步的，而它的事件要经 IPC 才到达，故登记一定早于事件 —— 顺序是安全的。
+            rememberEcho(editor.selection);
 
             // 自愈 A：await 期间来了鼠标非空选区事件 → 用户其实在拖拽。
             // 此时 selectionStart 已被劫持到匹配的开括号上，必须显式把 anchor 复位到 mousedown 落点，
@@ -757,7 +738,7 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
             if (dragActive) {
                 gesture.isDrag = true;
                 gesture.applied = undefined;
-                editor.selection = new vscode.Selection(anchor, dragActive);
+                setSelection(editor, new vscode.Selection(anchor, dragActive));
             }
         } catch (err) {
             console.error('[context-window] bracket/quote selection failed:', err);
@@ -777,9 +758,14 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
             const sel = e.selections[0];
             const isMouse = e.kind === vscode.TextEditorSelectionChangeKind.Mouse;
 
+            // 第一件事：跳过「我们自己写入的选区」。必须放在最前面、且按内容比对——
+            // 这些事件经 IPC 异步到达，很可能落在 busy 复位之后（reload 窗口后的首次尤其如此），
+            // 若不在此拦掉，那个中间态空选区就会被当成「用户新按下鼠标」，覆盖 lastCaret 并重置
+            // gesture（连 gesture.applied 一起清掉），自愈 B 便再也不会执行。详见 rememberEcho。
+            if (isEcho(sel)) { return; }
+
             if (busy) {
                 // 落地期间的鼠标非空选区事件 = 用户仍在拖拽，记下最新位置供 applyPairSelection 自愈。
-                // 程序化事件（我们自己改选区引发的）kind 不是 Mouse，会被这里过滤掉。
                 if (!sel.isEmpty && isMouse) {
                     sawMouseWhileApplying = sel.active;
                 }
@@ -824,13 +810,12 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
                 const appliedAnchor = gesture.applied;
                 gesture.applied = undefined;
                 if (appliedAnchor) {
-                    busy = true;
                     try {
-                        editor.selection = new vscode.Selection(appliedAnchor, sel.active);
+                        // 走 setSelection 登记回声：这次复位同样会异步回一个事件，
+                        // 不登记的话它会被当成用户操作，把 lastCaret / gesture 再污染一遍。
+                        setSelection(editor, new vscode.Selection(appliedAnchor, sel.active));
                     } catch (err) {
                         console.error('[context-window] restoring drag selection failed:', err);
-                    } finally {
-                        busy = false;
                     }
                 }
                 return;
@@ -868,17 +853,13 @@ function registerBracketPairSelectionOnDoubleClick(context: vscode.ExtensionCont
             }
             if (hitCol < 0) { return; }
 
-            // 闸门 1（选词指纹，确定性、始终生效、零延迟）：双击必然先经过内核选词
-            //（dispatchMouse: mouseDownCount===2 && !inSelectionMode → _wordSelect），
-            // 故实际选区必须与「若这是双击，选词会给出的区间」逐字相同（含方向：anchor 在词首、active 在词尾）。
-            // 单击拖拽走的是 MoveToSelect，逐字符扩展，选区形状与该指纹几乎必然不同 → 可靠判为拖拽。
-            // 这是唯一能挡住【慢速拖拽】的判据：慢速拖拽跨一个字符要几百毫秒，纯时间的闸门必然被穿透。
-            const expected = expectedWordSelectionRange(lineText, caret.position.character, wordSeparatorsFor(doc));
-            const expectedSel = new vscode.Selection(
-                new vscode.Position(clickLine, expected.start),
-                new vscode.Position(clickLine, expected.end)
-            );
-            if (!sel.isEqual(expectedSel)) {
+            // 闸门 1（词边界对齐，确定性、始终生效、零延迟）：双击必然先经过内核选词，
+            // 其结果总是一整段同类字符；而单击拖拽逐字符扩展，除非恰好停在类别边界否则对不齐。
+            // 用「对齐」而不是「精确等于复刻出的选词区间」，是为了兼容不同 VSCode 版本 / 衍生版
+            // （Cursor 等）之间 word() 行为的差异，详见 isMaximalCharClassRun 上方的说明。
+            if (sel.start.line !== clickLine
+                || sel.end.line !== clickLine
+                || !isMaximalCharClassRun(lineText, sel.start.character, sel.end.character, wordSeparatorsFor(doc))) {
                 gesture.isDrag = true;
                 return;
             }
