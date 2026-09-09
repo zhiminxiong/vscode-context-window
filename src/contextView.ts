@@ -2171,6 +2171,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     </span>
                 </div>
                 <div class="nav-mode-cluster">
+                    <div class="nav-refresh" id="nav-refresh" role="button" title="Refresh the file shown in Context"></div>
                     <!-- 跳转模式：靠左，长度变化时不挤 Sticky / { }。点击上拉选择。 -->
                     <div class="jump-mode" id="jump-mode" title="Jump mode: Go to Definition">
                         <span class="nav-mode-icon" id="jump-mode-icon"></span>

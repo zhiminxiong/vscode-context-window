@@ -1011,7 +1011,8 @@ body .monaco-editor .find-widget {
 .jump-mode:hover,
 .jump-mode.open,
 .si-indicator:hover,
-.nav-view-toggle:hover {
+.nav-view-toggle:hover,
+.nav-refresh:hover {
     background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
 }
 .nav-view-toggles {
@@ -1041,6 +1042,24 @@ body .monaco-editor .find-widget {
 }
 .nav-view-toggle.is-on svg {
     opacity: 1;
+}
+.nav-refresh {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 24px;
+    padding: 0 4px;
+    border-radius: 3px;
+    box-sizing: border-box;
+    cursor: pointer;
+    user-select: none;
+    color: var(--vscode-descriptionForeground);
+}
+.nav-refresh svg {
+    display: block;
+    width: 14px;
+    height: 14px;
+    opacity: 0.85;
 }
 .update-mode-label,
 .jump-mode-label {

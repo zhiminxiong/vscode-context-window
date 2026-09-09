@@ -716,11 +716,6 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     }
                                 }
                             },
-                            {
-                                label: 'Refresh',
-                                disabled: !editorState.uri,
-                                action: () => vscode.postMessage({ type: 'refreshContent' })
-                            },
                             { type: 'separator' },
                             {
                                 label: 'Show Relation',
