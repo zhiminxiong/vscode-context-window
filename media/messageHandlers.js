@@ -257,5 +257,12 @@ export function createMessageHandlers(ctx) {
         }
     }
 
-    return { handleUpdateMetadata, handleUpdateContent, handleNoContent, handleUpdateSemantic };
+    function handleInvalidateFileCache(message) {
+        if (message.uri) {
+            fileContentCache.delete(message.uri);
+        }
+        state.renderedUri = undefined;
+    }
+
+    return { handleUpdateMetadata, handleUpdateContent, handleNoContent, handleUpdateSemantic, handleInvalidateFileCache };
 }

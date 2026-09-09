@@ -9,7 +9,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 #### Added
 
 - **Find Relation**: reuses Show Relation's incoming walk — callers of a function, or reference sites of a variable / field / type — and lists every site in the sidebar REFERENCES view (same panel as Find All References). Click a result to open that location in the editor. Editor and Context Window right-click menus, plus the command palette. The walk loads only first-level incoming (no outgoing, no neighbor prefetch). Starting a search clears the previous REFERENCES list first and cancels the previous Find.
-- **Find Relation (in ContextView)** and jump mode **Relation**: same incoming list as Show Relation, shown in the Context definition list. The menu switches jump type to Relation.
+- Context Window right-click **Refresh** (next to Copy): reloads the file on screen from the editor, dropping the view’s caches. Use it when something else updated the file and the panel is still showing the old text. Works while pinned.
 
 #### Changed
 

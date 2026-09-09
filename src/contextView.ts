@@ -1108,6 +1108,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         this.navigate(message.direction);
                     }
                     break;
+                case 'refreshContent':
+                    await this.handleRefreshContent();
+                    break;
                 case 'requestContent':
                     this.handleRequestContent(message);
                     break;
@@ -1361,6 +1364,53 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             await vscode.commands.executeCommand('revealFileInOS', uri);
         } catch (error) {
             console.error('[context-window] revealInExplorer error:', error);
+        }
+    }
+
+    // 右键 Refresh：丢掉前后端文件缓存，按当前 URI/range 重读。钉住时也能用。
+    private async handleRefreshContent(): Promise<void> {
+        const shown = this._lastContent ?? this.getCurrentContent()?.content;
+        if (!shown?.jmpUri) {
+            return;
+        }
+        let uri: vscode.Uri;
+        try {
+            uri = vscode.Uri.parse(shown.jmpUri.toString());
+        } catch {
+            return;
+        }
+        const start = shown.range?.start;
+        const end = shown.range?.end;
+        const range = new vscode.Range(
+            start?.line ?? 0,
+            start?.character ?? 0,
+            end?.line ?? start?.line ?? 0,
+            end?.character ?? start?.character ?? 0
+        );
+        const hist = this.getCurrentContent();
+        const curLine = hist?.navigateLine ?? -1;
+        const curColumn = hist?.navigateColumn ?? -1;
+        const previous = shown;
+        this.postMessageToWebview({ type: 'invalidateFileCache', uri: uri.toString() });
+        this._renderer.invalidateUri(uri);
+        this._lastContent = undefined;
+        this._lastContentHash = undefined;
+        try {
+            await this.withProgress(async () => {
+                const contentInfo = await this._renderer.renderUriRange(uri, range);
+                if (this._history.length > this._historyIndex && this._history[this._historyIndex]) {
+                    this._history[this._historyIndex].content = contentInfo;
+                    this.schedulePersist();
+                }
+                this.updateContent(contentInfo, curLine, curColumn);
+                this.invalidateCacheKey();
+            });
+        } catch (err) {
+            if (!this._lastContent) {
+                this._lastContent = previous;
+                this._lastContentHash = `${previous.jmpUri.toString()}:${previous.documentVersion}`;
+            }
+            console.error('[context-window] refresh content failed:', err);
         }
     }
 

@@ -109,6 +109,10 @@ export class Renderer {
         this._fileCache.clear();
     }
 
+    public invalidateUri(uri: vscode.Uri): void {
+        this._fileCache.delete(uri.toString());
+    }
+
     // 判断某文档对应语言是否启用了语义高亮（对齐 VSCode：读取 editor.semanticHighlighting.enabled，
     // 并按文档语言解析 "[languageId]": {...} 这类按语言覆盖）。
     // 取值规则与 VSCode 一致：仅当显式为 false 时禁用；true / "configuredByTheme" / 未设置 均视为启用。

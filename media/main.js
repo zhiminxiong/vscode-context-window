@@ -716,6 +716,11 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     }
                                 }
                             },
+                            {
+                                label: 'Refresh',
+                                disabled: !editorState.uri,
+                                action: () => vscode.postMessage({ type: 'refreshContent' })
+                            },
                             { type: 'separator' },
                             {
                                 label: 'Show Relation',
@@ -933,7 +938,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                     // 消息处理逻辑已抽离到 messageHandlers.js（工厂持有 editor / editorState /
                     // 前端缓存 / vscode 通信 及内容更新、定义列表清理等回调）
-                    const { handleUpdateMetadata, handleUpdateContent, handleNoContent, handleUpdateSemantic } = createMessageHandlers({
+                    const { handleUpdateMetadata, handleUpdateContent, handleNoContent, handleUpdateSemantic, handleInvalidateFileCache } = createMessageHandlers({
                         editor,
                         state: editorState,
                         fileContentCache,
@@ -1226,6 +1231,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                     break;
                                 case 'endProgress':
                                     document.querySelector('.progress-container').style.display = 'none';
+                                    break;
+                                case 'invalidateFileCache':
+                                    handleInvalidateFileCache(message);
                                     break;
                                 case 'updateMetadata':
                                     lineBlame.clear();
