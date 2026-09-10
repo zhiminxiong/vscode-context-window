@@ -89,6 +89,17 @@ export const editorStyles = `
                 z-index: 1000 !important;
             }
 
+            /* Hover 下划线是正文装饰；粘附行会克隆 inlineClassName，
+               滚轮滚动不触发 mousemove，装饰仍挂在已滚出的词上，就会画进 sticky。
+               这里只去掉下划线。不要改 font-weight：inherit 会盖掉主题里
+               keyword/type 本来的粗体（export、class 等）。 */
+            .monaco-editor .sticky-widget .ctrl-hover-link,
+            .monaco-editor .sticky-widget .ctrl-hover-link-dark,
+            .monaco-editor .sticky-line-content .ctrl-hover-link,
+            .monaco-editor .sticky-line-content .ctrl-hover-link-dark {
+                text-decoration: none !important;
+            }
+
             .monaco-editor {
                 cursor: pointer !important;
                 user-select: none !important;
