@@ -404,6 +404,112 @@ function collectCallables(symbols: readonly unknown[] | undefined, out: Enclosin
  *   group a reference to onDidChangeTextEditorSelection under
  *   "onDidChangeTextEditorSelection() callback")
  */
+function namesMatch(symbolName: string, query: string): boolean {
+    const a = identFromName(symbolName);
+    const b = identFromName(query);
+    return !!a && !!b && a === b;
+}
+
+function lineDistance(range: vscode.Range, hintLine: number): number {
+    return Math.abs(range.start.line - hintLine);
+}
+
+function pickClosestNamed(
+    matches: EnclosingCallable[],
+    hintLine: number
+): EnclosingCallable | undefined {
+    if (!matches.length) {
+        return undefined;
+    }
+    let best = matches[0];
+    let bestDist = lineDistance(best.selectionRange, hintLine);
+    for (let i = 1; i < matches.length; i++) {
+        const dist = lineDistance(matches[i].selectionRange, hintLine);
+        if (dist < bestDist) {
+            best = matches[i];
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+
+function isIdentChar(ch: string | undefined): boolean {
+    return !!ch && /[A-Za-z0-9_$]/.test(ch);
+}
+
+/** 正文里按标识符扫一遍，给 document symbol 尚未覆盖的名字做退路。 */
+function findIdentRangeInDocument(
+    doc: vscode.TextDocument,
+    ident: string,
+    hintLine: number
+): vscode.Range | undefined {
+    if (!ident) {
+        return undefined;
+    }
+    let best: vscode.Range | undefined;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (let line = 0; line < doc.lineCount; line++) {
+        const text = doc.lineAt(line).text;
+        let from = 0;
+        while (from <= text.length - ident.length) {
+            const at = text.indexOf(ident, from);
+            if (at < 0) {
+                break;
+            }
+            if (!isIdentChar(text[at - 1]) && !isIdentChar(text[at + ident.length])) {
+                const dist = Math.abs(line - hintLine);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = new vscode.Range(line, at, line, at + ident.length);
+                }
+            }
+            from = at + ident.length;
+        }
+    }
+    return best;
+}
+
+/**
+ * 文件改过之后，按符号名（不是旧行号）找回定义名的 selectionRange。
+ * 同名多个时取离 hint 最近的一个；document symbol 没有再扫正文。
+ */
+export async function relocateSymbolsByName(
+    uri: vscode.Uri,
+    items: readonly { name: string; hintLine: number }[]
+): Promise<(vscode.Range | undefined)[]> {
+    if (!items.length) {
+        return [];
+    }
+    const found = await documentSymbols(uri);
+    let doc: vscode.TextDocument | undefined;
+    const out: (vscode.Range | undefined)[] = [];
+    for (const item of items) {
+        const query = (item.name || '').trim();
+        const hintLine = Number.isFinite(item.hintLine) ? item.hintLine : 0;
+        const matches = query ? found.filter(s => namesMatch(s.name, query)) : [];
+        const picked = pickClosestNamed(matches, hintLine);
+        if (picked) {
+            out.push(picked.selectionRange);
+            continue;
+        }
+        const ident = identFromName(query);
+        if (!ident) {
+            out.push(undefined);
+            continue;
+        }
+        if (!doc) {
+            try {
+                doc = await vscode.workspace.openTextDocument(uri);
+            } catch {
+                out.push(undefined);
+                continue;
+            }
+        }
+        out.push(findIdentRangeInDocument(doc, ident, hintLine));
+    }
+    return out;
+}
+
 export async function enclosingCallable(
     uri: vscode.Uri,
     line: number,

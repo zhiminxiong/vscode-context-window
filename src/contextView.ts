@@ -4,7 +4,7 @@ import { Renderer, FileContentInfo } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent, getLanguageConfiguration } from './grammarRegistry';
 import { blameLine, blameLineDiff, openBlameDiff } from './lineBlame';
-import { enclosingSymbolRange } from './enclosingSymbol';
+import { enclosingSymbolRange, relocateSymbolsByName } from './enclosingSymbol';
 import { collectCallerLocationsAt } from './findRelation';
 
 export const FLOAT_CONTEXT_VIEW_TYPE = 'FloatContextView';
@@ -1367,7 +1367,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
-    // 右键 Refresh：丢掉前后端文件缓存，按当前 URI/range 重读。钉住时也能用。
+    // 右键 Refresh：丢掉前后端文件缓存，按当前 URI 重读。钉住时也能用。
+    // 文件改过之后旧行号对不上，高亮和跳转链按符号名重新定位。
     private async handleRefreshContent(): Promise<void> {
         const shown = this._lastContent ?? this.getCurrentContent()?.content;
         if (!shown?.jmpUri) {
@@ -1387,9 +1388,6 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             end?.line ?? start?.line ?? 0,
             end?.character ?? start?.character ?? 0
         );
-        const hist = this.getCurrentContent();
-        const curLine = hist?.navigateLine ?? -1;
-        const curColumn = hist?.navigateColumn ?? -1;
         const previous = shown;
         this.postMessageToWebview({ type: 'invalidateFileCache', uri: uri.toString() });
         this._renderer.invalidateUri(uri);
@@ -1397,12 +1395,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         this._lastContentHash = undefined;
         try {
             await this.withProgress(async () => {
-                const contentInfo = await this._renderer.renderUriRange(uri, range);
+                const contentInfo = await this.relocateRefreshedContent(uri, range, shown);
                 if (this._history.length > this._historyIndex && this._history[this._historyIndex]) {
                     this._history[this._historyIndex].content = contentInfo;
                     this.schedulePersist();
                 }
-                this.updateContent(contentInfo, curLine, curColumn);
+                this.currentLine = contentInfo.range.start.line;
+                this.currentColumn = contentInfo.range.start.character;
+                this.updateContent(contentInfo);
                 this.invalidateCacheKey();
             });
         } catch (err) {
@@ -1412,6 +1412,46 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             }
             console.error('[context-window] refresh content failed:', err);
         }
+    }
+
+    private async relocateRefreshedContent(
+        uri: vscode.Uri,
+        staleRange: vscode.Range,
+        previous: FileContentInfo
+    ): Promise<FileContentInfo> {
+        const contentInfo = await this._renderer.renderUriRange(uri, staleRange);
+        const key = uri.toString();
+        const sameFile = this._history.filter(h => historyUriMatches(h.content?.jmpUri, key));
+        if (!sameFile.length) {
+            const name = this.getCurrentContent()?.symbolName || nameFromContent(previous);
+            const [relocated] = await relocateSymbolsByName(uri, [{
+                name,
+                hintLine: previous.range?.start?.line ?? 0
+            }]);
+            if (relocated) {
+                contentInfo.range = {
+                    start: { line: relocated.start.line, character: relocated.start.character },
+                    end: { line: relocated.end.line, character: relocated.end.character }
+                };
+            }
+            return contentInfo;
+        }
+        const relocated = await relocateSymbolsByName(uri, sameFile.map(h => ({
+            name: h.symbolName || nameFromContent(h.content) || nameFromContent(previous),
+            hintLine: h.content?.range?.start?.line ?? previous.range?.start?.line ?? 0
+        })));
+        for (let i = 0; i < sameFile.length; i++) {
+            const found = relocated[i];
+            const nextRange = found
+                ? {
+                    start: { line: found.start.line, character: found.start.character },
+                    end: { line: found.end.line, character: found.end.character }
+                }
+                : sameFile[i].content!.range;
+            sameFile[i].content = { ...contentInfo, range: nextRange };
+        }
+        const current = this.getCurrentContent().content;
+        return current ?? contentInfo;
     }
 
     // WebView 请求完整内容（优先命中最近一次的单槽缓存，未命中则按 uri 现取）
@@ -2583,6 +2623,20 @@ function definitionTarget(def: vscode.Location | vscode.LocationLink | undefined
         }
     }
     return undefined;
+}
+
+function historyUriMatches(jmpUri: string | undefined, key: string): boolean {
+    if (!jmpUri) {
+        return false;
+    }
+    if (jmpUri === key) {
+        return true;
+    }
+    try {
+        return vscode.Uri.parse(jmpUri).toString() === key;
+    } catch {
+        return false;
+    }
 }
 
 function basenameFromUri(uri?: string): string {
