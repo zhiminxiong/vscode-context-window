@@ -372,6 +372,19 @@ body.has-jump-trail #container {
     color: var(--vscode-descriptionForeground, #999);
 }
 
+/* 提交信息里的链接。平时无下划线；悬停才出下划线 + 手型。 */
+.cw-line-blame-hover-msg a.cw-line-blame-hover-link {
+    cursor: pointer !important;
+    color: var(--vscode-textLink-foreground, #3794ff);
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.cw-line-blame-hover-msg a.cw-line-blame-hover-link:hover {
+    color: var(--vscode-textLink-activeForeground, #4daafc);
+    text-decoration: underline;
+}
+
 .cw-line-blame-hover-foot {
     flex-shrink: 0;
 }

@@ -483,6 +483,91 @@ export function createLineBlame(ctx) {
         return el;
     }
 
+    // 提交信息里的 http(s) 与 <a href>：做成真链接。webview CSP 禁止直接跳转，
+    // 点击交给扩展端 vscode.env.openExternal。不要 innerHTML 整段提交信息。
+    const COMMIT_LINK_RE = /<a\s+[^>]*href\s*=\s*["'](https?:\/\/[^"'\s]+)["'][^>]*>([\s\S]*?)<\/a>|https?:\/\/[^\s<>"'`]+/gi;
+
+    function isSafeHttpUrl(href) {
+        try {
+            const u = new URL(href);
+            return u.protocol === 'http:' || u.protocol === 'https:';
+        } catch {
+            return false;
+        }
+    }
+
+    function trimUrlTail(raw) {
+        return String(raw || '').replace(/[.,;:!?)]+$/g, '');
+    }
+
+    function openHoverLink(href) {
+        if (!href || !isSafeHttpUrl(href) || !window.vscode) {
+            return;
+        }
+        window.vscode.postMessage({ type: 'openExternal', url: href });
+    }
+
+    function makeHoverLink(href, label) {
+        const a = document.createElement('a');
+        a.className = 'cw-line-blame-hover-link';
+        a.href = href;
+        a.textContent = label || href;
+        a.title = href;
+        a.addEventListener('click', ev => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            openHoverLink(href);
+        });
+        return a;
+    }
+
+    function addLinkedText(parent, className, text) {
+        const el = document.createElement('div');
+        if (className) {
+            el.className = className;
+        }
+        const src = String(text || '');
+        if (!src) {
+            parent.appendChild(el);
+            return el;
+        }
+        COMMIT_LINK_RE.lastIndex = 0;
+        let last = 0;
+        let m = COMMIT_LINK_RE.exec(src);
+        while (m) {
+            if (m.index > last) {
+                el.appendChild(document.createTextNode(src.slice(last, m.index)));
+            }
+            if (m[1]) {
+                const href = m[1];
+                const label = String(m[2] || '').replace(/<[^>]+>/g, '').trim() || href;
+                if (isSafeHttpUrl(href)) {
+                    el.appendChild(makeHoverLink(href, label));
+                } else {
+                    el.appendChild(document.createTextNode(m[0]));
+                }
+            } else {
+                const raw = m[0];
+                const href = trimUrlTail(raw);
+                if (isSafeHttpUrl(href)) {
+                    el.appendChild(makeHoverLink(href, href));
+                    if (raw.length > href.length) {
+                        el.appendChild(document.createTextNode(raw.slice(href.length)));
+                    }
+                } else {
+                    el.appendChild(document.createTextNode(raw));
+                }
+            }
+            last = m.index + m[0].length;
+            m = COMMIT_LINK_RE.exec(src);
+        }
+        if (last < src.length) {
+            el.appendChild(document.createTextNode(src.slice(last)));
+        }
+        parent.appendChild(el);
+        return el;
+    }
+
     // 单行替换时高亮中间不同的片段，对齐 GitLens 行内 diff。
     function splitAffix(a, b) {
         const left = String(a || '');
@@ -807,10 +892,10 @@ export function createLineBlame(ctx) {
         const msg = document.createElement('div');
         msg.className = 'cw-line-blame-hover-msg';
         if (subject) {
-            addText(msg, 'cw-line-blame-hover-summary', subject);
+            addLinkedText(msg, 'cw-line-blame-hover-summary', subject);
         }
         if (body) {
-            addText(msg, 'cw-line-blame-hover-body', body);
+            addLinkedText(msg, 'cw-line-blame-hover-body', body);
         }
         if (msg.childNodes.length) {
             tips.appendChild(msg);

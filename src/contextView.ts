@@ -638,6 +638,23 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
     }
 
+    // 行 blame 浮窗提交信息里的 http(s) 链接。webview CSP 禁跳转，由这边打开。
+    private async handleOpenExternal(message: any) {
+        const raw = String(message?.url ?? '').trim();
+        if (!raw) {
+            return;
+        }
+        try {
+            const uri = vscode.Uri.parse(raw);
+            if (uri.scheme !== 'http' && uri.scheme !== 'https') {
+                return;
+            }
+            await vscode.env.openExternal(uri);
+        } catch (err) {
+            console.error('[context-window] openExternal failed:', err);
+        }
+    }
+
     // 浮窗 Changes：在主编辑区打开 previousSha ↔ sha 的文件 diff。
     private async handleOpenLineBlameChanges(message: any) {
         const uri = String(message?.uri ?? '');
@@ -1156,6 +1173,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     break;
                 case 'openLineBlameChanges':
                     await this.handleOpenLineBlameChanges(message);
+                    break;
+                case 'openExternal':
+                    await this.handleOpenExternal(message);
                     break;
                 case 'toggleSelectBracketPair':
                     // {si} 与快捷键/右键菜单切同一项。只改行为开关，不回推主题。
