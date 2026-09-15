@@ -14,6 +14,11 @@ export interface SemanticPayload {
     data: number[];
 }
 
+export interface FileStamp {
+    mtime: number;
+    size: number;
+}
+
 export interface FileContentInfo {
     content: string;
     range: {
@@ -28,12 +33,16 @@ export interface FileContentInfo {
     // 对齐 VSCode：legend 与 data 解耦。legend 快、随内容一起下发，供前端首帧建 styling；
     // data慢、异步补取。此字段为「仅 legend」，即使 data 尚未取到也可先行下发。
     legend?: SemanticLegend | null;
+    // 上次读到这份正文时的磁盘 mtime+size。git 改盘而 VS Code 不重载时，
+    // doc.version 不变，靠这个判断该不该丢缓存、改从磁盘读。
+    fileStamp?: FileStamp | null;
 }
 
 interface FileCacheEntry {
     content: string;
     languageId: string;
     documentVersion: number;  // 添加：文档版本号
+    fileStamp?: FileStamp | null;
     // 与内容同版本缓存的语义 token，三态语义（不要退化成只用 null）：
     //   undefined = 从未索取过（命中缓存时按需补取并回填）
     //   null      = 索取过且确认为空（不必重复请求语言服务器）
@@ -52,6 +61,23 @@ interface LoadedContent {
     lineCount: number;
     semantic?: SemanticPayload | null;
     legend?: SemanticLegend | null;
+    fileStamp?: FileStamp | null;
+}
+
+export async function statFile(uri: vscode.Uri): Promise<FileStamp | null> {
+    if (uri.scheme !== 'file' && uri.scheme !== 'vscode-remote') {
+        return null;
+    }
+    try {
+        const st = await vscode.workspace.fs.stat(uri);
+        return { mtime: st.mtime, size: st.size };
+    } catch {
+        return null;
+    }
+}
+
+export function stampsEqual(a?: FileStamp | null, b?: FileStamp | null): boolean {
+    return !!a && !!b && a.mtime === b.mtime && a.size === b.size;
 }
 
 export class Renderer {
@@ -66,6 +92,9 @@ export class Renderer {
     //   命中时 delete + set 把条目移到末尾（最近使用）；
     //   淘汰时直接取 keys().next().value（最旧条目）。
     private readonly _fileCache = new Map<string, FileCacheEntry>();
+    // 每个 uri 上次读正文时的磁盘戳。小文件不进 _fileCache，git 改盘后仍靠这里发现。
+    // invalidateUri 只清内容、不清戳，否则 Refresh 后对不上旧盘、会误信过期 buffer。
+    private readonly _fileStamps = new Map<string, FileStamp>();
     // 后端大文件缓存容量（可配）：最多缓存多少个大文件
     private maxCacheSize = 20;
     // 大文件 size 阈值（字节，可配）：文件内容超过该大小视为大文件，需要后端缓存
@@ -107,6 +136,7 @@ export class Renderer {
         this._onNeedsRender.dispose();
 
         this._fileCache.clear();
+        this._fileStamps.clear();
     }
 
     public invalidateUri(uri: vscode.Uri): void {
@@ -154,7 +184,8 @@ export class Renderer {
             documentVersion: loaded.documentVersion,
             lineCount: loaded.lineCount,
             semantic: loaded.semantic,
-            legend: loaded.legend
+            legend: loaded.legend,
+            fileStamp: loaded.fileStamp ?? null
         };
     }
 
@@ -191,8 +222,12 @@ export class Renderer {
      */
     private async loadContent(uri: vscode.Uri, fallbackLanguageId?: string): Promise<LoadedContent> {
         const cacheKey = uri.toString();
+        const diskStampP = statFile(uri);
         const doc = await this.acquireDocument(uri);
+        const diskStamp = await diskStampP;
         const currentVersion = doc.version;
+        const prevStamp = this._fileCache.get(cacheKey)?.fileStamp ?? this._fileStamps.get(cacheKey);
+        const diskChanged = !!(diskStamp && prevStamp && !stampsEqual(prevStamp, diskStamp));
         // 仅在非默认 tokenizer 模式（useDefaultTokenizer 关闭）下才向语言服务器索取语义 token：
         // 此时基础语法层由真实 TextMate 接管、语义层叠加其上。默认模式纯用 Monaco 内置 tokenizer，无需多一次较贵的语义请求。
         // 同时尊重 VSCode 的 editor.semanticHighlighting.enabled（含按语言覆盖，如 "[csharp]": {...}）：
@@ -202,11 +237,49 @@ export class Renderer {
             .get<boolean>('useDefaultTokenizer', true)
             && this.isSemanticHighlightingEnabled(doc);
 
+        const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
+        const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || fallbackLanguageId || 'plaintext');
+
+        // git 改盘而 VS Code 没重载：buffer / 大文件缓存都可能仍是旧的，doc.version 也不涨。
+        // 未保存的编辑以 buffer 为准，不覆盖。
+        if (!doc.isDirty && diskChanged && diskStamp) {
+            const content = await this.readDiskText(uri);
+            const semantic = undefined;
+            const legend = needSemantic ? await this.getLegendTokens(doc) : undefined;
+            this._fileStamps.set(cacheKey, diskStamp);
+            if (this._fileCache.has(cacheKey) || content.length > this.largeFileSizeThreshold) {
+                this.addToCache(cacheKey, {
+                    content,
+                    languageId: finalLanguageId,
+                    documentVersion: currentVersion,
+                    fileStamp: diskStamp,
+                    semantic,
+                    legend
+                });
+            }
+            return {
+                content,
+                languageId: finalLanguageId,
+                documentVersion: currentVersion,
+                lineCount: this.lineCountOf(content),
+                semantic,
+                legend: legend ?? null,
+                fileStamp: diskStamp
+            };
+        }
+
+        if (diskStamp) {
+            this._fileStamps.set(cacheKey, diskStamp);
+        }
+
         // 命中后端大文件缓存且版本一致：直接返回，并把条目移到末尾（O(1) LRU）
         const cached = this._fileCache.get(cacheKey);
         if (cached && cached.documentVersion === currentVersion) {
             this._fileCache.delete(cacheKey);
             this._fileCache.set(cacheKey, cached);
+            if (diskStamp && !cached.fileStamp) {
+                cached.fileStamp = diskStamp;
+            }
             // 对齐 VSCode：内容加载阶段不阻塞取整篇 data，只取（或复用）legend 随内容下发；
             // data 交由上层 scheduleSemanticUpdate 异步补取，避免拖慢首屏内容返回。
             let legend = cached.legend;
@@ -221,12 +294,11 @@ export class Renderer {
                 lineCount: doc.lineCount,
                 // 已缓存到的 data 直接带出（命中即用）；未取过则为 undefined，交由上层异步补取
                 semantic: needSemantic ? cached.semantic : null,
-                legend: needSemantic ? (legend ?? null) : null
+                legend: needSemantic ? (legend ?? null) : null,
+                fileStamp: diskStamp ?? cached.fileStamp ?? null
             };
         }
 
-        const fileExtension = uri.fsPath.toLowerCase().split('.').pop();
-        const finalLanguageId = fileExtension === 'inc' ? 'cpp' : (doc.languageId || fallbackLanguageId || 'plaintext');
         const content = this.readFullFileContent(doc);
         // 语义 token 三态：
         //   undefined —— 本次未向语言服务器索取整篇 data（内容优先返回，data 交上层异步补取；
@@ -244,6 +316,7 @@ export class Renderer {
                 content,
                 languageId: finalLanguageId,
                 documentVersion: currentVersion,
+                fileStamp: diskStamp ?? null,
                 semantic,
                 legend
             });
@@ -255,7 +328,8 @@ export class Renderer {
             documentVersion: currentVersion,
             lineCount: doc.lineCount,
             semantic,
-            legend: legend ?? null
+            legend: legend ?? null,
+            fileStamp: diskStamp ?? null
         };
     }
 
@@ -428,6 +502,24 @@ export class Renderer {
     private readFullFileContent(doc: vscode.TextDocument): string {
         const rangeText = new vscode.Range(0, 0, doc.lineCount, 0);
         return doc.getText(rangeText);
+    }
+
+    private async readDiskText(uri: vscode.Uri): Promise<string> {
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        return new TextDecoder('utf8').decode(bytes);
+    }
+
+    private lineCountOf(text: string): number {
+        if (!text) {
+            return 1;
+        }
+        let n = 1;
+        for (let i = 0; i < text.length; i++) {
+            if (text.charCodeAt(i) === 10) {
+                n++;
+            }
+        }
+        return n;
     }
 
     // 添加到缓存（O(1) LRU）

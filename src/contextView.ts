@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { lockPanelGroup, showPanelInNewWindow } from './auxiliaryWindow';
-import { Renderer, FileContentInfo } from './renderer';
+import { Renderer, FileContentInfo, statFile, stampsEqual } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent, getLanguageConfiguration } from './grammarRegistry';
 import { blameLine, blameLineDiff, openBlameDiff } from './lineBlame';
@@ -1251,13 +1251,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const currentVersion = content.documentVersion;
         const msg: any = {
             type: 'updateMetadata',
-            contentHash: `${uri}:${currentVersion}`,
+            contentHash: contentInfoHash(content),
             uri,
             languageId: content.languageId,
             updateMode: this._updateMode,
             curLine,
             curColumn,
-            documentVersion: currentVersion
+            documentVersion: currentVersion,
+            fileStamp: content.fileStamp ?? null
         };
         if (includeRange) {
             msg.range = content.range;
@@ -1428,7 +1429,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         } catch (err) {
             if (!this._lastContent) {
                 this._lastContent = previous;
-                this._lastContentHash = `${previous.jmpUri.toString()}:${previous.documentVersion}`;
+                this._lastContentHash = contentInfoHash(previous);
             }
             console.error('[context-window] refresh content failed:', err);
         }
@@ -1489,6 +1490,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 range: this._lastContent.range,
                 documentVersion: hitVersion,
                 lineCount: this._lastContent.lineCount,
+                fileStamp: this._lastContent.fileStamp ?? null,
                 // 对齐 VSCode：内容阶段带 legend（快、供首帧建 styling），不带 data（TextMate 先着色）
                 semantic: null,
                 legend: this._lastContent.legend ?? null
@@ -1514,6 +1516,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     updateMode: this._updateMode,
                     documentVersion: info.documentVersion,
                     lineCount: info.lineCount,
+                    fileStamp: info.fileStamp ?? null,
                     // 对齐 VSCode：内容阶段带 legend（快、供首帧建 styling），不带 data（TextMate 先着色）
                     semantic: null,
                     legend: info.legend ?? null
@@ -1804,7 +1807,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 }
 
                 const target = definitionTarget(definition);
-                const contentInfo = (target && this.reuseShownContent(target.uri, target.range))
+                const contentInfo = (target && await this.reuseShownContent(target.uri, target.range))
                     || await this._renderer.renderDefinition(editor.document.languageId, definition);
                 // message.position 是「离开当前段时点击的行/列」，行列一起记，返回时才能落回该 token。
                 // message.token 是用户点的词，即这一跳的目的地名字。
@@ -1921,14 +1924,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         };
 
         const target = definitionTarget(selected.definition);
-        const reused = target ? this.reuseShownContent(target.uri, target.range) : undefined;
-        if (reused) {
-            apply(reused);
-            return;
-        }
-
         const updatePromise = (async () => {
             try {
+                const reused = target ? await this.reuseShownContent(target.uri, target.range) : undefined;
+                if (reused) {
+                    apply(reused);
+                    return;
+                }
                 apply(await this._renderer.renderDefinition(
                     editor?.document.languageId || 'plaintext',
                     selected.definition
@@ -1949,7 +1951,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     }
 
     /** 当前面板已在展示该文件、文档仍打开、且版本未变时，只换 range，不重读正文。 */
-    private reuseShownContent(uri: vscode.Uri, range: vscode.Range): FileContentInfo | undefined {
+    private async reuseShownContent(uri: vscode.Uri, range: vscode.Range): Promise<FileContentInfo | undefined> {
         const shown = this._lastContent;
         if (!shown?.jmpUri || shown.jmpUri.toString() !== uri.toString()) {
             return undefined;
@@ -1960,6 +1962,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         // 关掉之后磁盘可能已变，交给 renderDefinition 重新 acquire 再读。
         if (!open || open.version !== shown.documentVersion) {
             return undefined;
+        }
+        // 有未保存编辑时以 buffer 为准，不对磁盘戳。
+        // 干净文档：git 改盘后 version 往往不变，再 stat 一次，对不上就重读。
+        if (!open.isDirty && shown.fileStamp) {
+            const disk = await statFile(uri);
+            if (disk && !stampsEqual(shown.fileStamp, disk)) {
+                return undefined;
+            }
         }
         return {
             ...shown,
@@ -2267,7 +2277,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         if (contentInfo && contentInfo.content.length && contentInfo.jmpUri) {
             // 只缓存最近一次的内容（供前端请求使用）
             const prevLang = this._semanticRulesLanguageId;
-            this._lastContentHash = `${contentInfo.jmpUri.toString()}:${contentInfo.documentVersion}`;
+            this._lastContentHash = contentInfoHash(contentInfo);
             this._lastContent = contentInfo;
             if (contentInfo.languageId && contentInfo.languageId !== prevLang) {
                 this._semanticRulesLanguageId = contentInfo.languageId;
@@ -2675,6 +2685,12 @@ function basenameFromUri(uri?: string): string {
 }
 
 // 从定义 range 截出标识符，供跳转链显示。range 通常是 targetSelectionRange（名字本身）。
+function contentInfoHash(content: FileContentInfo): string {
+    const stamp = content.fileStamp;
+    const extra = stamp ? `:${stamp.mtime}:${stamp.size}` : '';
+    return `${content.jmpUri.toString()}:${content.documentVersion}${extra}`;
+}
+
 function nameFromContent(info: FileContentInfo | undefined): string {
     if (!info || !info.content) {
         return '';

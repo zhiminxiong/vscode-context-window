@@ -14,6 +14,7 @@
  * 前端文件内容缓存条目（uri -> entry），供命中即秒开。
  * @typedef {Object} CacheEntry
  * @property {number} version         文档版本号（documentVersion）
+ * @property {{ mtime: number, size: number } | null} [fileStamp]  磁盘 mtime+size，git 改盘后 version 不变时用来区分缓存
  * @property {string} content         文件正文
  * @property {number} [lines]         行数
  * @property {number} [size]          内容大小（字符数，近似字节），用于淘汰评分
@@ -60,10 +61,12 @@ export function createMessageHandlers(ctx) {
         state.curLine = message.curLine;
         state.curColumn = message.curColumn;
         const requestVersion = message.documentVersion;
+        const stampKey = (s) => (s && typeof s.mtime === 'number') ? `${s.mtime}:${s.size}` : '';
+        const requestStamp = stampKey(message.fileStamp);
 
         // 检查前端缓存
         const cached = fileContentCache.get(state.uri);
-        if (cached && cached.version === requestVersion) {
+        if (cached && cached.version === requestVersion && stampKey(cached.fileStamp) === requestStamp) {
             // 缓存命中且版本匹配：刷新访问时间，使淘汰策略成为真正的 LRU
             // （淘汰时按 timestamp 升序踢最旧项，命中不刷新会退化为 FIFO，热点文件会被误淘汰）
             cached.timestamp = Date.now();
@@ -97,12 +100,12 @@ export function createMessageHandlers(ctx) {
             }
         } else {
             // 缓存未命中或版本不匹配，请求完整内容
-            // 如果版本不匹配，先清除旧缓存
-            if (cached && cached.version !== requestVersion) {
+            // 如果版本或磁盘戳不匹配，先清除旧缓存
+            if (cached && (cached.version !== requestVersion || stampKey(cached.fileStamp) !== requestStamp)) {
                 fileContentCache.delete(state.uri);
             }
 
-            const contentHash = `${state.uri}:${requestVersion}`;
+            const contentHash = message.contentHash || `${state.uri}:${requestVersion}`;
 
             vscode.postMessage({
                 type: 'requestContent',
@@ -123,6 +126,7 @@ export function createMessageHandlers(ctx) {
         // 大文件无条件入缓存：每个跳转过的定义文件都缓存，命中即秒开
         fileContentCache.set(cacheUri, {
             version: message.documentVersion,
+            fileStamp: message.fileStamp || null,
             content: body,
             lines: message.lineCount,  // 添加行数信息
             size: body.length,         // 添加内容大小（字符数，近似字节），用于淘汰评分
