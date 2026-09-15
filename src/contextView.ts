@@ -1948,7 +1948,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }, 0);
     }
 
-    /** 当前面板已在展示该文件且版本未变时，只换 range，不重读正文。 */
+    /** 当前面板已在展示该文件、文档仍打开、且版本未变时，只换 range，不重读正文。 */
     private reuseShownContent(uri: vscode.Uri, range: vscode.Range): FileContentInfo | undefined {
         const shown = this._lastContent;
         if (!shown?.jmpUri || shown.jmpUri.toString() !== uri.toString()) {
@@ -1956,7 +1956,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
         const key = uri.toString();
         const open = vscode.workspace.textDocuments.find(d => !d.isClosed && d.uri.toString() === key);
-        if (open && open.version !== shown.documentVersion) {
+        // 不在 textDocuments 里：没有可对比的 version，不能当命中。
+        // 关掉之后磁盘可能已变，交给 renderDefinition 重新 acquire 再读。
+        if (!open || open.version !== shown.documentVersion) {
             return undefined;
         }
         return {
