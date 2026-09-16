@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [unReleased]
+
+#### Fixed
+
+- Dragging from the start of a line to its end no longer flashes and then drops the selection: an in-text drag that grows through partial ranges is not treated as a line-number click, and git line-blame does not redraw its trailing annotation during the drag. Double-clicking a line number still selects the enclosing symbol.
+
 ## [1.1.2] 2026.09.13
 
 #### Added

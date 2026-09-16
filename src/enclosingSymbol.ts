@@ -621,6 +621,8 @@ async function rangeFromFolding(uri: vscode.Uri, line: number): Promise<vscode.R
 /**
  * 是否为「点行号」产生的单行整行选区：
  * (line, 0) → (line+1, 0)（含换行）或 (line, 0) → 行尾。
+ * 有的宿主点行号只选到行尾、不含下一行行首；这两种都要认，行号双击才能成立。
+ * 正文里从行首拖到行尾也会变成这种形状，不能单靠它区分，要另看手势是否先经过非整行选区。
  * 多行选区（行号栏拖拽）返回 false。
  */
 export function isSingleFullLineSelection(doc: vscode.TextDocument, sel: vscode.Selection): boolean {
@@ -667,6 +669,8 @@ export function registerLineNumberSymbolSelection(context: vscode.ExtensionConte
     let busy = false;
     let echo: vscode.Selection | undefined;
     let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+    /** 本手势已经出现过非整行的鼠标选区 → 是正文拖选，后面即使拖成整行也不当行号单击。 */
+    let inTextDrag = false;
 
     /** 丢掉我们自己改出来的那次选区变化。 */
     const isEcho = (sel: vscode.Selection): boolean => {
@@ -711,6 +715,7 @@ export function registerLineNumberSymbolSelection(context: vscode.ExtensionConte
             }
             if (sel.isEmpty) {
                 lastGutter = undefined;
+                inTextDrag = false;
                 return;
             }
             if (e.kind === vscode.TextEditorSelectionChangeKind.Keyboard
@@ -726,11 +731,18 @@ export function registerLineNumberSymbolSelection(context: vscode.ExtensionConte
                 .get<boolean>(CONFIG_VSCODE, false);
             if (!enabled) {
                 lastGutter = undefined;
+                inTextDrag = false;
                 return;
             }
 
-            // 多行或非整行：行号拖选、选词等，交给 VSCode，本次判定作废。
+            // 非整行：正文拖选的中间帧，或行号栏拖出多行。记下 inTextDrag，
+            // 后面就算拖成整行也不当行号单击，这样行号双击（一上来就是整行）仍在。
             if (!isSingleFullLineSelection(doc, sel)) {
+                inTextDrag = true;
+                lastGutter = undefined;
+                return;
+            }
+            if (inTextDrag) {
                 lastGutter = undefined;
                 return;
             }

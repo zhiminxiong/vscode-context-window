@@ -1093,9 +1093,9 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
             return;
         }
         const selection = editor.selection;
-        // 跨行选择时行尾注解只是噪音，且「当前行」已经没有单一含义。
-        if (selection.start.line !== selection.end.line) {
-            clear();
+        // 拖选过程中不要重画行尾 after 文字：从行首拖到行尾时选区盖住装饰落点，
+        // setDecorations 会让行闪一下，鼠标打到 after 上还会把选区清掉。
+        if (!selection.isEmpty) {
             return;
         }
         const line0 = selection.active.line;
@@ -1110,6 +1110,7 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
         // （lineAt 会抛），这次结果就作废。
         const stillMine = () => mine === generation
             && vscode.window.activeTextEditor === editor
+            && editor.selection.isEmpty
             && editor.selection.active.line === line0
             && line0 < doc.lineCount
             && isEnabled();
@@ -1229,6 +1230,15 @@ export function registerEditorLineBlame(context: vscode.ExtensionContext): void 
                     || selection.start.line !== selection.end.line);
             if (leftTheLine) {
                 clear();
+            }
+            // 非空选区：取消已排队的刷新，避免拖选中途 setDecorations。
+            // 已画着的注解先留着，免得行尾假文字突然消失造成布局跳动。
+            if (!selection.isEmpty) {
+                if (timer) {
+                    clearTimeout(timer);
+                    timer = undefined;
+                }
+                return;
             }
             schedule();
         }),
