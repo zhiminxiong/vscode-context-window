@@ -39,6 +39,38 @@ function decodeNodeId(raw) {
 
 let prefetchSpinRaf = 0;
 
+/** VS Code `.codicon-loading`: 1s/turn, cubic-bezier(.53,.21,.29,.67) — slow at top, fast at bottom. */
+const PREFETCH_SPIN_MS = 1000;
+const PREFETCH_SPIN_BEZIER = [0.53, 0.21, 0.29, 0.67];
+
+function bezierCoord(t, a, b) {
+    const u = 1 - t;
+    return 3 * u * u * t * a + 3 * u * t * t * b + t * t * t;
+}
+
+function bezierCoordDx(t, a, b) {
+    const u = 1 - t;
+    return 3 * u * u * a + 6 * u * t * (b - a) + 3 * t * t * (1 - b);
+}
+
+function cubicBezierProgress(x, x1, y1, x2, y2) {
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+        const xt = bezierCoord(t, x1, x2);
+        const d = bezierCoordDx(t, x1, x2);
+        if (Math.abs(d) < 1e-6) {
+            break;
+        }
+        t -= (xt - x) / d;
+        if (t < 0) {
+            t = 0;
+        } else if (t > 1) {
+            t = 1;
+        }
+    }
+    return bezierCoord(t, y1, y2);
+}
+
 function armPrefetchSpin() {
     if (prefetchSpinRaf) {
         return;
@@ -49,7 +81,8 @@ function armPrefetchSpin() {
             prefetchSpinRaf = 0;
             return;
         }
-        const deg = (Date.now() / 700 * 360) % 360;
+        const x = (Date.now() % PREFETCH_SPIN_MS) / PREFETCH_SPIN_MS;
+        const deg = cubicBezierProgress(x, ...PREFETCH_SPIN_BEZIER) * 360;
         for (const arc of arcs) {
             arc.style.transform = `rotate(${deg}deg)`;
         }

@@ -1406,6 +1406,7 @@ button.cr-cycle {
     border-top-color: var(--vscode-foreground);
     border-radius: 50%;
     pointer-events: none;
+    transform-origin: 50% 50%;
 }
 
 .cr-node-tip {
