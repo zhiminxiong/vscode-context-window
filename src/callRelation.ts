@@ -7,7 +7,7 @@ export type ChildSort = 'name' | 'order';
 export const CALL_PAGE = 12;
 export const CALL_MAX_HOP = 8;
 /** Each Expand All adds at most this many nodes; run again to continue. */
-const CALL_EXPAND_ALL_NODES = 120;
+const CALL_EXPAND_ALL_NODES = 40;
 /** Stop remaining prefetch jobs after an incoming peek this large. */
 const CALL_HOT_PREFETCH = 200;
 
