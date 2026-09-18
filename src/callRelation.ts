@@ -1085,6 +1085,13 @@ export class CallRelationModel {
         opts?: { lean?: boolean }
     ): Promise<{ graph: RelationGraph; seq: number } | undefined> {
         const name = await tokenAt(uri, position);
+        if (!opts?.lean) {
+            const early = await this.itemFromCursor(uri, position);
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            this.paintCenterNow(early || this.stubCenterItem(uri, position, name), seq, 'reference');
+        }
         const refs = await this.execLsp<vscode.Location[]>(
             seq,
             'vscode.executeReferenceProvider',
@@ -1117,6 +1124,7 @@ export class CallRelationModel {
         const rootKey = itemKey(this.root);
         this.outgoing.set(rootKey, []);
         if (!opts?.lean) {
+            this.paintNow(seq);
             const sel = this.root.selectionRange?.start ?? this.root.range.start;
             this.rootTypeName = await resolveValueType(
                 this.root.uri,
@@ -1366,6 +1374,9 @@ export class CallRelationModel {
         }
         const seqPrepare = this.seq;
         costLog('loadRoot begin', 0, loc);
+        if (!maybeSame) {
+            await this.paintLocalCenter(uri, position, seqPrepare);
+        }
 
         const valueSym = await symbolAtPosition(uri, position);
         if (!this.isCurrent(seqPrepare)) {
@@ -1933,6 +1944,101 @@ export class CallRelationModel {
             return;
         }
         this.graphListener?.(this.buildGraph(), seq);
+    }
+
+    /** Show the cursor symbol before prepare / references return. */
+    private async paintLocalCenter(
+        uri: vscode.Uri,
+        position: vscode.Position,
+        seq: number
+    ): Promise<void> {
+        const item = await this.itemFromCursor(uri, position);
+        if (!item || !this.isCurrent(seq)) {
+            return;
+        }
+        const mode = isReferenceRelationKind(item.kind) ? 'reference' : 'call';
+        this.paintCenterNow(item, seq, mode);
+    }
+
+    private paintCenterNow(
+        item: vscode.CallHierarchyItem,
+        seq: number,
+        mode: 'call' | 'reference'
+    ): void {
+        if (!this.isCurrent(seq)) {
+            return;
+        }
+        const key = itemKey(item);
+        const same = !!(this.root && itemKey(this.root) === key && this.relationMode === mode);
+        if (!same) {
+            this.shown.clear();
+            this.expanded.clear();
+            this.keepExpand.clear();
+            this.keepGroups.clear();
+            this.collapseLock.clear();
+            this.prevRoot = undefined;
+            this.incomingHint = undefined;
+            this.rootTypeName = '';
+            this.relationMode = mode;
+            this.root = item;
+            this.remember(this.root);
+            this.resetCenter(this.root);
+            if (mode === 'reference' && !this.outgoing.has(key)) {
+                this.outgoing.set(key, []);
+            }
+        }
+        this.paintNow(seq);
+    }
+
+    private async itemFromCursor(
+        uri: vscode.Uri,
+        position: vscode.Position
+    ): Promise<vscode.CallHierarchyItem | undefined> {
+        try {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const wr = doc.getWordRangeAtPosition(position);
+            const name = wr ? identFromToken(doc.getText(wr)) : '';
+            if (name && wr) {
+                return new vscode.CallHierarchyItem(
+                    vscode.SymbolKind.Method,
+                    name,
+                    '',
+                    uri,
+                    wr,
+                    wr
+                );
+            }
+        } catch {
+            // Fall through to the enclosing callable.
+        }
+        const enc = await enclosingCallable(uri, position.line);
+        if (!enc) {
+            return undefined;
+        }
+        return new vscode.CallHierarchyItem(
+            enc.kind,
+            enc.name,
+            enc.detail,
+            uri,
+            enc.range,
+            enc.selectionRange
+        );
+    }
+
+    private stubCenterItem(
+        uri: vscode.Uri,
+        position: vscode.Position,
+        name: string
+    ): vscode.CallHierarchyItem {
+        const range = new vscode.Range(position, position);
+        return new vscode.CallHierarchyItem(
+            vscode.SymbolKind.Variable,
+            name || 'symbol',
+            '',
+            uri,
+            range,
+            range
+        );
     }
 
     private async completeRootSides(seq: number, t0: number, label: string): Promise<RelationGraph | undefined> {
