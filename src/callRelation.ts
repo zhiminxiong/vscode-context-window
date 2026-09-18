@@ -10,6 +10,10 @@ export const CALL_MAX_HOP = 8;
 const CALL_EXPAND_ALL_NODES = 40;
 /** Stop remaining prefetch jobs after an incoming peek this large. */
 const CALL_HOT_PREFETCH = 200;
+/** Mixed prefetch wave size (outgoing can fill this). */
+const PREFETCH_BATCH = 6;
+/** Incoming `provideIncomingCalls` in one wave; outgoing may still fill PREFETCH_BATCH. */
+const PREFETCH_IN_PARALLEL = 2;
 
 export type RelationLoad = { graph: RelationGraph; seq: number };
 
@@ -2218,38 +2222,76 @@ export class CallRelationModel {
         return pending;
     }
 
+    private takePrefetchWave(
+        remaining: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[]
+    ): { wave: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[]; rest: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] } {
+        const wave: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
+        const rest: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
+        let incoming = 0;
+        for (const job of remaining) {
+            if (wave.length >= PREFETCH_BATCH) {
+                rest.push(job);
+                continue;
+            }
+            if (job.dir < 0) {
+                if (incoming >= PREFETCH_IN_PARALLEL) {
+                    rest.push(job);
+                    continue;
+                }
+                incoming++;
+            }
+            wave.push(job);
+        }
+        return { wave, rest };
+    }
+
     private async prefetchNextHop(seq: number, nodes: RelationNode[]): Promise<void> {
         const pending = this.collectPrefetchJobs(nodes);
         if (!pending.length) {
             return;
         }
-        const limit = 6;
         const t0 = Date.now();
-        const batches = Math.ceil(pending.length / limit);
-        costLog('prefetch start', 0, `jobs=${pending.length} batches=${batches}`);
-        for (let i = 0; i < pending.length; i += limit) {
+        const inJobs = pending.filter(job => job.dir < 0).length;
+        costLog(
+            'prefetch start',
+            0,
+            `jobs=${pending.length} in=${inJobs} out=${pending.length - inJobs} inParallel=${PREFETCH_IN_PARALLEL}`
+        );
+        let remaining = pending;
+        let done = 0;
+        let batch = 0;
+        while (remaining.length) {
             if (!this.isCurrent(seq)) {
-                costLog('prefetch cancelled', Date.now() - t0, `done=${i}/${pending.length}`);
+                costLog('prefetch cancelled', Date.now() - t0, `done=${done}/${pending.length}`);
                 return;
             }
-            const batch = Math.floor(i / limit) + 1;
+            const next = this.takePrefetchWave(remaining);
+            remaining = next.rest;
+            const chunk = next.wave;
+            batch++;
             const tBatch = Date.now();
-            await Promise.all(pending.slice(i, i + limit).map(job => (
+            await Promise.all(chunk.map(job => (
                 job.dir < 0 ? this.ensureIncoming(job.item, seq) : this.ensureOutgoing(job.item, seq)
             )));
-            costLog('prefetch batch', Date.now() - tBatch, `${batch}/${batches} size=${Math.min(limit, pending.length - i)}`);
+            done += chunk.length;
+            const inChunk = chunk.filter(job => job.dir < 0).length;
+            costLog(
+                'prefetch batch',
+                Date.now() - tBatch,
+                `${batch} size=${chunk.length} in=${inChunk} out=${chunk.length - inChunk}`
+            );
             if (this.isCurrent(seq)) {
                 this.graphListener?.(this.buildGraph(), seq);
             }
-            const hot = pending.slice(i, i + limit).some(job => (
+            const hot = chunk.some(job => (
                 job.dir < 0 && (this.incoming.get(itemKey(job.item))?.length ?? 0) >= CALL_HOT_PREFETCH
             ));
             if (hot) {
-                costLog('prefetch stop hot', Date.now() - t0, `done=${Math.min(i + limit, pending.length)}/${pending.length}`);
+                costLog('prefetch stop hot', Date.now() - t0, `done=${done}/${pending.length}`);
                 return;
             }
         }
-        costLog('prefetch total', Date.now() - t0, `jobs=${pending.length}`);
+        costLog('prefetch total', Date.now() - t0, `jobs=${pending.length} in=${inJobs} out=${pending.length - inJobs}`);
     }
 
     buildGraph(): RelationGraph {
@@ -2736,6 +2778,8 @@ export class CallRelationModel {
             depth: number;
             external: boolean;
         }>();
+        const identCall = new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`);
+        const lineCache = new Map<string, Promise<string[] | undefined>>();
         const chunk = 12;
         for (let i = 0; i < locations.length; i += chunk) {
             await Promise.all(locations.slice(i, i + chunk).map(async loc => {
@@ -2761,15 +2805,18 @@ export class CallRelationModel {
                 ))) {
                     return;
                 }
-                let lineText = '';
-                try {
-                    const doc = await vscode.workspace.openTextDocument(loc.uri);
-                    lineText = doc.lineAt(Math.min(loc.range.start.line, doc.lineCount - 1)).text;
-                } catch {
+                const uk = loc.uri.toString();
+                let pendingLines = lineCache.get(uk);
+                if (!pendingLines) {
+                    pendingLines = this.fileLines(loc.uri);
+                    lineCache.set(uk, pendingLines);
+                }
+                const lines = await pendingLines;
+                if (!lines?.length) {
                     return;
                 }
-                if (isParentOrDeclIncomingLine(lineText, ident)
-                    || !new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`).test(lineText)) {
+                const lineText = lines[Math.min(loc.range.start.line, lines.length - 1)] || '';
+                if (isParentOrDeclIncomingLine(lineText, ident) || !identCall.test(lineText)) {
                     return;
                 }
                 const enc = await enclosingCallable(loc.uri, loc.range.start.line, ident);
@@ -2827,6 +2874,23 @@ export class CallRelationModel {
             const k = this.remember(group.item);
             items.push(this.items.get(k)!);
             this.rememberCallSite(key, -1, group.item, group.item.uri, group.sites, item.name);
+        }
+    }
+
+    private async fileLines(uri: vscode.Uri): Promise<string[] | undefined> {
+        const open = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === uri.toString());
+        if (open) {
+            const lines: string[] = [];
+            for (let i = 0; i < open.lineCount; i++) {
+                lines.push(open.lineAt(i).text);
+            }
+            return lines;
+        }
+        try {
+            const bytes = await vscode.workspace.fs.readFile(uri);
+            return new TextDecoder('utf8').decode(bytes).split(/\r\n|\n|\r/);
+        } catch {
+            return undefined;
         }
     }
 

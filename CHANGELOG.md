@@ -6,6 +6,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [unReleased]
 
+#### Changed
+
+- Relation override-incoming classify reads each reference file’s line text from disk (or an already-open editor) without `openTextDocument`, and only then asks the language server for symbols. Neighbor prefetch runs at most two incoming peeks at a time. Keep/drop rules are unchanged.
+
 #### Fixed
 
 - Dragging from the start of a line to its end no longer flashes and then drops the selection: an in-text drag that grows through partial ranges is not treated as a line-number click, and git line-blame does not redraw its trailing annotation during the drag. Double-clicking a line number still selects the enclosing symbol.
