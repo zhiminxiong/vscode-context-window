@@ -1105,7 +1105,8 @@ export class CallRelationModel {
         if (!this.isCurrent(seq)) {
             return undefined;
         }
-        if (this.root && this.relationMode === 'reference' && itemKey(this.root) === itemKey(root)) {
+        if (this.root && this.relationMode === 'reference' && itemKey(this.root) === itemKey(root)
+            && this.incoming.has(itemKey(root))) {
             this.prevRoot = undefined;
             this.incomingHint = undefined;
             return { graph: this.buildGraph(), seq };
@@ -1425,8 +1426,10 @@ export class CallRelationModel {
             if (this.openedFromCallSite(uri, position, next) && this.sideEmpty(next, -1)) {
                 return this.recenterViaCallerOutgoing(uri, position, seqPrepare, t0, next, next.name);
             }
-            costLog('loadRoot same', Date.now() - t0, itemLabel(next));
-            return { graph: this.buildGraph(), seq: seqPrepare };
+            if (this.incoming.has(itemKey(next)) && this.outgoing.has(itemKey(next))) {
+                costLog('loadRoot same', Date.now() - t0, itemLabel(next));
+                return { graph: this.buildGraph(), seq: seqPrepare };
+            }
         }
         if (this.root && itemKey(this.root) === itemKey(next) && this.relationMode === 'reference') {
             this.forgetSides(next);

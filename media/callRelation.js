@@ -784,8 +784,8 @@ function createTwinBadge(node, twins) {
     const n = twins.length;
     badge.textContent = '×' + (n > 99 ? '99+' : String(n));
     badge.setAttribute('aria-label', n === 2
-        ? 'Same function on another call path — click to jump'
-        : `Same function on ${n} call paths — click to jump to the next`);
+        ? 'Same function on another call path — click to jump. Hold Alt to highlight both.'
+        : `Same function on ${n} call paths — click to jump to the next. Hold Alt to highlight all.`);
     badge.addEventListener('click', ev => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -2697,9 +2697,10 @@ function fillNodeTip(tip, node) {
             const jumpHint = isCyclicNode(lastGraph, node)
                 ? 'Click ↻ to jump.'
                 : `Click ×${total} to jump.`;
+            const altHint = 'Hold Alt to highlight the others.';
             alias.textContent = vias.length === 1
-                ? `Same function on ${total} call paths — also under ${vias[0]}. ${jumpHint}`
-                : `Same function on ${total} call paths — also under ${vias.join(', ')}. ${jumpHint}`;
+                ? `Same function on ${total} call paths — also under ${vias[0]}. ${jumpHint} ${altHint}`
+                : `Same function on ${total} call paths — also under ${vias.join(', ')}. ${jumpHint} ${altHint}`;
             tip.appendChild(alias);
         }
     }
