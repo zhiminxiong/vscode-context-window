@@ -28,6 +28,8 @@ export interface RelationNode {
     kind: RelationNodeKind;
     moreCount?: number;
     expandable?: boolean;
+    /** Neighbor side is being peeked; show a spinner instead of +/-. */
+    prefetching?: boolean;
     expanded?: boolean;
     expandKey?: string;
     compact?: boolean;
@@ -668,6 +670,13 @@ export class CallRelationModel {
     private cts = new vscode.CancellationTokenSource();
     private readonly inflightIn = new Map<string, Promise<void>>();
     private readonly inflightOut = new Map<string, Promise<void>>();
+    /** Neighbor prefetch is async; the extension host is still one thread. */
+    private prefetchBusy = false;
+    private prefetchQueued = false;
+    /** True while a neighbor peek sweep is in flight; drives spinner buttons. */
+    private prefetchActive = false;
+    /** In-flight expandHop node ids; a second click on the same + is ignored. */
+    private readonly hopBusy = new Set<string>();
     private graphListener: ((graph: RelationGraph, seq: number) => void) | undefined;
 
     setGraphListener(listener: ((graph: RelationGraph, seq: number) => void) | undefined): void {
@@ -688,6 +697,9 @@ export class CallRelationModel {
         this.cts.dispose();
         this.cts = new vscode.CancellationTokenSource();
         this.seq++;
+        this.prefetchQueued = false;
+        this.prefetchActive = false;
+        this.hopBusy.clear();
     }
 
     reset(): void {
@@ -718,6 +730,9 @@ export class CallRelationModel {
         this.fileGen.clear();
         this.inflightIn.clear();
         this.inflightOut.clear();
+        this.prefetchQueued = false;
+        this.prefetchActive = false;
+        this.hopBusy.clear();
     }
 
     rootUri(): string | undefined {
@@ -1162,7 +1177,7 @@ export class CallRelationModel {
         this.incoming.set(rootKey, callers);
         const graph = opts?.lean
             ? this.buildGraph()
-            : await this.buildVisible(seq, true);
+            : await this.buildVisible(seq);
         if (!graph || !this.isCurrent(seq)) {
             return undefined;
         }
@@ -1316,7 +1331,7 @@ export class CallRelationModel {
         if (this.sideEmpty(this.root, -1)) {
             this.incoming.set(itemKey(this.root), [caller]);
             this.incomingHint = undefined;
-            return this.buildVisible(seq, true);
+            return this.buildVisible(seq);
         }
         return graph;
     }
@@ -1516,7 +1531,7 @@ export class CallRelationModel {
         const seq = this.seq;
         const current = this.shown.get(nodeId) ?? CALL_PAGE;
         this.shown.set(nodeId, current + CALL_PAGE);
-        const graph = await this.buildVisible(seq, true);
+        const graph = await this.buildVisible(seq);
         return graph ? { graph, seq } : undefined;
     }
 
@@ -1561,26 +1576,35 @@ export class CallRelationModel {
         if (!item) {
             return { graph: this.buildGraph(), seq };
         }
-        this.collapseLock.delete(nodeId);
-        if (node.hop < 0) {
-            await this.ensureIncoming(item, seq);
-        } else if (node.hop > 0) {
-            await this.ensureOutgoing(item, seq);
-        } else {
-            await Promise.all([this.ensureIncoming(item, seq), this.ensureOutgoing(item, seq)]);
-        }
-        if (!this.isCurrent(seq)) {
-            costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
+        if (this.hopBusy.has(nodeId)) {
+            costLog('expandHop skipped inflight', Date.now() - t0, `${node.name} hop=${node.hop}`);
             return undefined;
         }
-        if (this.collapseLock.has(nodeId)) {
-            costLog('expandHop collapsed', Date.now() - t0, `${node.name} hop=${node.hop}`);
-            return { graph: this.buildGraph(), seq };
+        this.hopBusy.add(nodeId);
+        this.collapseLock.delete(nodeId);
+        try {
+            if (node.hop < 0) {
+                await this.ensureIncoming(item, seq);
+            } else if (node.hop > 0) {
+                await this.ensureOutgoing(item, seq);
+            } else {
+                await Promise.all([this.ensureIncoming(item, seq), this.ensureOutgoing(item, seq)]);
+            }
+            if (!this.isCurrent(seq)) {
+                costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
+                return undefined;
+            }
+            if (this.collapseLock.has(nodeId)) {
+                costLog('expandHop collapsed', Date.now() - t0, `${node.name} hop=${node.hop}`);
+                return { graph: this.buildGraph(), seq };
+            }
+            this.expanded.add(nodeId);
+            const graph = await this.buildVisible(seq);
+            costLog('expandHop', Date.now() - t0, `${node.name} hop=${node.hop}`);
+            return graph ? { graph, seq } : undefined;
+        } finally {
+            this.hopBusy.delete(nodeId);
         }
-        this.expanded.add(nodeId);
-        const graph = await this.buildVisible(seq, true);
-        costLog('expandHop', Date.now() - t0, `${node.name} hop=${node.hop}`);
-        return graph ? { graph, seq } : undefined;
     }
 
     collapseAll(): RelationGraph {
@@ -1691,7 +1715,7 @@ export class CallRelationModel {
             }
             const todo = graph.nodes.filter(n => (
                 n.kind === 'symbol'
-                && n.expandable
+                && this.nodeCanGrow(n)
                 && !n.expanded
                 && !n.cyclic
                 && n.id !== graph.rootId
@@ -1727,7 +1751,7 @@ export class CallRelationModel {
                 break;
             }
         }
-        const graph = await this.buildVisible(seq, true);
+        const graph = await this.buildVisible(seq);
         costLog('expandAll', Date.now() - t0, '');
         return graph ? { graph, seq } : undefined;
     }
@@ -1900,7 +1924,7 @@ export class CallRelationModel {
         if (keepKey) {
             this.keepGroups.add(keepKey);
         }
-        const graph = await this.buildVisible(seq, true);
+        const graph = await this.buildVisible(seq);
         return graph ? { graph, seq } : undefined;
     }
 
@@ -1917,7 +1941,7 @@ export class CallRelationModel {
         }
         const rootKey = itemKey(this.root);
         if (!this.incoming.has(rootKey)) {
-            const early = await this.buildVisible(seq, false);
+            const early = await this.buildVisible(seq);
             if (early && this.isCurrent(seq)) {
                 this.graphListener?.(early, seq);
             }
@@ -1929,10 +1953,10 @@ export class CallRelationModel {
             }
             costLog('incoming ready', Date.now() - t0, label);
         }
-        return this.buildVisible(seq, true);
+        return this.buildVisible(seq);
     }
 
-    private async buildVisible(seq: number, waitPrefetch = false): Promise<RelationGraph | undefined> {
+    private async buildVisible(seq: number): Promise<RelationGraph | undefined> {
         if (!this.isCurrent(seq)) {
             return undefined;
         }
@@ -1946,33 +1970,50 @@ export class CallRelationModel {
         if (!this.isCurrent(seq)) {
             return undefined;
         }
-        if (waitPrefetch) {
-            await this.prefetchNextHop(seq, latest.nodes);
-            if (!this.isCurrent(seq)) {
-                return undefined;
-            }
-            return this.buildGraph();
-        }
-        void this.prefetchInBackground(seq, latest.nodes);
-        return latest;
+        this.prefetchActive = this.collectPrefetchJobs(latest.nodes).length > 0;
+        this.prefetchInBackground(seq);
+        return this.prefetchActive ? this.buildGraph() : latest;
     }
 
-    private async prefetchInBackground(seq: number, nodes: RelationNode[]): Promise<void> {
-        await this.prefetchNextHop(seq, nodes);
+    /**
+     * Peek neighbor sides without blocking the graph. LSP runs in the language
+     * server process; this only avoids awaiting it on the paint path.
+     * A jump bumps `seq` so this sweep stops painting; in-flight LSP may still
+     * write the side cache if `cacheEpoch` is unchanged.
+     */
+    private prefetchInBackground(seq: number): void {
         if (!this.isCurrent(seq)) {
             return;
         }
-        this.graphListener?.(this.buildGraph(), seq);
+        if (this.prefetchBusy) {
+            this.prefetchQueued = true;
+            return;
+        }
+        this.prefetchBusy = true;
+        this.prefetchQueued = false;
+        void this.prefetchNextHop(seq, this.buildGraph().nodes).finally(() => {
+            this.prefetchBusy = false;
+            if (this.prefetchQueued) {
+                this.prefetchQueued = false;
+                this.prefetchInBackground(this.seq);
+                return;
+            }
+            if (!this.isCurrent(seq)) {
+                return;
+            }
+            this.prefetchActive = false;
+            this.graphListener?.(this.buildGraph(), seq);
+        });
     }
 
-    private async prefetchNextHop(seq: number, nodes: RelationNode[]): Promise<void> {
+    private collectPrefetchJobs(nodes: RelationNode[]): { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] {
         const pending: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
         const seen = new Set<string>();
         for (const node of nodes) {
             if (node.kind !== 'symbol' || node.hop === 0 || Math.abs(node.hop) >= CALL_MAX_HOP) {
                 continue;
             }
-            if (node.expanded) {
+            if (node.expanded || node.cyclic) {
                 continue;
             }
             const item = this.items.get(node.itemKey);
@@ -1991,6 +2032,11 @@ export class CallRelationModel {
             seen.add(mark);
             pending.push({ item, dir });
         }
+        return pending;
+    }
+
+    private async prefetchNextHop(seq: number, nodes: RelationNode[]): Promise<void> {
+        const pending = this.collectPrefetchJobs(nodes);
         if (!pending.length) {
             return;
         }
@@ -2009,6 +2055,9 @@ export class CallRelationModel {
                 job.dir < 0 ? this.ensureIncoming(job.item, seq) : this.ensureOutgoing(job.item, seq)
             )));
             costLog('prefetch batch', Date.now() - tBatch, `${batch}/${batches} size=${Math.min(limit, pending.length - i)}`);
+            if (this.isCurrent(seq)) {
+                this.graphListener?.(this.buildGraph(), seq);
+            }
             const hot = pending.slice(i, i + limit).some(job => (
                 job.dir < 0 && (this.incoming.get(itemKey(job.item))?.length ?? 0) >= CALL_HOT_PREFETCH
             ));
@@ -2065,6 +2114,7 @@ export class CallRelationModel {
             node.expanded = opened;
             if (opened) {
                 node.expandable = Math.abs(node.hop) < CALL_MAX_HOP;
+                node.prefetching = false;
             }
         }
     }
@@ -2163,6 +2213,13 @@ export class CallRelationModel {
             childNode.cyclic = cyclic;
             childNode.expanded = opened;
             childNode.expandable = !cyclic && Math.abs(hop) < CALL_MAX_HOP && this.canExpand(child, dir);
+            childNode.prefetching = !opened
+                && !cyclic
+                && !childNode.expandable
+                && this.prefetchActive
+                && Math.abs(hop) < CALL_MAX_HOP
+                && !isLibPath(child.uri.fsPath)
+                && (dir < 0 ? !this.incoming.has(childKey) : !this.outgoing.has(childKey));
             childNode.compact = compact;
             nodes.push(childNode);
             if (dir < 0) {
@@ -3130,6 +3187,7 @@ export class CallRelationModel {
         return this.sideList(item, dir)?.length ?? 0;
     }
 
+    /** +/- only after a peek: missing cache means no button, not an optimistic +. */
     private canExpand(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {
         if (this.relationMode === 'reference' && this.root && itemKey(item) === itemKey(this.root) && dir > 0) {
             return false;
@@ -3137,9 +3195,24 @@ export class CallRelationModel {
         const key = itemKey(item);
         const peeked = dir < 0 ? this.incoming.has(key) : this.outgoing.has(key);
         if (!peeked) {
-            return true;
+            return false;
         }
         return this.sideCount(item, dir) > 0;
+    }
+
+    /** Expand All / MCP can still grow a node whose next hop has not been peeked. */
+    nodeCanGrow(node: RelationNode): boolean {
+        if (node.kind !== 'symbol' || node.cyclic || node.hop === 0 || Math.abs(node.hop) >= CALL_MAX_HOP) {
+            return false;
+        }
+        const item = this.items.get(node.itemKey);
+        if (!item) {
+            return false;
+        }
+        const dir: -1 | 1 = node.hop < 0 ? -1 : 1;
+        return this.canExpand(item, dir) || (
+            dir < 0 ? !this.incoming.has(node.itemKey) : !this.outgoing.has(node.itemKey)
+        );
     }
 
     private rememberCallSite(

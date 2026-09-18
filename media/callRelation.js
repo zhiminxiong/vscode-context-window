@@ -37,6 +37,27 @@ function decodeNodeId(raw) {
     }
 }
 
+let prefetchSpinRaf = 0;
+
+function armPrefetchSpin() {
+    if (prefetchSpinRaf) {
+        return;
+    }
+    const tick = () => {
+        const arcs = document.querySelectorAll('.cr-prefetch-arc');
+        if (!arcs.length) {
+            prefetchSpinRaf = 0;
+            return;
+        }
+        const deg = (Date.now() / 700 * 360) % 360;
+        for (const arc of arcs) {
+            arc.style.transform = `rotate(${deg}deg)`;
+        }
+        prefetchSpinRaf = requestAnimationFrame(tick);
+    };
+    prefetchSpinRaf = requestAnimationFrame(tick);
+}
+
 function elNodeId(el) {
     return decodeNodeId(el && el.dataset ? el.dataset.nodeId : '');
 }
@@ -1150,7 +1171,7 @@ function requestExpand(node, side) {
         }
         return;
     }
-    if (node.expandable) {
+    if (node.expandable && !node.prefetching) {
         pendingHop = { parentId: node.id, side };
         vscode.postMessage({ type: 'expandHop', nodeId: node.id });
     }
@@ -1217,7 +1238,7 @@ function toggleExpandSelected() {
         vscode.postMessage({ type: 'collapseHop', nodeId: cur.id });
         return;
     }
-    if (cur.expandable) {
+    if (cur.expandable && !cur.prefetching) {
         vscode.postMessage({ type: 'expandHop', nodeId: cur.id });
     }
 }
@@ -3251,47 +3272,60 @@ function render(graph) {
             });
             const hasKids = graph.nodes.some(n => n.parentId === node.id);
             const collapse = !!(node.expanded || hasKids);
-            if ((node.expandable || collapse) && node.id !== graph.rootId) {
+            const prefetch = !!(node.prefetching && !collapse);
+            if ((node.expandable || collapse || prefetch) && node.id !== graph.rootId) {
                 el.classList.add(node.hop < 0 ? 'has-toggle-left' : 'has-toggle-right');
                 const exp = document.createElement('button');
                 exp.type = 'button';
-                exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
-                const expLabel = collapse
-                    ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
-                    : (node.hop < 0 ? 'Expand callers' : 'Expand callees');
-                exp.setAttribute('aria-label', expLabel);
-                exp.addEventListener('pointerenter', ev => {
-                    ev.stopPropagation();
-                    tipHover = null;
-                    if (nodeTipEl) {
-                        hideNodeTip();
-                        markTipUsed(el);
-                    } else {
-                        hideNodeTip();
-                    }
-                });
-                exp.addEventListener('pointerleave', ev => {
-                    ev.stopPropagation();
-                    const next = ev.relatedTarget;
-                    if (next && el.contains(next) && !(next.closest && next.closest('.cr-thumb, .cr-toggle'))) {
-                        tipMoveX = ev.clientX;
-                        tipMoveY = ev.clientY;
-                        if (usesNodeTip(node)) {
-                            armNodeTip(node, el, ev);
+                if (prefetch) {
+                    exp.className = 'cr-toggle is-prefetch ' + (node.hop < 0 ? 'is-left' : 'is-right');
+                    exp.setAttribute('aria-busy', 'true');
+                    exp.setAttribute('aria-label', node.hop < 0 ? 'Loading callers' : 'Loading callees');
+                    const arc = document.createElement('span');
+                    arc.className = 'cr-prefetch-arc';
+                    arc.setAttribute('aria-hidden', 'true');
+                    exp.appendChild(arc);
+                    el.appendChild(exp);
+                    armPrefetchSpin();
+                } else {
+                    exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
+                    const expLabel = collapse
+                        ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
+                        : (node.hop < 0 ? 'Expand callers' : 'Expand callees');
+                    exp.setAttribute('aria-label', expLabel);
+                    exp.addEventListener('pointerenter', ev => {
+                        ev.stopPropagation();
+                        tipHover = null;
+                        if (nodeTipEl) {
+                            hideNodeTip();
+                            markTipUsed(el);
+                        } else {
+                            hideNodeTip();
                         }
-                    }
-                });
-                exp.addEventListener('click', ev => {
-                    ev.stopPropagation();
-                    hideNodeTip();
-                    exp.classList.toggle('is-collapse', !collapse);
-                    exp.setAttribute('aria-label', collapse ? 'Expand' : 'Collapse');
-                    vscode.postMessage({
-                        type: collapse ? 'collapseHop' : 'expandHop',
-                        nodeId: node.id
                     });
-                });
-                el.appendChild(exp);
+                    exp.addEventListener('pointerleave', ev => {
+                        ev.stopPropagation();
+                        const next = ev.relatedTarget;
+                        if (next && el.contains(next) && !(next.closest && next.closest('.cr-thumb, .cr-toggle'))) {
+                            tipMoveX = ev.clientX;
+                            tipMoveY = ev.clientY;
+                            if (usesNodeTip(node)) {
+                                armNodeTip(node, el, ev);
+                            }
+                        }
+                    });
+                    exp.addEventListener('click', ev => {
+                        ev.stopPropagation();
+                        hideNodeTip();
+                        exp.classList.toggle('is-collapse', !collapse);
+                        exp.setAttribute('aria-label', collapse ? 'Expand' : 'Collapse');
+                        vscode.postMessage({
+                            type: collapse ? 'collapseHop' : 'expandHop',
+                            nodeId: node.id
+                        });
+                    });
+                    el.appendChild(exp);
+                }
             }
             addThumb(el, head, node);
         }

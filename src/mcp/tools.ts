@@ -285,7 +285,7 @@ async function expandToDepth(
         }
         const todo = graph.nodes.filter(n => (
             n.kind === 'symbol'
-            && n.expandable
+            && model.nodeCanGrow(n)
             && !n.expanded
             && !n.cyclic
             && n.id !== graph.rootId

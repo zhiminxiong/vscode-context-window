@@ -1382,6 +1382,32 @@ button.cr-cycle {
     right: -7px;
 }
 
+.cr-toggle.is-prefetch {
+    cursor: default;
+    pointer-events: none;
+    background: transparent;
+    border-color: transparent;
+}
+
+.cr-toggle.is-prefetch::before,
+.cr-toggle.is-prefetch::after {
+    content: none;
+    background: none;
+}
+
+.cr-prefetch-arc {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border: 1.5px solid rgba(128, 128, 128, 0.28);
+    border-top-color: var(--vscode-foreground);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
 .cr-node-tip {
     position: fixed;
     z-index: 30;
