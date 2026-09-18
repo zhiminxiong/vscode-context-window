@@ -3242,7 +3242,7 @@ function render(graph) {
             el.addEventListener('dblclick', ev => {
                 ev.preventDefault();
                 ev.stopPropagation();
-                if (isReferenceGraph(graph)) {
+                if (node.id === graph.rootId) {
                     return;
                 }
                 selectNode(node, false);

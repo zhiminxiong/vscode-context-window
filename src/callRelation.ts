@@ -634,6 +634,8 @@ function toSymbolNode(
 
 export class CallRelationModel {
     private readonly items = new Map<string, vscode.CallHierarchyItem>();
+    /** Keys whose CallHierarchyItem came from prepareCallHierarchy (has LSP data). */
+    private readonly preparedKeys = new Set<string>();
     private readonly incoming = new Map<string, vscode.CallHierarchyItem[]>();
     private readonly outgoing = new Map<string, vscode.CallHierarchyItem[]>();
     private readonly callSites = new Map<string, RelationOpenTarget[]>();
@@ -695,6 +697,7 @@ export class CallRelationModel {
 
     private clearGraphState(): void {
         this.items.clear();
+        this.preparedKeys.clear();
         this.incoming.clear();
         this.outgoing.clear();
         this.callSites.clear();
@@ -857,6 +860,76 @@ export class CallRelationModel {
         return key;
     }
 
+    private markPrepared(item: vscode.CallHierarchyItem): string {
+        const key = itemKey(item);
+        this.items.set(key, item);
+        this.preparedKeys.add(key);
+        return key;
+    }
+
+    /**
+     * provideIncomingCalls / provideOutgoingCalls 要的是 prepareCallHierarchy 返回的节点
+     *（语言服务常在 item 上挂内部 data）。References 图左侧是 enclosing 拼出来的，
+     * 直接预取会空；先 prepare 再拉，并让合成 key 与 prepare key 共用缓存。
+     */
+    private async resolveForHierarchy(item: vscode.CallHierarchyItem): Promise<vscode.CallHierarchyItem | undefined> {
+        const key = itemKey(item);
+        if (this.preparedKeys.has(key)) {
+            return this.items.get(key) || item;
+        }
+        const sel = item.selectionRange?.start ?? item.range.start;
+        const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
+            'vscode.prepareCallHierarchy',
+            item.uri,
+            sel
+        );
+        if (!prepared?.length) {
+            return undefined;
+        }
+        const hit = prepared.find(it => rangeContains(it.range, sel)) || prepared[0];
+        const hitKey = this.markPrepared(hit);
+        if (hitKey !== key) {
+            this.items.set(key, hit);
+            this.preparedKeys.add(key);
+        }
+        return hit;
+    }
+
+    private cacheSides(
+        cache: Map<string, vscode.CallHierarchyItem[]>,
+        keys: readonly string[],
+        items: vscode.CallHierarchyItem[]
+    ): void {
+        for (const k of keys) {
+            if (!cache.has(k)) {
+                cache.set(k, items);
+            }
+        }
+    }
+
+    private aliasCallSites(fromKey: string, toKey: string): void {
+        if (!toKey || fromKey === toKey) {
+            return;
+        }
+        const prefix = `${fromKey}\0`;
+        for (const [siteKey, sites] of this.callSites) {
+            if (!siteKey.startsWith(prefix)) {
+                continue;
+            }
+            const alias = toKey + siteKey.slice(fromKey.length);
+            if (!this.callSites.has(alias)) {
+                this.callSites.set(alias, sites);
+            }
+        }
+    }
+
+    private forgetEmptySides(item: vscode.CallHierarchyItem): void {
+        const key = itemKey(item);
+        if (this.incoming.has(key) && (this.incoming.get(key)?.length ?? 0) === 0) {
+            this.forgetSides(item);
+        }
+    }
+
     /** Drop cached sides so a class References visit cannot starve constructor Call. */
     private forgetSides(item: vscode.CallHierarchyItem): void {
         const key = itemKey(item);
@@ -864,6 +937,7 @@ export class CallRelationModel {
         this.outgoing.delete(key);
         this.inflightIn.delete(key);
         this.inflightOut.delete(key);
+        this.preparedKeys.delete(key);
         const prefix = `${key}\0`;
         for (const siteKey of [...this.callSites.keys()]) {
             if (siteKey.startsWith(prefix)) {
@@ -1113,6 +1187,9 @@ export class CallRelationModel {
         this.collapseLock.clear();
         this.prevRoot = undefined;
         this.incomingHint = undefined;
+        if (this.relationMode === 'reference') {
+            this.forgetEmptySides(next);
+        }
         this.relationMode = 'call';
         this.root = next;
         this.remember(this.root);
@@ -1164,6 +1241,7 @@ export class CallRelationModel {
         }
         const caller = prepared.find(item => rangeContains(item.range, enclosing.selectionRange.start))
             || prepared[0];
+        this.markPrepared(caller);
         if (opened && itemKey(caller) === itemKey(opened)) {
             return this.lspEmptyGraph(seq);
         }
@@ -1305,6 +1383,7 @@ export class CallRelationModel {
         }
 
         const next = prepared.find(item => rangeContains(item.range, position)) || prepared[0];
+        this.markPrepared(next);
         if (isAnonymousSymbolName(next.name)) {
             const name = await tokenAt(uri, position);
             if (!this.isCurrent(seqPrepare)) {
@@ -1333,6 +1412,9 @@ export class CallRelationModel {
             seq = this.seq;
         }
         if (this.openedFromCallSite(uri, position, next)) {
+            if (this.relationMode === 'reference') {
+                this.forgetEmptySides(next);
+            }
             this.remember(next);
             await this.ensureIncoming(next, seq);
             if (!this.isCurrent(seq)) {
@@ -1390,6 +1472,7 @@ export class CallRelationModel {
         }
 
         const next = prepared.find(item => rangeContains(item.range, position)) || prepared[0];
+        this.markPrepared(next);
         if (isAnonymousSymbolName(next.name)) {
             const name = await tokenAt(uri, position);
             if (!this.isCurrent(seq)) {
@@ -1650,9 +1733,7 @@ export class CallRelationModel {
     }
 
     async focusNode(nodeId: string, nodes: RelationNode[]): Promise<RelationLoad | undefined> {
-        if (this.relationMode === 'reference') {
-            return { graph: this.buildGraph(), seq: this.seq };
-        }
+        const fromReference = this.relationMode === 'reference';
         this.cancel();
         const seq = this.seq;
         const t0 = Date.now();
@@ -1735,6 +1816,13 @@ export class CallRelationModel {
         const resolved = prepared?.length
             ? (prepared.find(it => rangeContains(it.range, sel)) || prepared[0])
             : item;
+        if (prepared?.length) {
+            this.markPrepared(resolved);
+        }
+        if (fromReference) {
+            this.forgetEmptySides(item);
+            this.forgetEmptySides(resolved);
+        }
         this.root = resolved;
         this.remember(resolved);
         this.recordCenter(resolved);
@@ -2894,6 +2982,7 @@ export class CallRelationModel {
         if (!caller || isArrowLikeName(caller.name)) {
             return undefined;
         }
+        this.markPrepared(caller);
         return caller;
     }
 
@@ -2918,9 +3007,16 @@ export class CallRelationModel {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
         const rev = this.fileRev(item.uri);
+        const subject = await this.resolveForHierarchy(item);
+        if (!subject) {
+            this.cacheSides(this.incoming, [key], []);
+            costLog('incoming skip unprepared', Date.now() - t0, itemLabel(item));
+            return;
+        }
+        const resolvedKey = itemKey(subject);
         const calls = await this.execLspHeld<vscode.CallHierarchyIncomingCall[]>(
             'vscode.provideIncomingCalls',
-            item
+            subject
         );
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('incoming dropped', Date.now() - t0, itemLabel(item));
@@ -2928,16 +3024,15 @@ export class CallRelationModel {
         }
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
-        const ident = identFromToken(item.name);
+        const ident = identFromToken(subject.name);
         for (const call of calls || []) {
             if (!call?.from) {
                 continue;
             }
             let from = call.from;
             let sites = call.fromRanges;
-            if (itemKey(from) === key) {
-                // 自己调自己：super 改写到基类 outgoing，剩下的站点再滤声明行。
-                sites = await this.rewriteSelfSuper(from.uri, call.fromRanges, ident, item, key);
+            if (itemKey(from) === key || itemKey(from) === resolvedKey) {
+                sites = await this.rewriteSelfSuper(from.uri, call.fromRanges, ident, subject, resolvedKey);
             }
             sites = await keepNonParentIncomingRanges(from.uri, sites, ident);
             if (!sites.length) {
@@ -2953,16 +3048,15 @@ export class CallRelationModel {
             }
             seen.add(k);
             items.push(this.items.get(k)!);
-            this.rememberCallSite(key, -1, from, from.uri, sites, item.name);
+            this.rememberCallSite(key, -1, from, from.uri, sites, subject.name);
         }
-        await this.mergeOverrideIncoming(item, key, items, seen, ident);
+        await this.mergeOverrideIncoming(subject, key, items, seen, ident);
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after merge`);
             return;
         }
-        if (!this.incoming.has(key)) {
-            this.incoming.set(key, items);
-        }
+        this.cacheSides(this.incoming, [key, resolvedKey], items);
+        this.aliasCallSites(key, resolvedKey);
         costLog('incoming total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);
     }
 
@@ -2970,9 +3064,16 @@ export class CallRelationModel {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
         const rev = this.fileRev(item.uri);
+        const subject = await this.resolveForHierarchy(item);
+        if (!subject) {
+            this.cacheSides(this.outgoing, [key], []);
+            costLog('outgoing skip unprepared', Date.now() - t0, itemLabel(item));
+            return;
+        }
+        const resolvedKey = itemKey(subject);
         const calls = await this.execLspHeld<vscode.CallHierarchyOutgoingCall[]>(
             'vscode.provideOutgoingCalls',
-            item
+            subject
         );
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('outgoing dropped', Date.now() - t0, itemLabel(item));
@@ -2980,8 +3081,8 @@ export class CallRelationModel {
         }
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
-        const ident = identFromToken(item.name);
-        const chain = await this.selfAndAncestorTypes(item);
+        const ident = identFromToken(subject.name);
+        const chain = await this.selfAndAncestorTypes(subject);
         const derivedByIdent = new Map<string, vscode.CallHierarchyItem | undefined>();
         for (const call of calls || []) {
             if (!call?.to) {
@@ -2989,14 +3090,14 @@ export class CallRelationModel {
             }
             let target = call.to;
             let sites = call.fromRanges;
-            if (itemKey(call.to) === key) {
-                sites = await this.rewriteSelfSuper(item.uri, call.fromRanges, ident, item, key);
+            if (itemKey(call.to) === key || itemKey(call.to) === resolvedKey) {
+                sites = await this.rewriteSelfSuper(subject.uri, call.fromRanges, ident, subject, resolvedKey);
                 if (!sites.length) {
                     continue;
                 }
             }
             const calleeIdent = identFromToken(target.name);
-            if (calleeIdent && await this.outgoingSitesAreThisDispatch(item.uri, sites, calleeIdent)) {
+            if (calleeIdent && await this.outgoingSitesAreThisDispatch(subject.uri, sites, calleeIdent)) {
                 if (!derivedByIdent.has(calleeIdent)) {
                     derivedByIdent.set(
                         calleeIdent,
@@ -3014,15 +3115,14 @@ export class CallRelationModel {
             }
             seen.add(k);
             items.push(this.items.get(k)!);
-            this.rememberCallSite(key, 1, target, item.uri, sites, target.name);
+            this.rememberCallSite(key, 1, target, subject.uri, sites, target.name);
         }
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('outgoing dropped', Date.now() - t0, `${itemLabel(item)} after rewrite`);
             return;
         }
-        if (!this.outgoing.has(key)) {
-            this.outgoing.set(key, items);
-        }
+        this.cacheSides(this.outgoing, [key, resolvedKey], items);
+        this.aliasCallSites(key, resolvedKey);
         costLog('outgoing total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);
     }
 
