@@ -530,11 +530,17 @@ function resultCount(value: unknown): number {
 }
 
 const RELATION_COST = false;
+let relationCost = RELATION_COST;
+let relationCostChannel: vscode.OutputChannel | undefined;
+
 function costLog(layer: string, ms: number, detail = ''): void {
-    if (!RELATION_COST) {
+    if (!relationCost) {
         return;
     }
-    console.log(`[relation cost] ${layer} ${ms}ms${detail ? ` ${detail}` : ''}`);
+    const line = `[relation cost] ${layer} ${ms}ms${detail ? ` ${detail}` : ''}`;
+    console.log(line);
+    relationCostChannel ??= vscode.window.createOutputChannel('Context View Relation');
+    relationCostChannel.appendLine(line);
 }
 
 function isLibPath(fsPath: string): boolean {
@@ -1717,57 +1723,125 @@ export class CallRelationModel {
     async expandAll(): Promise<RelationLoad | undefined> {
         const seq = this.seq;
         const t0 = Date.now();
+        const prevCost = relationCost;
+        relationCost = true;
+        relationCostChannel ??= vscode.window.createOutputChannel('Context View Relation');
+        relationCostChannel.show(true);
         const limit = 6;
-        const stopAt = this.buildGraph().nodes.length + CALL_EXPAND_ALL_NODES;
-        for (let round = 0; round < CALL_MAX_HOP * 2; round++) {
-            if (!this.isCurrent(seq)) {
-                return undefined;
-            }
-            const graph = this.buildGraph();
-            if (graph.nodes.length >= stopAt) {
-                break;
-            }
-            const todo = graph.nodes.filter(n => (
-                n.kind === 'symbol'
-                && this.nodeCanGrow(n)
-                && !n.expanded
-                && !n.cyclic
-                && n.id !== graph.rootId
-                && Math.abs(n.hop) < CALL_MAX_HOP
-            ));
-            if (!todo.length) {
-                break;
-            }
-            let full = false;
-            for (let i = 0; i < todo.length; i += limit) {
+        const startNodes = this.buildGraph().nodes.length;
+        const stopAt = startNodes + CALL_EXPAND_ALL_NODES;
+        let rounds = 0;
+        let batches = 0;
+        let hops = 0;
+        let cached = 0;
+        let fetched = 0;
+        costLog('expandAll begin', 0, `nodes=${startNodes} stopAt=${stopAt} cap=+${CALL_EXPAND_ALL_NODES}`);
+        try {
+            for (let round = 0; round < CALL_MAX_HOP * 2; round++) {
                 if (!this.isCurrent(seq)) {
+                    costLog('expandAll cancelled', Date.now() - t0, `round=${round} hops=${hops}`);
                     return undefined;
                 }
-                if (this.buildGraph().nodes.length >= stopAt) {
-                    full = true;
+                const tRound = Date.now();
+                const graph = this.buildGraph();
+                if (graph.nodes.length >= stopAt) {
+                    costLog('expandAll cap', Date.now() - tRound, `round=${round} nodes=${graph.nodes.length} stopAt=${stopAt}`);
                     break;
                 }
-                await Promise.all(todo.slice(i, i + limit).map(async n => {
+                const todo = graph.nodes.filter(n => {
+                    if (
+                        n.kind !== 'symbol'
+                        || !this.nodeCanGrow(n)
+                        || n.expanded
+                        || n.cyclic
+                        || n.id === graph.rootId
+                        || Math.abs(n.hop) >= CALL_MAX_HOP
+                    ) {
+                        return false;
+                    }
                     const item = this.items.get(n.itemKey);
-                    if (!item) {
-                        return;
+                    return !!item && !isLibPath(item.uri.fsPath);
+                });
+                if (!todo.length) {
+                    costLog('expandAll idle', Date.now() - tRound, `round=${round} nodes=${graph.nodes.length}`);
+                    break;
+                }
+                rounds++;
+                const inTodo = todo.filter(n => n.hop < 0).length;
+                const outTodo = todo.length - inTodo;
+                costLog(
+                    'expandAll round',
+                    Date.now() - tRound,
+                    `round=${round} todo=${todo.length} in=${inTodo} out=${outTodo} nodes=${graph.nodes.length}`
+                );
+                let full = false;
+                for (let i = 0; i < todo.length; i += limit) {
+                    if (!this.isCurrent(seq)) {
+                        costLog('expandAll cancelled', Date.now() - t0, `round=${round} hops=${hops}`);
+                        return undefined;
                     }
-                    this.collapseLock.delete(n.id);
-                    if (n.hop < 0) {
-                        await this.ensureIncoming(item, seq);
-                    } else if (n.hop > 0) {
-                        await this.ensureOutgoing(item, seq);
+                    if (this.buildGraph().nodes.length >= stopAt) {
+                        full = true;
+                        break;
                     }
-                    this.expanded.add(n.id);
-                }));
+                    const chunk = todo.slice(i, i + limit);
+                    const tBatch = Date.now();
+                    batches++;
+                    await Promise.all(chunk.map(async n => {
+                        const item = this.items.get(n.itemKey);
+                        if (!item) {
+                            return;
+                        }
+                        const dir: -1 | 1 = n.hop < 0 ? -1 : 1;
+                        const hit = dir < 0 ? this.incoming.has(n.itemKey) : this.outgoing.has(n.itemKey);
+                        const tHop = Date.now();
+                        this.collapseLock.delete(n.id);
+                        if (dir < 0) {
+                            await this.ensureIncoming(item, seq);
+                        } else {
+                            await this.ensureOutgoing(item, seq);
+                        }
+                        hops++;
+                        if (hit) {
+                            cached++;
+                        } else {
+                            fetched++;
+                        }
+                        costLog(
+                            'expandAll hop',
+                            Date.now() - tHop,
+                            `${itemLabel(item)} hop=${n.hop} ${hit ? 'cache' : 'fetch'} kids=${this.sideCount(item, dir)}`
+                        );
+                        this.expanded.add(n.id);
+                    }));
+                    costLog(
+                        'expandAll batch',
+                        Date.now() - tBatch,
+                        `round=${round} batch=${batches} size=${chunk.length} hops=${hops} nodes=${this.buildGraph().nodes.length}`
+                    );
+                }
+                costLog(
+                    'expandAll round done',
+                    Date.now() - tRound,
+                    `round=${round} nodes=${this.buildGraph().nodes.length} hops=${hops}`
+                );
+                if (full) {
+                    costLog('expandAll cap', Date.now() - t0, `round=${round} nodes=${this.buildGraph().nodes.length} stopAt=${stopAt}`);
+                    break;
+                }
             }
-            if (full) {
-                break;
-            }
+            const tPaint = Date.now();
+            const graph = await this.buildVisible(seq);
+            costLog('expandAll paint', Date.now() - tPaint, `nodes=${graph?.nodes.length ?? 0}`);
+            costLog(
+                'expandAll',
+                Date.now() - t0,
+                `rounds=${rounds} batches=${batches} hops=${hops} cache=${cached} fetch=${fetched} nodes=${startNodes}->${graph?.nodes.length ?? this.buildGraph().nodes.length}`
+            );
+            return graph ? { graph, seq } : undefined;
+        } finally {
+            relationCost = prevCost;
         }
-        const graph = await this.buildVisible(seq);
-        costLog('expandAll', Date.now() - t0, '');
-        return graph ? { graph, seq } : undefined;
     }
 
     async focusNode(nodeId: string, nodes: RelationNode[]): Promise<RelationLoad | undefined> {
@@ -2625,7 +2699,8 @@ export class CallRelationModel {
         if (!ancestors.length) {
             return;
         }
-        const slots = await this.collectVirtualSlots(ancestors, ident);
+        const slots = (await this.collectVirtualSlots(ancestors, ident))
+            .filter(slot => !isLibPath(slot.uri.fsPath));
         if (!slots.length) {
             return;
         }
@@ -3243,6 +3318,12 @@ export class CallRelationModel {
         );
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('outgoing dropped', Date.now() - t0, itemLabel(item));
+            return;
+        }
+        if (!calls?.length) {
+            this.cacheSides(this.outgoing, [key, resolvedKey], []);
+            this.aliasCallSites(key, resolvedKey);
+            costLog('outgoing total', Date.now() - t0, `${itemLabel(item)} n=0`);
             return;
         }
         const items: vscode.CallHierarchyItem[] = [];
