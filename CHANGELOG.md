@@ -12,7 +12,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 #### Changed
 
-- Relation override-incoming classify reads each reference file’s line text from disk (or an already-open editor) without `openTextDocument`, and only then asks the language server for symbols. Neighbor prefetch runs at most two incoming peeks at a time. Keep/drop rules are unchanged.
+- Relation override-incoming classify reads each reference file’s line text from disk (or an already-open editor) without `openTextDocument`, and only then asks the language server for symbols. Incoming call-site filtering uses the same per-file `fileLines` path. Neighbor prefetch runs at most two incoming peeks at a time. Keep/drop rules are unchanged.
+- Relation skips override-incoming merge for `static` methods: first the declaration line (or the line above) via `fileLines`, then a semantic-token `static` modifier on the method name. Instance overrides still merge. Keep/drop rules for those are unchanged.
 - Relation reuses per-type heritage walks (`directBaseTypes` / ancestor chain) across incoming and outgoing. The cache is dropped when any file changes. Neighbor prefetch starts at most one outgoing peek per file per wave so the next same-file method can reuse that walk. Keep/drop rules are unchanged.
 - Relation neighbor prefetch draws the loading arc around the whole node, not the + button. The arc uses the focus blue (`--cr-focus`), not the near-black foreground.
 

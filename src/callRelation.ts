@@ -152,36 +152,34 @@ function escapeRegExp(value: string): string {
 }
 
 /** Split call-hierarchy fromRanges into super/base sites vs other uses of ident. */
-async function splitSuperCallRanges(
-    uri: vscode.Uri,
+function splitSuperCallRanges(
+    lines: string[] | undefined,
     ranges: vscode.Range[] | undefined,
     ident: string
-): Promise<{
+): {
     superHit?: vscode.Position;
     superRanges: vscode.Range[];
     otherRanges: vscode.Range[];
-}> {
+} {
     if (!ident || !ranges?.length) {
         return { superRanges: [], otherRanges: ranges ? [...ranges] : [] };
     }
-    let doc: vscode.TextDocument;
-    try {
-        doc = await vscode.workspace.openTextDocument(uri);
-    } catch {
+    if (!lines?.length) {
         return { superRanges: [], otherRanges: [...ranges] };
     }
+    const last = lines.length - 1;
     const superRe = new RegExp(`\\b(?:super|base)\\s*\\.\\s*${escapeRegExp(ident)}\\b`);
     const identRe = new RegExp(`\\b${escapeRegExp(ident)}\\b`, 'g');
     const superRanges: vscode.Range[] = [];
     const otherRanges: vscode.Range[] = [];
     let superHit: vscode.Position | undefined;
     for (const range of ranges) {
-        const start = Math.min(Math.max(0, range.start.line), doc.lineCount - 1);
-        const end = Math.min(Math.max(start, range.end.line), doc.lineCount - 1);
+        const start = Math.min(Math.max(0, range.start.line), last);
+        const end = Math.min(Math.max(start, range.end.line), last);
         let hasSuper = false;
         let hasOther = false;
         for (let line = start; line <= end; line++) {
-            const text = doc.lineAt(line).text;
+            const text = lines[line] || '';
             const superMatch = superRe.exec(text);
             if (superMatch) {
                 hasSuper = true;
@@ -248,6 +246,11 @@ interface TypeHierarchyLike {
     uri: vscode.Uri;
     range: vscode.Range;
     selectionRange: vscode.Range;
+}
+
+interface SemanticLegendInfo {
+    tokenTypes: string[];
+    tokenModifiers: string[];
 }
 
 function typeRefKey(uri: vscode.Uri, symbol: FlatSymbol): string {
@@ -337,34 +340,42 @@ function isParentOrDeclIncomingLine(text: string, ident: string): boolean {
     return isIdentDeclLine(text, ident) || isSuperDispatchLine(text, ident);
 }
 
-async function keepNonParentIncomingRanges(
-    uri: vscode.Uri,
+function keepNonParentIncomingRanges(
+    lines: string[] | undefined,
     ranges: vscode.Range[] | undefined,
     ident: string
-): Promise<vscode.Range[]> {
+): vscode.Range[] {
     if (!ranges?.length) {
         return [];
     }
-    if (!ident) {
-        return [...ranges];
-    }
-    let doc: vscode.TextDocument;
-    try {
-        doc = await vscode.workspace.openTextDocument(uri);
-    } catch {
+    if (!ident || !lines?.length) {
         return [...ranges];
     }
     return ranges.filter(range => {
-        const line = Math.min(Math.max(0, range.start.line), doc.lineCount - 1);
-        return !isParentOrDeclIncomingLine(doc.lineAt(line).text, ident);
+        const line = Math.min(Math.max(0, range.start.line), lines.length - 1);
+        return !isParentOrDeclIncomingLine(lines[line] || '', ident);
     });
+}
+
+function decodeSemanticModifiers(modBits: number, legendModifiers: string[]): string[] {
+    const out: string[] = [];
+    for (let bit = 0; bit < legendModifiers.length; bit++) {
+        if (modBits & (1 << bit)) {
+            const name = legendModifiers[bit];
+            if (name) {
+                out.push(name);
+            }
+        }
+    }
+    return out;
 }
 
 function decodeSemanticTokens(
     data: ArrayLike<number>,
-    legendTypes: string[]
-): { line: number; character: number; length: number; type: string }[] {
-    const out: { line: number; character: number; length: number; type: string }[] = [];
+    legendTypes: string[],
+    legendModifiers: string[] = []
+): { line: number; character: number; length: number; type: string; modifiers: string[] }[] {
+    const out: { line: number; character: number; length: number; type: string; modifiers: string[] }[] = [];
     let line = 0;
     let character = 0;
     for (let i = 0; i + 4 < data.length; i += 5) {
@@ -372,12 +383,33 @@ function decodeSemanticTokens(
         const deltaStart = data[i + 1];
         const length = data[i + 2];
         const typeIdx = data[i + 3];
+        const modBits = data[i + 4];
         line += deltaLine;
         character = deltaLine === 0 ? character + deltaStart : deltaStart;
         const type = legendTypes[typeIdx] || '';
-        out.push({ line, character, length, type });
+        out.push({
+            line,
+            character,
+            length,
+            type,
+            modifiers: decodeSemanticModifiers(modBits, legendModifiers)
+        });
     }
     return out;
+}
+
+function tokenOverlapsRange(
+    tok: { line: number; character: number; length: number },
+    range: vscode.Range
+): boolean {
+    const tokRange = new vscode.Range(tok.line, tok.character, tok.line, tok.character + tok.length);
+    if (tokRange.intersection(range)) {
+        return true;
+    }
+    return range.isEmpty
+        && tok.line === range.start.line
+        && tok.character <= range.start.character
+        && range.start.character < tok.character + tok.length;
 }
 
 function unwrapTokenData(raw: unknown): ArrayLike<number> | undefined {
@@ -533,7 +565,7 @@ function resultCount(value: unknown): number {
     return value == null ? 0 : 1;
 }
 
-const RELATION_COST = false;
+const RELATION_COST = true;
 let relationCost = RELATION_COST;
 let relationCostChannel: vscode.OutputChannel | undefined;
 
@@ -689,6 +721,8 @@ export class CallRelationModel {
     private readonly ancestorCache = new Map<string, Promise<TypeRef[]>>();
     /** Same-file heritage walks run one at a time so the second hits ancestorCache. */
     private readonly heritageFileTail = new Map<string, Promise<void>>();
+    /** Semantic token legend by document uri. */
+    private readonly semanticLegendCache = new Map<string, Promise<SemanticLegendInfo | undefined>>();
     private prefetchQueued = false;
     /** True while a neighbor peek sweep is in flight; drives spinner buttons. */
     private prefetchActive = false;
@@ -750,6 +784,7 @@ export class CallRelationModel {
         this.baseTypesCache.clear();
         this.ancestorCache.clear();
         this.heritageFileTail.clear();
+        this.semanticLegendCache.clear();
         this.prefetchQueued = false;
         this.prefetchActive = false;
         this.hopBusy.clear();
@@ -2680,9 +2715,10 @@ export class CallRelationModel {
         ranges: vscode.Range[] | undefined,
         ident: string,
         self: vscode.CallHierarchyItem,
-        selfKey: string
+        selfKey: string,
+        lines?: string[]
     ): Promise<vscode.Range[]> {
-        const split = await splitSuperCallRanges(siteUri, ranges, ident);
+        const split = splitSuperCallRanges(lines ?? await this.fileLines(siteUri), ranges, ident);
         if (split.superHit) {
             const superTo = await this.resolveSuperCallee(siteUri, split.superHit, self);
             if (superTo) {
@@ -2711,6 +2747,14 @@ export class CallRelationModel {
         }
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
+        if (await this.methodDeclHasStaticKeyword(item)) {
+            costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} static`);
+            return;
+        }
+        if (await this.nameTokenIsStatic(item)) {
+            costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} static semantic`);
+            return;
+        }
         const family = await this.selfAndAncestorTypes(item);
         const ancestors = family.filter(type => type.depth > 0);
         if (!ancestors.length) {
@@ -2874,6 +2918,33 @@ export class CallRelationModel {
             this.rememberCallSite(key, -1, group.item, group.item.uri, group.sites, item.name);
         }
         costLog('incoming merge total', Date.now() - t0, `${itemLabel(item)} added=${items.length} groups=${groups.size}`);
+    }
+
+    private async methodDeclHasStaticKeyword(item: vscode.CallHierarchyItem): Promise<boolean> {
+        const lines = await this.fileLines(item.uri);
+        if (!lines?.length) {
+            return false;
+        }
+        const line = item.selectionRange?.start.line ?? item.range.start.line;
+        const idx = Math.min(Math.max(0, line), lines.length - 1);
+        if (/\bstatic\b/.test(lines[idx] || '')) {
+            return true;
+        }
+        return idx > 0 && /\bstatic\b/.test(lines[idx - 1] || '');
+    }
+
+    private async nameTokenIsStatic(item: vscode.CallHierarchyItem): Promise<boolean> {
+        const sel = item.selectionRange ?? item.range;
+        const legend = await this.semanticLegend(item.uri);
+        if (!legend?.tokenModifiers.includes('static')) {
+            return false;
+        }
+        const data = await this.semanticTokenData(item.uri, sel);
+        if (!data) {
+            return false;
+        }
+        return decodeSemanticTokens(data, legend.tokenTypes, legend.tokenModifiers)
+            .some(tok => tok.modifiers.includes('static') && tokenOverlapsRange(tok, sel));
     }
 
     private async fileLines(uri: vscode.Uri): Promise<string[] | undefined> {
@@ -3150,11 +3221,11 @@ export class CallRelationModel {
         const header = this.classHeaderRange(doc, type.symbol);
         const legend = await this.semanticLegend(type.uri);
         const data = await this.semanticTokenData(type.uri, header);
-        if (!legend?.length || !data) {
+        if (!legend?.tokenTypes.length || !data) {
             return [];
         }
         const own = identFromToken(type.symbol.name);
-        const hits = decodeSemanticTokens(data, legend).filter(tok => {
+        const hits = decodeSemanticTokens(data, legend.tokenTypes, legend.tokenModifiers).filter(tok => {
             if (!TYPE_SEMANTIC_TYPES.has(tok.type)) {
                 return false;
             }
@@ -3201,14 +3272,35 @@ export class CallRelationModel {
         return new vscode.Range(start, end);
     }
 
-    private async semanticLegend(uri: vscode.Uri): Promise<string[] | undefined> {
+    private async semanticLegend(uri: vscode.Uri): Promise<SemanticLegendInfo | undefined> {
+        const key = uri.toString();
+        let pending = this.semanticLegendCache.get(key);
+        if (!pending) {
+            pending = this.lookupSemanticLegend(uri).then(legend => {
+                if (!legend) {
+                    this.semanticLegendCache.delete(key);
+                }
+                return legend;
+            }, err => {
+                this.semanticLegendCache.delete(key);
+                throw err;
+            });
+            this.semanticLegendCache.set(key, pending);
+        }
+        return pending;
+    }
+
+    private async lookupSemanticLegend(uri: vscode.Uri): Promise<SemanticLegendInfo | undefined> {
         for (const command of [
             'vscode.provideDocumentSemanticTokensLegend',
             'vscode.executeDocumentSemanticTokensLegend'
         ]) {
-            const raw = await this.execLspHeld<{ tokenTypes?: string[] }>(command, uri);
+            const raw = await this.execLspHeld<{ tokenTypes?: string[]; tokenModifiers?: string[] }>(command, uri);
             if (raw && Array.isArray(raw.tokenTypes) && raw.tokenTypes.length) {
-                return raw.tokenTypes;
+                return {
+                    tokenTypes: raw.tokenTypes,
+                    tokenModifiers: Array.isArray(raw.tokenModifiers) ? raw.tokenModifiers : []
+                };
             }
         }
         return undefined;
@@ -3376,16 +3468,27 @@ export class CallRelationModel {
         const seen = new Set<string>();
         const ident = identFromToken(subject.name);
         const tSites = Date.now();
+        const lineCache = new Map<string, Promise<string[] | undefined>>();
+        const linesOf = (uri: vscode.Uri) => {
+            const uk = uri.toString();
+            let pending = lineCache.get(uk);
+            if (!pending) {
+                pending = this.fileLines(uri);
+                lineCache.set(uk, pending);
+            }
+            return pending;
+        };
         for (const call of calls || []) {
             if (!call?.from) {
                 continue;
             }
             let from = call.from;
             let sites = call.fromRanges;
+            const lines = await linesOf(from.uri);
             if (itemKey(from) === key || itemKey(from) === resolvedKey) {
-                sites = await this.rewriteSelfSuper(from.uri, call.fromRanges, ident, subject, resolvedKey);
+                sites = await this.rewriteSelfSuper(from.uri, call.fromRanges, ident, subject, resolvedKey, lines);
             }
-            sites = await keepNonParentIncomingRanges(from.uri, sites, ident);
+            sites = keepNonParentIncomingRanges(lines, sites, ident);
             if (!sites.length) {
                 continue;
             }
@@ -3401,7 +3504,7 @@ export class CallRelationModel {
             items.push(this.items.get(k)!);
             this.rememberCallSite(key, -1, from, from.uri, sites, subject.name);
         }
-        costLog('incoming sites', Date.now() - tSites, `${itemLabel(item)} n=${items.length}`);
+        costLog('incoming sites', Date.now() - tSites, `${itemLabel(item)} n=${items.length} files=${lineCache.size}`);
         await this.mergeOverrideIncoming(subject, key, items, seen, ident);
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after merge`);
