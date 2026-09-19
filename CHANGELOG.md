@@ -19,6 +19,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 - Dragging from the start of a line to its end no longer flashes and then drops the selection: an in-text drag that grows through partial ranges is not treated as a line-number click, and git line-blame does not redraw its trailing annotation during the drag. Double-clicking a line number still selects the enclosing symbol.
 - Relation: Collapse All recenters the canvas on the current symbol. Expanding one hop with + pans just enough to keep that node and its new children in view. Expand All does not move the view.
+- Relation: after a double-click that recenters on a node, that node’s tip stays attached to it. A hover timer from the previous graph no longer places the tip at the top-left of the webview.
 
 ## [1.1.2] 2026.09.13
 

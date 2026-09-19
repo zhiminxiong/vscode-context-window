@@ -2602,6 +2602,7 @@ let nodeTipEl = null;
 let nodeTipTimer = 0;
 let nodeTipAnchor = null;
 let lastTipNodeId = '';
+let lastTipItemKey = '';
 let tipHover = null;
 let tipMoveX = 0;
 let tipMoveY = 0;
@@ -2643,17 +2644,48 @@ function tipVisitBlocked(el) {
     return !!(host && tipVisitNode === host && tipVisitUsed);
 }
 
-function hideNodeTip() {
+function clearTipTimer() {
     if (nodeTipTimer) {
         clearTimeout(nodeTipTimer);
         nodeTipTimer = 0;
     }
+}
+
+function discardTipHover() {
+    clearTipTimer();
+    tipHover = null;
+    nodeTipAnchor = null;
+    tipVisitNode = null;
+    tipVisitUsed = false;
+}
+
+function detachNodeTipEl() {
     if (nodeTipEl && nodeTipEl.parentNode) {
         nodeTipEl.parentNode.removeChild(nodeTipEl);
     }
     nodeTipEl = null;
     nodeTipAnchor = null;
+}
+
+function hideNodeTip() {
+    clearTipTimer();
+    detachNodeTipEl();
     lastTipNodeId = '';
+    lastTipItemKey = '';
+}
+
+/** Wipe canvas listeners / els without forgetting which symbol the tip was on. */
+function invalidateTipAnchors() {
+    discardTipHover();
+    detachNodeTipEl();
+}
+
+function tipAnchorReady(anchorEl) {
+    if (!anchorEl || !anchorEl.isConnected) {
+        return false;
+    }
+    const r = anchorEl.getBoundingClientRect();
+    return r.width >= 1 && r.height >= 1;
 }
 
 function noteAlt(ev) {
@@ -2819,6 +2851,9 @@ function fillNodeTip(tip, node) {
 }
 
 function placeNodeTip(tip, anchorEl, hop) {
+    if (!tipAnchorReady(anchorEl)) {
+        return false;
+    }
     const r = anchorEl.getBoundingClientRect();
     const tw = tip.offsetWidth;
     const th = tip.offsetHeight;
@@ -2876,6 +2911,7 @@ function placeNodeTip(tip, anchorEl, hop) {
         const y = Math.min(Math.max(14, r.top + r.height / 2 - top), th - 14);
         tip.style.setProperty('--cr-tip-caret', y + 'px');
     }
+    return true;
 }
 
 function fillLabelTip(tip, text) {
@@ -2889,12 +2925,14 @@ function fillLabelTip(tip, text) {
 }
 
 function showTip(spec) {
-    if (nodeTipTimer) {
-        clearTimeout(nodeTipTimer);
-        nodeTipTimer = 0;
+    clearTipTimer();
+    if (!tipAnchorReady(spec.el)) {
+        detachNodeTipEl();
+        return;
     }
     nodeTipAnchor = spec.el;
     lastTipNodeId = spec.node ? spec.node.id : '';
+    lastTipItemKey = spec.node && spec.node.itemKey ? spec.node.itemKey : '';
     if (!nodeTipEl) {
         nodeTipEl = document.createElement('div');
         nodeTipEl.className = 'cr-node-tip';
@@ -2903,16 +2941,73 @@ function showTip(spec) {
     nodeTipEl.classList.toggle('is-label', !!spec.label);
     if (spec.label) {
         fillLabelTip(nodeTipEl, spec.label);
-        placeNodeTip(nodeTipEl, spec.el, spec.hop);
     } else {
         fillNodeTip(nodeTipEl, spec.node);
-        placeNodeTip(nodeTipEl, spec.el, spec.node.hop);
+    }
+    if (!placeNodeTip(nodeTipEl, spec.el, spec.label ? spec.hop : spec.node.hop)) {
+        detachNodeTipEl();
+        return;
     }
     markTipUsed(spec.el);
 }
 
 function showNodeTip(node, anchorEl) {
     showTip({ node, el: anchorEl });
+}
+
+function findRestoreTipNode(graph, nodeId, itemKey) {
+    if (nodeId) {
+        const byId = graph.nodes.find(x => x.id === nodeId);
+        if (byId) {
+            return byId;
+        }
+    }
+    if (!itemKey) {
+        return undefined;
+    }
+    const root = graph.nodes.find(x => x.id === graph.rootId);
+    if (root && root.itemKey === itemKey) {
+        return root;
+    }
+    return graph.nodes.find(x => x.itemKey === itemKey);
+}
+
+function canvasNodeEl(canvas, nodeId) {
+    return [...canvas.querySelectorAll('.cr-node')].find(e => elNodeId(e) === nodeId);
+}
+
+function placeRestoredNodeTip(node, el, tries) {
+    const run = () => {
+        if (!el.isConnected) {
+            hideNodeTip();
+            return;
+        }
+        if (tipAnchorReady(el)) {
+            showNodeTip(node, el);
+            return;
+        }
+        if (tries > 0) {
+            requestAnimationFrame(() => placeRestoredNodeTip(node, el, tries - 1));
+            return;
+        }
+        hideNodeTip();
+    };
+    requestAnimationFrame(run);
+}
+
+function restoreNodeTip(graph, canvas, nodeId, itemKey) {
+    if (!nodeId && !itemKey) {
+        return;
+    }
+    const n = findRestoreTipNode(graph, nodeId, itemKey);
+    const el = n && canvasNodeEl(canvas, n.id);
+    if (!usesNodeTip(n) || !el) {
+        hideNodeTip();
+        return;
+    }
+    lastTipNodeId = n.id;
+    lastTipItemKey = n.itemKey || itemKey || '';
+    placeRestoredNodeTip(n, el, 2);
 }
 
 function escapeHtml(text) {
@@ -3072,6 +3167,7 @@ function render(graph) {
         lastPos = null;
         canvasEl = null;
         zoomWrap = null;
+        hideNodeTip();
         stage.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'cr-empty';
@@ -3086,6 +3182,9 @@ function render(graph) {
     const { pos, width, height } = layout(graph, viewW, viewH);
     lastPos = pos;
     hideSiteMenu();
+    const restoreTipId = lastTipNodeId;
+    const restoreTipKey = lastTipItemKey || (tipHover && tipHover.node && tipHover.node.itemKey) || '';
+    invalidateTipAnchors();
     stage.innerHTML = '';
     layoutW = width;
     layoutH = height;
@@ -3452,15 +3551,7 @@ function render(graph) {
     applyPathFocus();
     applyFind({ keepIndex: true });
     applyPendingHop();
-    if (lastTipNodeId && canvas) {
-        const n = graph.nodes.find(x => x.id === lastTipNodeId);
-        const el = [...canvas.querySelectorAll('.cr-node')].find(e => elNodeId(e) === lastTipNodeId);
-        if (usesNodeTip(n) && el) {
-            showNodeTip(n, el);
-        } else {
-            hideNodeTip();
-        }
-    }
+    restoreNodeTip(graph, canvas, restoreTipId, restoreTipKey);
 }
 
 const PAN_SLOP = 5;
