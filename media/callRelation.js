@@ -73,6 +73,32 @@ function cubicBezierProgress(x, x1, y1, x2, y2) {
     return bezierCoord(t, y1, y2);
 }
 
+function createPrefetchRing(w, h) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const sw = 1.5;
+    const inset = sw / 2;
+    const rw = Math.max(0, w - sw);
+    const rh = Math.max(0, h - sw);
+    const r = Math.min(6, rw / 2, rh / 2);
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'cr-prefetch-ring');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('width', String(w));
+    svg.setAttribute('height', String(h));
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    const arc = document.createElementNS(ns, 'rect');
+    arc.setAttribute('class', 'cr-prefetch-arc');
+    arc.setAttribute('x', String(inset));
+    arc.setAttribute('y', String(inset));
+    arc.setAttribute('width', String(rw));
+    arc.setAttribute('height', String(rh));
+    arc.setAttribute('rx', String(r));
+    arc.setAttribute('ry', String(r));
+    arc.setAttribute('pathLength', '100');
+    svg.appendChild(arc);
+    return svg;
+}
+
 function armPrefetchSpin() {
     if (prefetchSpinRaf) {
         return;
@@ -85,8 +111,9 @@ function armPrefetchSpin() {
         }
         const x = (Date.now() % PREFETCH_SPIN_MS) / PREFETCH_SPIN_MS;
         const deg = cubicBezierProgress(x, ...PREFETCH_SPIN_BEZIER) * 360;
+        const offset = String(-deg / 360 * 100);
         for (const arc of arcs) {
-            arc.style.transform = `rotate(${deg}deg)`;
+            arc.style.strokeDashoffset = offset;
         }
         prefetchSpinRaf = requestAnimationFrame(tick);
     };
@@ -3471,59 +3498,53 @@ function render(graph) {
             const hasKids = graph.nodes.some(n => n.parentId === node.id);
             const collapse = !!(node.expanded || hasKids);
             const prefetch = !!(node.prefetching && !collapse);
-            if ((node.expandable || collapse || prefetch) && node.id !== graph.rootId) {
+            if (prefetch) {
+                el.classList.add('is-prefetch');
+                el.setAttribute('aria-busy', 'true');
+                el.appendChild(createPrefetchRing(nodeW(p), p.h));
+                armPrefetchSpin();
+            }
+            if ((node.expandable || collapse) && !prefetch && node.id !== graph.rootId) {
                 el.classList.add(node.hop < 0 ? 'has-toggle-left' : 'has-toggle-right');
                 const exp = document.createElement('button');
                 exp.type = 'button';
-                if (prefetch) {
-                    exp.className = 'cr-toggle is-prefetch ' + (node.hop < 0 ? 'is-left' : 'is-right');
-                    exp.setAttribute('aria-busy', 'true');
-                    exp.setAttribute('aria-label', node.hop < 0 ? 'Loading callers' : 'Loading callees');
-                    const arc = document.createElement('span');
-                    arc.className = 'cr-prefetch-arc';
-                    arc.setAttribute('aria-hidden', 'true');
-                    exp.appendChild(arc);
-                    el.appendChild(exp);
-                    armPrefetchSpin();
-                } else {
-                    exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
-                    const expLabel = collapse
-                        ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
-                        : (node.hop < 0 ? 'Expand callers' : 'Expand callees');
-                    exp.setAttribute('aria-label', expLabel);
-                    exp.addEventListener('pointerenter', ev => {
-                        ev.stopPropagation();
-                        tipHover = null;
-                        if (nodeTipEl) {
-                            hideNodeTip();
-                            markTipUsed(el);
-                        } else {
-                            hideNodeTip();
-                        }
-                    });
-                    exp.addEventListener('pointerleave', ev => {
-                        ev.stopPropagation();
-                        const next = ev.relatedTarget;
-                        if (next && el.contains(next) && !(next.closest && next.closest('.cr-thumb, .cr-toggle'))) {
-                            tipMoveX = ev.clientX;
-                            tipMoveY = ev.clientY;
-                            if (usesNodeTip(node)) {
-                                armNodeTip(node, el, ev);
-                            }
-                        }
-                    });
-                    exp.addEventListener('click', ev => {
-                        ev.stopPropagation();
+                exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
+                const expLabel = collapse
+                    ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
+                    : (node.hop < 0 ? 'Expand callers' : 'Expand callees');
+                exp.setAttribute('aria-label', expLabel);
+                exp.addEventListener('pointerenter', ev => {
+                    ev.stopPropagation();
+                    tipHover = null;
+                    if (nodeTipEl) {
                         hideNodeTip();
-                        exp.classList.toggle('is-collapse', !collapse);
-                        exp.setAttribute('aria-label', collapse ? 'Expand' : 'Collapse');
-                        vscode.postMessage({
-                            type: collapse ? 'collapseHop' : 'expandHop',
-                            nodeId: node.id
-                        });
+                        markTipUsed(el);
+                    } else {
+                        hideNodeTip();
+                    }
+                });
+                exp.addEventListener('pointerleave', ev => {
+                    ev.stopPropagation();
+                    const next = ev.relatedTarget;
+                    if (next && el.contains(next) && !(next.closest && next.closest('.cr-thumb, .cr-toggle'))) {
+                        tipMoveX = ev.clientX;
+                        tipMoveY = ev.clientY;
+                        if (usesNodeTip(node)) {
+                            armNodeTip(node, el, ev);
+                        }
+                    }
+                });
+                exp.addEventListener('click', ev => {
+                    ev.stopPropagation();
+                    hideNodeTip();
+                    exp.classList.toggle('is-collapse', !collapse);
+                    exp.setAttribute('aria-label', collapse ? 'Expand' : 'Collapse');
+                    vscode.postMessage({
+                        type: collapse ? 'collapseHop' : 'expandHop',
+                        nodeId: node.id
                     });
-                    el.appendChild(exp);
-                }
+                });
+                el.appendChild(exp);
             }
             addThumb(el, head, node);
         }
