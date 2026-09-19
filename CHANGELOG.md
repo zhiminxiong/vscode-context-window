@@ -4,24 +4,27 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [unReleased]
+## [1.1.3] 2026.09.19
 
 #### Added
 
-- Relation cost logs (`RELATION_COST` in `callRelation.ts`) include neighbor prefetch phases: each incoming/outgoing job, batch totals, and the slow steps inside a fetch (resolve, LSP, sites, override-incoming merge with `files` / `lineHits`).
+- Context Window **line-blame hover**: `http://` / `https://` URLs and `<a href>` in the commit message are clickable and open in the system browser (the webview cannot navigate itself).
+- Relation paints the **center node immediately** from the identifier under the cursor (or the enclosing callable), then fills callers / callees when Call Hierarchy or Find References returns.
+- Relation cost logs (`RELATION_COST` in `callRelation.ts`) cover neighbor prefetch: each incoming/outgoing job, batch totals, and the slow steps inside a fetch (resolve, LSP, sites, override-incoming merge with `files` / `lineHits`).
 
 #### Changed
 
-- Relation override-incoming classify reads each reference file’s line text from disk (or an already-open editor) without `openTextDocument`, and only then asks the language server for symbols. Incoming call-site filtering uses the same per-file `fileLines` path. Neighbor prefetch runs at most two incoming peeks at a time. Keep/drop rules are unchanged.
-- Relation skips override-incoming merge for `static` methods: first the declaration line (or the line above) via `fileLines`, then a semantic-token `static` modifier on the method name. Instance overrides still merge. Keep/drop rules for those are unchanged.
-- Relation reuses per-type heritage walks (`directBaseTypes` / ancestor chain) across incoming and outgoing. The cache is dropped when any file changes. Neighbor prefetch starts at most one outgoing peek per file per wave so the next same-file method can reuse that walk. Keep/drop rules are unchanged.
-- Relation neighbor prefetch draws the loading arc around the whole node, not the + button. The arc uses the focus blue (`--cr-focus`), not the near-black foreground.
+- Context Window caches a disk **mtime + size** stamp with each file. After `git checkout` or other on-disk edits that do not bump `documentVersion`, stale frontend and backend caches are dropped and the file is read from disk. Unsaved editor buffers still win over disk. Reusing the on-screen body for a range-only jump requires that document to still be open; a closed tab reloads.
+- Relation neighbor prefetch runs **after the first paint** and does not block it. + / − appear only after a peek confirms callers or callees. While a side is loading, a focus-blue arc travels around the whole node (not the +). Expand All adds at most 40 nodes per run (run again to continue) and skips library paths; it does not pan to keep new nodes in view.
+- Relation (References): double-clicking a **non-root function** recenters in **Call** mode on that function. Double-clicking the References center does nothing.
+- Relation override-incoming: classify and incoming call-site filtering read each file’s line text from disk (or an already-open editor) without `openTextDocument`. `static` methods skip the ancestor-slot merge (declaration line or the line above, then a semantic-token `static` modifier on the name). Per-type heritage walks are reused until any file changes. Prefetch runs at most two incoming peeks at a time and at most one outgoing peek per file per wave. Keep/drop rules for instance overrides are unchanged.
 
 #### Fixed
 
 - Dragging from the start of a line to its end no longer flashes and then drops the selection: an in-text drag that grows through partial ranges is not treated as a line-number click, and git line-blame does not redraw its trailing annotation during the drag. Double-clicking a line number still selects the enclosing symbol.
-- Relation: Collapse All recenters the canvas on the current symbol. Expanding one hop with + pans just enough to keep that node and its new children in view. Expand All does not move the view.
+- Relation: Collapse All recenters the canvas on the current symbol. Expanding one hop with + pans just enough to keep that node and its new children in view.
 - Relation: after a double-click that recenters on a node, that node’s tip stays attached to it. A hover timer from the previous graph no longer places the tip at the top-left of the webview.
+- Relation: reopening the same symbol no longer short-circuits while incoming or outgoing is still uncached. Nodes with no callees are cached empty so prefetch does not spin forever. References-mode enclosing nodes are prepared with the language server before neighbor fetches, so expand is not empty. Twin-path tips mention Hold Alt to highlight the other copies.
 
 ## [1.1.2] 2026.09.13
 
