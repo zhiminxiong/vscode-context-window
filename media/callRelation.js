@@ -13,6 +13,8 @@ const PAD = 40;
 
 /** @type {{ rootId: string, ox: number, oy: number } | null} */
 let savedView = null;
+/** @type {{ type: 'reset' } | { type: 'reveal', parentId: string } | null} */
+let pendingView = null;
 /** @type {Record<string, { x: number, y: number, h: number, w: number, hop?: number, parentId?: string }> | null} */
 let lastPos = null;
 const ARROW_LEN = 8;
@@ -1009,6 +1011,66 @@ function scrollToNode(id) {
     const p = lastPos[id];
     stage.scrollLeft = (p.x + nodeW(p) / 2) * zoom - stage.clientWidth / 2;
     stage.scrollTop = (p.y + p.h / 2) * zoom - stage.clientHeight / 2;
+}
+
+function ensureNodesInView(ids) {
+    if (!stage || !lastPos || !ids.length) {
+        return;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let hop = 0;
+    for (const id of ids) {
+        const p = lastPos[id];
+        if (!p) {
+            continue;
+        }
+        if (p.hop) {
+            hop = p.hop;
+        }
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x + nodeW(p));
+        maxY = Math.max(maxY, p.y + p.h);
+    }
+    if (!Number.isFinite(minX)) {
+        return;
+    }
+    const pad = 16;
+    const left = minX * zoom - pad;
+    const top = minY * zoom - pad;
+    const right = maxX * zoom + pad;
+    const bottom = maxY * zoom + pad;
+    const vw = stage.clientWidth;
+    const vh = stage.clientHeight;
+    let sl = stage.scrollLeft;
+    let st = stage.scrollTop;
+    const boxW = right - left;
+    const boxH = bottom - top;
+    if (boxW <= vw) {
+        if (left < sl) {
+            sl = left;
+        } else if (right > sl + vw) {
+            sl = right - vw;
+        }
+    } else if (hop < 0) {
+        sl = right - vw;
+    } else {
+        sl = left;
+    }
+    if (boxH <= vh) {
+        if (top < st) {
+            st = top;
+        } else if (bottom > st + vh) {
+            st = bottom - vh;
+        }
+    } else {
+        st = top;
+    }
+    stage.scrollLeft = Math.max(0, sl);
+    stage.scrollTop = Math.max(0, st);
 }
 
 function nodeElById(id) {
@@ -2982,7 +3044,10 @@ function applyView(graph, pos) {
 }
 
 function render(graph) {
-    savedView = captureView();
+    const reset = pendingView && pendingView.type === 'reset';
+    const revealId = pendingView && pendingView.type === 'reveal' ? pendingView.parentId : '';
+    pendingView = null;
+    savedView = reset ? null : captureView();
     lastGraph = graph;
     if (graph.rootId && selectedRootId && selectedRootId !== graph.rootId) {
         selectedId = '';
@@ -3380,6 +3445,10 @@ function render(graph) {
     stage.appendChild(zoomWrap);
     applyZoomChrome();
     applyView(graph, pos);
+    if (revealId) {
+        const ids = graph.nodes.filter(n => n.id === revealId || n.parentId === revealId).map(n => n.id);
+        ensureNodesInView(ids);
+    }
     applyPathFocus();
     applyFind({ keepIndex: true });
     applyPendingHop();
@@ -4031,6 +4100,9 @@ window.addEventListener('message', ev => {
         return;
     }
     if (msg.type === 'graph') {
+        pendingView = msg.resetView
+            ? { type: 'reset' }
+            : (msg.revealId ? { type: 'reveal', parentId: msg.revealId } : null);
         render(msg.graph || { nodes: [], edges: [], empty: 'No call hierarchy at this position.' });
     } else if (msg.type === 'state') {
         if (pinBtn) {

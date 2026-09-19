@@ -428,10 +428,11 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                 break;
             }
             case 'expandHop': {
+                const nodeId = String(message.nodeId || '');
                 const nodes = this.graph.nodes;
                 await this.withProgress(async () => {
-                    const loaded = await this.model.expandHop(String(message.nodeId || ''), nodes);
-                    this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+                    const loaded = await this.model.expandHop(nodeId, nodes);
+                    this.applyGraph(loaded?.graph, loaded?.seq ?? -1, { revealId: nodeId });
                 });
                 break;
             }
@@ -447,7 +448,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                 break;
             case 'collapseAll':
                 this.graph = this.model.collapseAll();
-                this.postGraph();
+                this.postGraph({ resetView: true });
                 break;
             case 'toggleGroup': {
                 const nodes = this.graph.nodes;
@@ -533,7 +534,11 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         });
     }
 
-    private applyGraph(graph: RelationGraph | undefined, seq: number): void {
+    private applyGraph(
+        graph: RelationGraph | undefined,
+        seq: number,
+        opts?: { resetView?: boolean; revealId?: string }
+    ): void {
         if (!this.panel || graph === undefined || !this.model.isCurrent(seq)) {
             return;
         }
@@ -544,11 +549,16 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         const kind = graph.mode === 'reference' ? 'References' : 'Call';
         this.panel.title = graph.title ? `Relation (${kind}) — ${graph.title}` : `Relation (${kind})`;
         this.schedulePersist();
-        this.postGraph();
+        this.postGraph(opts);
     }
 
-    private postGraph(): void {
-        this.panel?.webview.postMessage({ type: 'graph', graph: this.graph });
+    private postGraph(opts?: { resetView?: boolean; revealId?: string }): void {
+        this.panel?.webview.postMessage({
+            type: 'graph',
+            graph: this.graph,
+            resetView: !!opts?.resetView,
+            revealId: opts?.revealId || ''
+        });
         this.postState();
     }
 
