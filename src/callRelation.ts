@@ -533,7 +533,7 @@ function resultCount(value: unknown): number {
     return value == null ? 0 : 1;
 }
 
-const RELATION_COST = false;
+const RELATION_COST = true;
 let relationCost = RELATION_COST;
 let relationCostChannel: vscode.OutputChannel | undefined;
 
@@ -545,6 +545,7 @@ function costLog(layer: string, ms: number, detail = ''): void {
     console.log(line);
     relationCostChannel ??= vscode.window.createOutputChannel('Context View Relation');
     relationCostChannel.appendLine(line);
+    relationCostChannel.show(true);
 }
 
 function isLibPath(fsPath: string): boolean {
@@ -2209,9 +2210,23 @@ export class CallRelationModel {
             const chunk = next.wave;
             batch++;
             const tBatch = Date.now();
-            await Promise.all(chunk.map(job => (
-                job.dir < 0 ? this.ensureIncoming(job.item, seq) : this.ensureOutgoing(job.item, seq)
-            )));
+            await Promise.all(chunk.map(async job => {
+                const tJob = Date.now();
+                const side = job.dir < 0 ? 'incoming' : 'outgoing';
+                const hit = job.dir < 0
+                    ? this.incoming.has(itemKey(job.item))
+                    : this.outgoing.has(itemKey(job.item));
+                if (job.dir < 0) {
+                    await this.ensureIncoming(job.item, seq);
+                } else {
+                    await this.ensureOutgoing(job.item, seq);
+                }
+                costLog(
+                    `prefetch ${side}`,
+                    Date.now() - tJob,
+                    `${itemLabel(job.item)} ${hit ? 'cache' : 'fetch'} n=${this.sideCount(job.item, job.dir)}`
+                );
+            }));
             done += chunk.length;
             const inChunk = chunk.filter(job => job.dir < 0).length;
             costLog(
@@ -2674,19 +2689,26 @@ export class CallRelationModel {
         if (!ident || /^constructor$/i.test(ident) || item.kind === vscode.SymbolKind.Constructor) {
             return;
         }
+        const t0 = Date.now();
         const epoch = this.cacheEpoch;
         const family = await this.selfAndAncestorTypes(item);
         const ancestors = family.filter(type => type.depth > 0);
         if (!ancestors.length) {
+            costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} no ancestors`);
             return;
         }
+        costLog('incoming merge family', Date.now() - t0, `${itemLabel(item)} types=${family.length} ancestors=${ancestors.length}`);
+        const tSlots = Date.now();
         const slots = (await this.collectVirtualSlots(ancestors, ident))
             .filter(slot => !isLibPath(slot.uri.fsPath));
         if (!slots.length) {
+            costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} no slots`);
             return;
         }
+        costLog('incoming merge slots', Date.now() - tSlots, `${itemLabel(item)} n=${slots.length}`);
         const locSeen = new Set<string>();
         const locations: vscode.Location[] = [];
+        const tRefs = Date.now();
         for (const slot of slots) {
             const refs = await this.execLspHeld<unknown[]>(
                 'vscode.executeReferenceProvider',
@@ -2707,8 +2729,10 @@ export class CallRelationModel {
             }
         }
         if (!locations.length) {
+            costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} no refs`);
             return;
         }
+        costLog('incoming merge refs', Date.now() - tRefs, `${itemLabel(item)} locs=${locations.length} slots=${slots.length}`);
         const familyKeys = new Map(family.map(a => [typeRefKey(a.uri, a.symbol), a.depth]));
         const heritageShare = new Map<string, boolean>();
         const groups = new Map<string, {
@@ -2719,6 +2743,9 @@ export class CallRelationModel {
         }>();
         const identCall = new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`);
         const lineCache = new Map<string, Promise<string[] | undefined>>();
+        const fileSeen = new Set<string>();
+        let lineHits = 0;
+        const tClassify = Date.now();
         const chunk = 12;
         for (let i = 0; i < locations.length; i += chunk) {
             await Promise.all(locations.slice(i, i + chunk).map(async loc => {
@@ -2745,6 +2772,7 @@ export class CallRelationModel {
                     return;
                 }
                 const uk = loc.uri.toString();
+                fileSeen.add(uk);
                 let pendingLines = lineCache.get(uk);
                 if (!pendingLines) {
                     pendingLines = this.fileLines(loc.uri);
@@ -2758,6 +2786,7 @@ export class CallRelationModel {
                 if (isParentOrDeclIncomingLine(lineText, ident) || !identCall.test(lineText)) {
                     return;
                 }
+                lineHits++;
                 const enc = await enclosingCallable(loc.uri, loc.range.start.line, ident);
                 if (!enc) {
                     return;
@@ -2793,8 +2822,18 @@ export class CallRelationModel {
             }));
         }
         if (!groups.size || this.cacheEpoch !== epoch) {
+            costLog(
+                'incoming merge classify',
+                Date.now() - tClassify,
+                `${itemLabel(item)} groups=${groups.size}${this.cacheEpoch !== epoch ? ' dropped' : ''} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits}`
+            );
             return;
         }
+        costLog(
+            'incoming merge classify',
+            Date.now() - tClassify,
+            `${itemLabel(item)} groups=${groups.size} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits}`
+        );
         let nearest = Number.POSITIVE_INFINITY;
         for (const group of groups.values()) {
             if (!group.external && group.depth < nearest) {
@@ -2814,6 +2853,7 @@ export class CallRelationModel {
             items.push(this.items.get(k)!);
             this.rememberCallSite(key, -1, group.item, group.item.uri, group.sites, item.name);
         }
+        costLog('incoming merge total', Date.now() - t0, `${itemLabel(item)} added=${items.length} groups=${groups.size}`);
     }
 
     private async fileLines(uri: vscode.Uri): Promise<string[] | undefined> {
@@ -3251,17 +3291,21 @@ export class CallRelationModel {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
         const rev = this.fileRev(item.uri);
+        const tResolve = Date.now();
         const subject = await this.resolveForHierarchy(item);
+        costLog('incoming resolve', Date.now() - tResolve, itemLabel(item));
         if (!subject) {
             this.cacheSides(this.incoming, [key], []);
             costLog('incoming skip unprepared', Date.now() - t0, itemLabel(item));
             return;
         }
         const resolvedKey = itemKey(subject);
+        const tLsp = Date.now();
         const calls = await this.execLspHeld<vscode.CallHierarchyIncomingCall[]>(
             'vscode.provideIncomingCalls',
             subject
         );
+        costLog('incoming lsp', Date.now() - tLsp, `${itemLabel(item)} n=${calls?.length ?? 0}`);
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('incoming dropped', Date.now() - t0, itemLabel(item));
             return;
@@ -3269,6 +3313,7 @@ export class CallRelationModel {
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
         const ident = identFromToken(subject.name);
+        const tSites = Date.now();
         for (const call of calls || []) {
             if (!call?.from) {
                 continue;
@@ -3294,6 +3339,7 @@ export class CallRelationModel {
             items.push(this.items.get(k)!);
             this.rememberCallSite(key, -1, from, from.uri, sites, subject.name);
         }
+        costLog('incoming sites', Date.now() - tSites, `${itemLabel(item)} n=${items.length}`);
         await this.mergeOverrideIncoming(subject, key, items, seen, ident);
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after merge`);
@@ -3308,17 +3354,21 @@ export class CallRelationModel {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
         const rev = this.fileRev(item.uri);
+        const tResolve = Date.now();
         const subject = await this.resolveForHierarchy(item);
+        costLog('outgoing resolve', Date.now() - tResolve, itemLabel(item));
         if (!subject) {
             this.cacheSides(this.outgoing, [key], []);
             costLog('outgoing skip unprepared', Date.now() - t0, itemLabel(item));
             return;
         }
         const resolvedKey = itemKey(subject);
+        const tLsp = Date.now();
         const calls = await this.execLspHeld<vscode.CallHierarchyOutgoingCall[]>(
             'vscode.provideOutgoingCalls',
             subject
         );
+        costLog('outgoing lsp', Date.now() - tLsp, `${itemLabel(item)} n=${calls?.length ?? 0}`);
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('outgoing dropped', Date.now() - t0, itemLabel(item));
             return;
@@ -3332,7 +3382,10 @@ export class CallRelationModel {
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
         const ident = identFromToken(subject.name);
+        const tChain = Date.now();
         const chain = await this.selfAndAncestorTypes(subject);
+        costLog('outgoing chain', Date.now() - tChain, `${itemLabel(item)} types=${chain.length}`);
+        const tSites = Date.now();
         const derivedByIdent = new Map<string, vscode.CallHierarchyItem | undefined>();
         for (const call of calls || []) {
             if (!call?.to) {
@@ -3367,6 +3420,7 @@ export class CallRelationModel {
             items.push(this.items.get(k)!);
             this.rememberCallSite(key, 1, target, subject.uri, sites, target.name);
         }
+        costLog('outgoing sites', Date.now() - tSites, `${itemLabel(item)} n=${items.length} derived=${derivedByIdent.size}`);
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('outgoing dropped', Date.now() - t0, `${itemLabel(item)} after rewrite`);
             return;

@@ -6,6 +6,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [unReleased]
 
+#### Added
+
+- Relation cost logs (`RELATION_COST` in `callRelation.ts`) include neighbor prefetch phases: each incoming/outgoing job, batch totals, and the slow steps inside a fetch (resolve, LSP, sites, override-incoming merge with `files` / `lineHits`).
+
 #### Changed
 
 - Relation override-incoming classify reads each reference file’s line text from disk (or an already-open editor) without `openTextDocument`, and only then asks the language server for symbols. Neighbor prefetch runs at most two incoming peeks at a time. Keep/drop rules are unchanged.
