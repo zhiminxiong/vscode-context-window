@@ -683,6 +683,10 @@ export class CallRelationModel {
     private readonly inflightOut = new Map<string, Promise<void>>();
     /** Neighbor prefetch is async; the extension host is still one thread. */
     private prefetchBusy = false;
+    /** Direct bases by type identity; dropped on any file change. */
+    private readonly baseTypesCache = new Map<string, Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]>>();
+    /** Ancestor walk from a type; dropped on any file change. */
+    private readonly ancestorCache = new Map<string, Promise<TypeRef[]>>();
     private prefetchQueued = false;
     /** True while a neighbor peek sweep is in flight; drives spinner buttons. */
     private prefetchActive = false;
@@ -741,6 +745,8 @@ export class CallRelationModel {
         this.fileGen.clear();
         this.inflightIn.clear();
         this.inflightOut.clear();
+        this.baseTypesCache.clear();
+        this.ancestorCache.clear();
         this.prefetchQueued = false;
         this.prefetchActive = false;
         this.hopBusy.clear();
@@ -876,6 +882,8 @@ export class CallRelationModel {
                 this.callSites.delete(key);
             }
         }
+        this.baseTypesCache.clear();
+        this.ancestorCache.clear();
     }
 
     remember(item: vscode.CallHierarchyItem): string {
@@ -2902,6 +2910,23 @@ export class CallRelationModel {
     }
 
     private async collectAncestorTypesFrom(start: TypeRef): Promise<TypeRef[]> {
+        const key = typeRefKey(start.uri, start.symbol);
+        let pending = this.ancestorCache.get(key);
+        if (!pending) {
+            pending = this.walkAncestorTypesFrom({ uri: start.uri, symbol: start.symbol, depth: 0 }).catch(err => {
+                this.ancestorCache.delete(key);
+                throw err;
+            });
+            this.ancestorCache.set(key, pending);
+        }
+        const bases = await pending;
+        if (!start.depth) {
+            return bases;
+        }
+        return bases.map(type => ({ uri: type.uri, symbol: type.symbol, depth: type.depth + start.depth }));
+    }
+
+    private async walkAncestorTypesFrom(start: TypeRef): Promise<TypeRef[]> {
         const out: TypeRef[] = [];
         const seen = new Set<string>([typeRefKey(start.uri, start.symbol)]);
         const queue: TypeRef[] = [{ uri: start.uri, symbol: start.symbol, depth: 0 }];
@@ -2943,7 +2968,7 @@ export class CallRelationModel {
         }
         return [
             { uri: owner.uri, symbol: owner.symbol, depth: 0 },
-            ...await this.collectAncestorTypes(item)
+            ...await this.collectAncestorTypesFrom({ uri: owner.uri, symbol: owner.symbol, depth: 0 })
         ];
     }
 
@@ -3033,6 +3058,19 @@ export class CallRelationModel {
     }
 
     private async directBaseTypes(type: TypeRef): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
+        const key = typeRefKey(type.uri, type.symbol);
+        let pending = this.baseTypesCache.get(key);
+        if (!pending) {
+            pending = this.lookupDirectBaseTypes(type).catch(err => {
+                this.baseTypesCache.delete(key);
+                throw err;
+            });
+            this.baseTypesCache.set(key, pending);
+        }
+        return pending;
+    }
+
+    private async lookupDirectBaseTypes(type: TypeRef): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
         const fromHierarchy = await this.basesFromTypeHierarchy(type);
         if (fromHierarchy.length) {
             return fromHierarchy;
