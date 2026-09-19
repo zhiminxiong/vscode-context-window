@@ -687,6 +687,8 @@ export class CallRelationModel {
     private readonly baseTypesCache = new Map<string, Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]>>();
     /** Ancestor walk from a type; dropped on any file change. */
     private readonly ancestorCache = new Map<string, Promise<TypeRef[]>>();
+    /** Same-file heritage walks run one at a time so the second hits ancestorCache. */
+    private readonly heritageFileTail = new Map<string, Promise<void>>();
     private prefetchQueued = false;
     /** True while a neighbor peek sweep is in flight; drives spinner buttons. */
     private prefetchActive = false;
@@ -747,6 +749,7 @@ export class CallRelationModel {
         this.inflightOut.clear();
         this.baseTypesCache.clear();
         this.ancestorCache.clear();
+        this.heritageFileTail.clear();
         this.prefetchQueued = false;
         this.prefetchActive = false;
         this.hopBusy.clear();
@@ -2176,6 +2179,7 @@ export class CallRelationModel {
         const wave: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
         const rest: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
         let incoming = 0;
+        const outgoingFiles = new Set<string>();
         for (const job of remaining) {
             if (wave.length >= PREFETCH_BATCH) {
                 rest.push(job);
@@ -2187,7 +2191,15 @@ export class CallRelationModel {
                     continue;
                 }
                 incoming++;
+                wave.push(job);
+                continue;
             }
+            const file = job.item.uri.toString();
+            if (outgoingFiles.has(file)) {
+                rest.push(job);
+                continue;
+            }
+            outgoingFiles.add(file);
             wave.push(job);
         }
         return { wave, rest };
@@ -2948,28 +2960,40 @@ export class CallRelationModel {
     }
 
     private async collectAncestorTypes(item: vscode.CallHierarchyItem): Promise<TypeRef[]> {
-        const owner = await this.containingTypeAt(
-            item.uri,
-            item.selectionRange?.start ?? item.range.start
-        );
-        if (!owner) {
-            return [];
-        }
-        return this.collectAncestorTypesFrom({ uri: owner.uri, symbol: owner.symbol, depth: 0 });
+        return this.runHeritageForFile(item.uri, async () => {
+            const owner = await this.containingTypeAt(
+                item.uri,
+                item.selectionRange?.start ?? item.range.start
+            );
+            if (!owner) {
+                return [];
+            }
+            return this.collectAncestorTypesFrom({ uri: owner.uri, symbol: owner.symbol, depth: 0 });
+        });
     }
 
     private async selfAndAncestorTypes(item: vscode.CallHierarchyItem): Promise<TypeRef[]> {
-        const owner = await this.containingTypeAt(
-            item.uri,
-            item.selectionRange?.start ?? item.range.start
-        );
-        if (!owner) {
-            return [];
-        }
-        return [
-            { uri: owner.uri, symbol: owner.symbol, depth: 0 },
-            ...await this.collectAncestorTypesFrom({ uri: owner.uri, symbol: owner.symbol, depth: 0 })
-        ];
+        return this.runHeritageForFile(item.uri, async () => {
+            const owner = await this.containingTypeAt(
+                item.uri,
+                item.selectionRange?.start ?? item.range.start
+            );
+            if (!owner) {
+                return [];
+            }
+            return [
+                { uri: owner.uri, symbol: owner.symbol, depth: 0 },
+                ...await this.collectAncestorTypesFrom({ uri: owner.uri, symbol: owner.symbol, depth: 0 })
+            ];
+        });
+    }
+
+    private runHeritageForFile<T>(uri: vscode.Uri, work: () => Promise<T>): Promise<T> {
+        const key = uri.toString();
+        const prev = this.heritageFileTail.get(key) ?? Promise.resolve();
+        const current = prev.then(work, work);
+        this.heritageFileTail.set(key, current.then(() => undefined, () => undefined));
+        return current;
     }
 
     private async methodDeclHasOverride(uri: vscode.Uri, method: FlatSymbol): Promise<boolean> {
