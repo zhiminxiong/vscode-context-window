@@ -533,7 +533,7 @@ function resultCount(value: unknown): number {
     return value == null ? 0 : 1;
 }
 
-const RELATION_COST = true;
+const RELATION_COST = false;
 let relationCost = RELATION_COST;
 let relationCostChannel: vscode.OutputChannel | undefined;
 
