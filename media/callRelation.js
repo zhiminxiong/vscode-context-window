@@ -2853,6 +2853,14 @@ function fillNodeTip(tip, node) {
         detail.textContent = node.detail;
         tip.appendChild(detail);
     }
+    if (node.hopCapped) {
+        const cap = document.createElement('div');
+        cap.className = 'cr-node-tip-detail cr-node-tip-cap';
+        cap.textContent = node.hop < 0
+            ? 'Hop limit on this side. The red × cannot expand more callers. Double-click to make this the center.'
+            : 'Hop limit on this side. The red × cannot expand more callees. Double-click to make this the center.';
+        tip.appendChild(cap);
+    }
     if (lastGraph && isCyclicNode(lastGraph, node)) {
         const cycle = document.createElement('div');
         cycle.className = 'cr-node-tip-detail cr-node-tip-cycle';
@@ -3297,15 +3305,29 @@ function createEdgeGroup(graph, edge, pos, ports, canvas, skipRecord) {
     return g;
 }
 
+function hopCapLabel(node) {
+    return node.hop < 0
+        ? 'Hop limit — cannot expand more callers. Double-click to recenter.'
+        : 'Hop limit — cannot expand more callees. Double-click to recenter.';
+}
+
 function createToggleBtn(graph, node, el) {
+    const capped = !!node.hopCapped;
     const hasKids = graph.nodes.some(n => n.parentId === node.id);
-    const collapse = !!(node.expanded || hasKids);
+    const collapse = !capped && !!(node.expanded || hasKids);
     const exp = document.createElement('button');
     exp.type = 'button';
-    exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
-    exp.setAttribute('aria-label', collapse
-        ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
-        : (node.hop < 0 ? 'Expand callers' : 'Expand callees'));
+    exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right')
+        + (capped ? ' is-capped' : '')
+        + (collapse ? ' is-collapse' : '');
+    exp.setAttribute('aria-label', capped
+        ? hopCapLabel(node)
+        : (collapse
+            ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
+            : (node.hop < 0 ? 'Expand callers' : 'Expand callees')));
+    if (capped) {
+        exp.title = hopCapLabel(node);
+    }
     exp.addEventListener('pointerenter', ev => {
         ev.stopPropagation();
         tipHover = null;
@@ -3330,6 +3352,9 @@ function createToggleBtn(graph, node, el) {
     exp.addEventListener('click', ev => {
         ev.stopPropagation();
         hideNodeTip();
+        if (node.hopCapped || exp.classList.contains('is-capped')) {
+            return;
+        }
         const nowCollapse = exp.classList.contains('is-collapse');
         exp.classList.toggle('is-collapse', !nowCollapse);
         exp.setAttribute('aria-label', nowCollapse
@@ -3364,7 +3389,8 @@ function syncNodeToggle(el, graph, node, p) {
             ring.remove();
         }
     }
-    const wantToggle = (node.expandable || collapse) && !prefetch;
+    const capped = !!node.hopCapped;
+    const wantToggle = capped || ((node.expandable || collapse) && !prefetch);
     el.classList.toggle('has-toggle-left', wantToggle && node.hop < 0);
     el.classList.toggle('has-toggle-right', wantToggle && node.hop >= 0);
     let exp = el.querySelector('.cr-toggle');
@@ -3378,10 +3404,19 @@ function syncNodeToggle(el, graph, node, p) {
         exp = createToggleBtn(graph, node, el);
         el.appendChild(exp);
     }
-    exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
-    exp.setAttribute('aria-label', collapse
-        ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
-        : (node.hop < 0 ? 'Expand callers' : 'Expand callees'));
+    exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right')
+        + (capped ? ' is-capped' : '')
+        + (!capped && collapse ? ' is-collapse' : '');
+    exp.setAttribute('aria-label', capped
+        ? hopCapLabel(node)
+        : (collapse
+            ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
+            : (node.hop < 0 ? 'Expand callers' : 'Expand callees')));
+    if (capped) {
+        exp.title = hopCapLabel(node);
+    } else {
+        exp.removeAttribute('title');
+    }
 }
 
 function createNodeEl(graph, node, p) {
@@ -3546,7 +3581,7 @@ function createNodeEl(graph, node, p) {
             el.appendChild(createPrefetchRing(nodeW(p), p.h));
             armPrefetchSpin();
         }
-        if ((node.expandable || collapse) && !prefetch && node.id !== graph.rootId) {
+        if ((node.hopCapped || ((node.expandable || collapse) && !prefetch)) && node.id !== graph.rootId) {
             el.classList.add(node.hop < 0 ? 'has-toggle-left' : 'has-toggle-right');
             el.appendChild(createToggleBtn(graph, node, el));
         }

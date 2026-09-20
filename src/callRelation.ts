@@ -46,6 +46,8 @@ export interface RelationNode {
     kind: RelationNodeKind;
     moreCount?: number;
     expandable?: boolean;
+    /** |hop| reached CALL_MAX_HOP; webview shows a red × instead of +/-. */
+    hopCapped?: boolean;
     /** Neighbor side is being peeked; show a spinner instead of +/-. */
     prefetching?: boolean;
     expanded?: boolean;
@@ -769,7 +771,8 @@ function toSymbolNode(
         hop,
         parentId,
         kind: 'symbol',
-        expandable
+        expandable,
+        hopCapped: Math.abs(hop) >= CALL_MAX_HOP
     };
 }
 
@@ -2821,7 +2824,8 @@ export class CallRelationModel {
                     || this.keepExpand.has(`self\0${childKey}`));
             childNode.cyclic = cyclic;
             childNode.expanded = opened;
-            childNode.expandable = !cyclic && Math.abs(hop) < CALL_MAX_HOP && this.canExpand(child, dir);
+            childNode.hopCapped = Math.abs(hop) >= CALL_MAX_HOP;
+            childNode.expandable = !cyclic && !childNode.hopCapped && this.canExpand(child, dir);
             childNode.prefetching = !opened
                 && !cyclic
                 && !childNode.expandable

@@ -1374,6 +1374,26 @@ button.cr-cycle {
     color: var(--cr-focus);
 }
 
+.cr-toggle.is-capped {
+    border-color: var(--vscode-errorForeground, #f14c4c);
+    color: var(--vscode-errorForeground, #f14c4c);
+    cursor: default;
+    transform: rotate(45deg);
+}
+
+.cr-toggle.is-capped::after {
+    top: 3px;
+    bottom: 3px;
+    left: 50%;
+    width: 1.5px;
+    margin-left: -0.75px;
+}
+
+.cr-toggle.is-capped:hover {
+    border-color: var(--vscode-errorForeground, #f14c4c);
+    color: var(--vscode-errorForeground, #f14c4c);
+}
+
 .cr-toggle.is-left {
     left: -7px;
 }
@@ -1508,6 +1528,11 @@ button.cr-cycle {
     opacity: 0.88;
     white-space: pre-wrap;
     word-break: break-word;
+}
+.cr-node-tip-cap {
+    color: var(--vscode-charts-orange, var(--vscode-editorWarning-foreground, #d18616));
+    opacity: 1;
+    font-weight: 600;
 }
 .cr-node-tip-cycle {
     color: var(--vscode-charts-purple, #b180d7);
