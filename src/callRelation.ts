@@ -2730,10 +2730,11 @@ export class CallRelationModel {
     }
 
     /**
-     * Override incoming is empty for virtual dispatch. Search every same-named
-     * class/interface slot on this type's ancestor chain. A call site is
-     * classified by its enclosing type: on this chain (keep nearest), shares
-     * heritage but not on this chain (sibling, drop), otherwise external (keep).
+     * Override incoming is empty for virtual dispatch. Search same-named slots
+     * on this type's ancestor chain, then keep only `this`/`self` call sites
+     * whose enclosing type is on that chain (nearest depth). Sibling overrides
+     * and `foo.dispose()` through a shared base slot are dropped — those are
+     * not callers of this override.
      */
     private async mergeOverrideIncoming(
         item: vscode.CallHierarchyItem,
@@ -2797,6 +2798,7 @@ export class CallRelationModel {
             return;
         }
         costLog('incoming merge refs', Date.now() - tRefs, `${itemLabel(item)} locs=${locations.length} slots=${slots.length}`);
+        const familyUris = new Set(family.map(type => type.uri.toString()));
         const familyKeys = new Map(family.map(a => [typeRefKey(a.uri, a.symbol), a.depth]));
         const heritageShare = new Map<string, boolean>();
         const groups = new Map<string, {
@@ -2813,7 +2815,7 @@ export class CallRelationModel {
         const chunk = 12;
         for (let i = 0; i < locations.length; i += chunk) {
             await Promise.all(locations.slice(i, i + chunk).map(async loc => {
-                if (isLibPath(loc.uri.fsPath) || this.isDeclSite(item, loc)) {
+                if (isLibPath(loc.uri.fsPath) || !familyUris.has(loc.uri.toString()) || this.isDeclSite(item, loc)) {
                     return;
                 }
                 if (slots.some(slot => this.isDeclSite(
@@ -2847,7 +2849,9 @@ export class CallRelationModel {
                     return;
                 }
                 const lineText = lines[Math.min(loc.range.start.line, lines.length - 1)] || '';
-                if (isParentOrDeclIncomingLine(lineText, ident) || !identCall.test(lineText)) {
+                if (isParentOrDeclIncomingLine(lineText, ident)
+                    || !identCall.test(lineText)
+                    || !isThisDispatchLine(lineText, ident)) {
                     return;
                 }
                 lineHits++;
@@ -2861,7 +2865,7 @@ export class CallRelationModel {
                     familyKeys,
                     heritageShare
                 );
-                if (kind === 'sibling') {
+                if (kind === 'sibling' || kind.kind === 'external') {
                     return;
                 }
                 const caller = await this.prepareFromEnclosing(enc, loc.uri);
@@ -2881,7 +2885,7 @@ export class CallRelationModel {
                     item: caller,
                     sites: [loc.range],
                     depth: kind.depth,
-                    external: kind.kind === 'external'
+                    external: false
                 });
             }));
         }
