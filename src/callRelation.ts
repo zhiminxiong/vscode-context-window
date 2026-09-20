@@ -5,7 +5,7 @@ import { enclosingCallable, isAnonymousSymbolName, isReferenceRelationKind, isUs
 export type ChildSort = 'name' | 'order';
 
 export const CALL_PAGE = 12;
-export const CALL_MAX_HOP = 8;
+export const CALL_MAX_HOP = 32;
 /** Each Expand All adds at most this many nodes; run again to continue. */
 const CALL_EXPAND_ALL_NODES = 40;
 /** Stop remaining prefetch jobs after an incoming peek this large. */
@@ -648,7 +648,10 @@ function resultCount(value: unknown): number {
 }
 
 const RELATION_COST = false;
+/** Peek vs focus cache log. Output: Context View Relation. */
+const RELATION_PEEK = false;
 let relationCost = RELATION_COST;
+let relationPeek = RELATION_PEEK;
 let relationCostChannel: vscode.OutputChannel | undefined;
 
 function costLog(layer: string, ms: number, detail = ''): void {
@@ -656,6 +659,17 @@ function costLog(layer: string, ms: number, detail = ''): void {
         return;
     }
     const line = `[relation cost] ${layer} ${ms}ms${detail ? ` ${detail}` : ''}`;
+    console.log(line);
+    relationCostChannel ??= vscode.window.createOutputChannel('Context View Relation');
+    relationCostChannel.appendLine(line);
+    relationCostChannel.show(true);
+}
+
+function peekLog(layer: string, detail: string): void {
+    if (!relationPeek) {
+        return;
+    }
+    const line = `[relation peek] ${layer} ${detail}`;
     console.log(line);
     relationCostChannel ??= vscode.window.createOutputChannel('Context View Relation');
     relationCostChannel.appendLine(line);
@@ -1083,27 +1097,41 @@ export class CallRelationModel {
     }
 
     /**
-     * prepareCallHierarchy at the same position focusNode uses, including a second
-     * prepare after remap (double-click also prepares the remapped item).
+     * Same prepare pick as focusNode, then only the side that node would expand:
+     * hop &lt; 0 (left) → incoming, hop &gt; 0 (right) → outgoing.
      */
-    private async peekSubject(item: vscode.CallHierarchyItem): Promise<vscode.CallHierarchyItem> {
+    private async peekNeighborSide(
+        item: vscode.CallHierarchyItem,
+        dir: -1 | 1,
+        graphKey: string,
+        seq: number
+    ): Promise<void> {
         const sel = item.selectionRange?.start ?? item.range.start;
         const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
             'vscode.prepareCallHierarchy',
             item.uri,
             sel
         );
-        const resolved = this.bindPrepared(item, prepared);
-        if (itemKey(resolved) === itemKey(item)) {
-            return resolved;
+        const subject = this.bindPrepared(item, prepared);
+        if (dir < 0) {
+            await this.ensureIncoming(subject, seq);
+        } else {
+            await this.ensureOutgoing(subject, seq);
         }
-        const sel2 = resolved.selectionRange?.start ?? resolved.range.start;
-        const prepared2 = await this.execLspHeld<vscode.CallHierarchyItem[]>(
-            'vscode.prepareCallHierarchy',
-            resolved.uri,
-            sel2
+        const cache = dir < 0 ? this.incoming : this.outgoing;
+        const subjectKey = itemKey(subject);
+        this.shareSide(cache, subjectKey, itemKey(item));
+        this.shareSide(cache, subjectKey, graphKey);
+        const n = this.sideCount(item, dir);
+        const plus = this.canExpand(item, dir);
+        peekLog(
+            'leaf',
+            `dir=${dir < 0 ? 'left/in' : 'right/out'} item=${itemLabel(item)} subject=${itemLabel(subject)}`
+            + ` graphKey=${graphKey === itemKey(item) ? 'same' : 'DIFF'} subjectKey=${subjectKey === itemKey(item) ? 'same' : 'DIFF'}`
+            + ` n=${n} plus=${plus} in=${this.sideCount(item, -1)} out=${this.sideCount(item, 1)}`
+            + ` inHas=${this.cacheKeysFor(item).some(k => this.incoming.has(k))}`
+            + ` outHas=${this.cacheKeysFor(item).some(k => this.outgoing.has(k))}`
         );
-        return this.bindPrepared(resolved, prepared2);
     }
 
     private shareSide(
@@ -1149,13 +1177,16 @@ export class CallRelationModel {
 
     private cacheKeysFor(item: vscode.CallHierarchyItem): string[] {
         const primary = itemKey(item);
-        const keys = [primary];
-        for (const [k, mapped] of this.items) {
-            if (k !== primary && itemKey(mapped) === primary) {
-                keys.push(k);
+        const mapped = this.items.get(primary);
+        const mappedKey = mapped ? itemKey(mapped) : primary;
+        const keys = new Set<string>([primary, mappedKey]);
+        for (const [k, v] of this.items) {
+            const vk = itemKey(v);
+            if (vk === primary || vk === mappedKey) {
+                keys.add(k);
             }
         }
-        return keys;
+        return [...keys];
     }
 
     private cacheSides(
@@ -1164,7 +1195,8 @@ export class CallRelationModel {
         items: vscode.CallHierarchyItem[]
     ): void {
         for (const k of keys) {
-            if (!cache.has(k)) {
+            const cur = cache.get(k);
+            if (!cur || cur.length < items.length) {
                 cache.set(k, items);
             }
         }
@@ -2126,6 +2158,15 @@ export class CallRelationModel {
         if (!item) {
             return { graph: this.attachCenterTrail(graph), seq };
         }
+        const peekInHas = this.cacheKeysFor(item).some(k => this.incoming.has(k));
+        const peekOutHas = this.cacheKeysFor(item).some(k => this.outgoing.has(k));
+        const peekIn = this.sideCount(item, -1);
+        const peekOut = this.sideCount(item, 1);
+        peekLog(
+            'focus before',
+            `hop=${focus.hop} ${focus.hop < 0 ? 'left' : focus.hop > 0 ? 'right' : 'center'} item=${itemLabel(item)}`
+            + ` peekIn=${peekInHas ? peekIn : 'miss'} peekOut=${peekOutHas ? peekOut : 'miss'}`
+        );
         if (this.root && itemKey(this.root) === focus.itemKey && focus.hop === 0) {
             return { graph: this.attachCenterTrail(graph), seq };
         }
@@ -2135,6 +2176,7 @@ export class CallRelationModel {
             this.recordCenter(this.root);
             this.syncPrevFromTrail();
             costLog('focusNode cache', Date.now() - t0, itemLabel(this.root));
+            peekLog('focus cache', `hop=${focus.hop} ${itemLabel(this.root)} restored snapshot (no refetch)`);
             return { graph: this.attachCenterTrail(cached), seq };
         }
 
@@ -2222,6 +2264,26 @@ export class CallRelationModel {
         }
         const built = await this.completeRootSides(seq, t0, itemLabel(resolved));
         costLog('focusNode', Date.now() - t0, itemLabel(resolved));
+        const afterIn = this.sideCount(resolved, -1);
+        const afterOut = this.sideCount(resolved, 1);
+        peekLog(
+            'focus after',
+            `hop=${focus.hop} item=${itemLabel(item)} resolved=${itemLabel(resolved)}`
+            + ` key=${itemKey(item) === itemKey(resolved) ? 'same' : 'DIFF'} afterIn=${afterIn} afterOut=${afterOut}`
+            + ` peekIn=${peekInHas ? peekIn : 'miss'} peekOut=${peekOutHas ? peekOut : 'miss'}`
+        );
+        if (focus.hop > 0 && afterIn > 0 && !peekInHas) {
+            peekLog(
+                'MISMATCH',
+                `${itemLabel(item)} was a right-side leaf (peek outgoing only); focus incoming n=${afterIn} was never peeked`
+            );
+        }
+        if (focus.hop < 0 && afterIn > (peekInHas ? peekIn : 0)) {
+            peekLog(
+                'MISMATCH',
+                `${itemLabel(item)} left-side peek incoming ${peekInHas ? peekIn : 'miss'} vs focus incoming ${afterIn}`
+            );
+        }
         return built ? { graph: built, seq } : undefined;
     }
 
@@ -2561,19 +2623,11 @@ export class CallRelationModel {
                 const side = job.dir < 0 ? 'incoming' : 'outgoing';
                 const cache = job.dir < 0 ? this.incoming : this.outgoing;
                 const hit = cache.has(job.graphKey) || cache.has(itemKey(job.item));
-                const subject = await this.peekSubject(job.item);
-                if (job.dir < 0) {
-                    await this.ensureIncoming(subject, seq);
-                } else {
-                    await this.ensureOutgoing(subject, seq);
-                }
-                const subjectKey = itemKey(subject);
-                this.shareSide(cache, subjectKey, itemKey(job.item));
-                this.shareSide(cache, subjectKey, job.graphKey);
+                await this.peekNeighborSide(job.item, job.dir, job.graphKey, seq);
                 costLog(
                     `prefetch ${side}`,
                     Date.now() - tJob,
-                    `${itemLabel(job.item)} ${hit ? 'cache' : 'fetch'} n=${this.sideCount(subject, job.dir)}`
+                    `${itemLabel(job.item)} ${hit ? 'cache' : 'fetch'} n=${this.sideCount(job.item, job.dir)}`
                 );
             }));
             done += chunk.length;
@@ -2774,7 +2828,7 @@ export class CallRelationModel {
                 && this.prefetchActive
                 && Math.abs(hop) < CALL_MAX_HOP
                 && !isLibPath(child.uri.fsPath)
-                && (dir < 0 ? !this.incoming.has(childKey) : !this.outgoing.has(childKey));
+                && !this.cacheKeysFor(child).some(k => (dir < 0 ? this.incoming : this.outgoing).has(k));
             childNode.compact = compact;
             nodes.push(childNode);
             if (dir < 0) {
