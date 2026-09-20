@@ -17,6 +17,20 @@ const PREFETCH_IN_PARALLEL = 2;
 
 export type RelationLoad = { graph: RelationGraph; seq: number };
 
+/** Local +/− update: one hop of children, or those descendants only. */
+export interface RelationPatch {
+    op: 'expand' | 'collapse';
+    parentId: string;
+    nodes?: RelationNode[];
+    edges?: RelationEdge[];
+    dropIds?: string[];
+}
+
+export type RelationHopResult = {
+    seq: number;
+    patch?: RelationPatch;
+};
+
 export type RelationNodeKind = 'symbol' | 'more' | 'group';
 
 export interface RelationNode {
@@ -66,6 +80,47 @@ export interface RelationGraph {
     mode?: 'call' | 'reference';
     centerTrail?: RelationCenter[];
     centerIndex?: number;
+}
+
+/** Merge a one-hop +/− patch into an existing graph. Does not rebuild. */
+export function applyRelationPatch(graph: RelationGraph, patch: RelationPatch): RelationGraph {
+    if (patch.op === 'expand') {
+        const have = new Set(graph.nodes.map(n => n.id));
+        const nodes = graph.nodes.slice();
+        for (const n of patch.nodes || []) {
+            if (!have.has(n.id)) {
+                nodes.push(n);
+                have.add(n.id);
+            }
+        }
+        const seen = new Set(graph.edges.map(e => `${e.from}\0${e.to}`));
+        const edges = graph.edges.slice();
+        for (const e of patch.edges || []) {
+            const k = `${e.from}\0${e.to}`;
+            if (!seen.has(k)) {
+                edges.push(e);
+                seen.add(k);
+            }
+        }
+        const parent = nodes.find(n => n.id === patch.parentId);
+        if (parent) {
+            const grew = (patch.nodes || []).length > 0;
+            parent.expanded = grew;
+            parent.prefetching = false;
+            if (!grew) {
+                parent.expandable = false;
+            }
+        }
+        return { ...graph, nodes, edges };
+    }
+    const drop = new Set(patch.dropIds || []);
+    const nodes = graph.nodes.filter(n => !drop.has(n.id));
+    const edges = graph.edges.filter(e => !drop.has(e.from) && !drop.has(e.to));
+    const parent = nodes.find(n => n.id === patch.parentId);
+    if (parent) {
+        parent.expanded = false;
+    }
+    return { ...graph, nodes, edges };
 }
 
 export interface RelationOpenTarget {
@@ -740,6 +795,22 @@ export class CallRelationModel {
 
     isCurrent(seq: number): boolean {
         return seq === this.seq && !this.cts.token.isCancellationRequested;
+    }
+
+    /** True when +/− must wait on LSP / an in-flight peek. */
+    hopNeedsFetch(node: RelationNode): boolean {
+        const item = this.items.get(node.itemKey);
+        if (!item) {
+            return false;
+        }
+        const key = itemKey(item);
+        if (node.hop < 0) {
+            return !this.incoming.has(key);
+        }
+        if (node.hop > 0) {
+            return !this.outgoing.has(key);
+        }
+        return !this.incoming.has(key) || !this.outgoing.has(key);
     }
 
     /** Drop in-flight work. Does not clear cached graph data. */
@@ -1606,7 +1677,7 @@ export class CallRelationModel {
         return graph ? { graph, seq } : undefined;
     }
 
-    collapseHop(nodeId: string, nodes: RelationNode[]): RelationGraph {
+    collapseHop(nodeId: string, nodes: RelationNode[]): RelationPatch {
         const drop = new Set<string>([nodeId]);
         let grew = true;
         while (grew) {
@@ -1630,22 +1701,20 @@ export class CallRelationModel {
                 }
             }
         }
-        return this.buildGraph();
+        drop.delete(nodeId);
+        return { op: 'collapse', parentId: nodeId, dropIds: [...drop] };
     }
 
-    async expandHop(nodeId: string, nodes: RelationNode[]): Promise<RelationLoad | undefined> {
+    async expandHop(nodeId: string, nodes: RelationNode[]): Promise<RelationHopResult | undefined> {
         const seq = this.seq;
         const t0 = Date.now();
         const node = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
-        if (!node || !this.root) {
-            return { graph: this.buildGraph(), seq };
-        }
-        if (Math.abs(node.hop) >= CALL_MAX_HOP) {
-            return { graph: this.buildGraph(), seq };
+        if (!node || !this.root || Math.abs(node.hop) >= CALL_MAX_HOP) {
+            return undefined;
         }
         const item = this.items.get(node.itemKey);
         if (!item) {
-            return { graph: this.buildGraph(), seq };
+            return undefined;
         }
         if (this.hopBusy.has(nodeId)) {
             costLog('expandHop skipped inflight', Date.now() - t0, `${node.name} hop=${node.hop}`);
@@ -1667,12 +1736,19 @@ export class CallRelationModel {
             }
             if (this.collapseLock.has(nodeId)) {
                 costLog('expandHop collapsed', Date.now() - t0, `${node.name} hop=${node.hop}`);
-                return { graph: this.buildGraph(), seq };
+                return undefined;
             }
             this.expanded.add(nodeId);
-            const graph = await this.buildVisible(seq);
-            costLog('expandHop', Date.now() - t0, `${node.name} hop=${node.hop}`);
-            return graph ? { graph, seq } : undefined;
+            const { nodes: kids, edges } = this.collectDirectSide(node, nodes);
+            if (kids.length) {
+                await this.fillVisibleSnippets(seq, { rootId: '', title: '', nodes: kids, edges });
+            }
+            if (!this.isCurrent(seq) || this.collapseLock.has(nodeId)) {
+                costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
+                return undefined;
+            }
+            costLog('expandHop', Date.now() - t0, `${node.name} hop=${node.hop} kids=${kids.length}`);
+            return { seq, patch: { op: 'expand', parentId: nodeId, nodes: kids, edges } };
         } finally {
             this.hopBusy.delete(nodeId);
         }
@@ -2365,7 +2441,33 @@ export class CallRelationModel {
             || this.keepExpand.has(branchKeepKey(parentKey, dir, childKey));
     }
 
-    private addSide(nodes: RelationNode[], edges: RelationEdge[], parent: RelationNode, dir: -1 | 1): void {
+    /** One column of children for incremental +/−. Does not walk keepExpand. */
+    private collectDirectSide(parent: RelationNode, existing: RelationNode[]): {
+        nodes: RelationNode[];
+        edges: RelationEdge[];
+    } {
+        const nodes = existing.slice();
+        const edges: RelationEdge[] = [];
+        const before = new Set(existing.map(n => n.id));
+        if (parent.hop === 0) {
+            this.addSide(nodes, edges, parent, -1, true);
+            this.addSide(nodes, edges, parent, 1, true);
+        } else {
+            this.addSide(nodes, edges, parent, parent.hop < 0 ? -1 : 1, true);
+        }
+        return {
+            nodes: nodes.filter(n => !before.has(n.id)),
+            edges
+        };
+    }
+
+    private addSide(
+        nodes: RelationNode[],
+        edges: RelationEdge[],
+        parent: RelationNode,
+        dir: -1 | 1,
+        directOnly = false
+    ): void {
         const hop = parent.hop + dir;
         if (Math.abs(hop) > CALL_MAX_HOP) {
             return;
@@ -2439,7 +2541,8 @@ export class CallRelationModel {
             if (nodes.some(n => n.id === childNode.id)) {
                 return;
             }
-            const opened = !cyclic
+            const opened = !directOnly
+                && !cyclic
                 && !this.collapseLock.has(childNode.id)
                 && (this.expanded.has(childNode.id)
                     || this.keepExpand.has(branchKeepKey(parent.itemKey, dir, childKey))
@@ -2572,8 +2675,10 @@ export class CallRelationModel {
                 }
             }
         }
-        for (const childNode of pendingExpand) {
-            this.addSide(nodes, edges, childNode, dir);
+        if (!directOnly) {
+            for (const childNode of pendingExpand) {
+                this.addSide(nodes, edges, childNode, dir);
+            }
         }
         if (hidden > 0) {
             const moreId = `${parent.id}:more:${dir}`;

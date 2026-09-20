@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
 import { lockPanelGroup, showPanelInNewWindow } from './auxiliaryWindow';
 import {
+    applyRelationPatch,
     callSiteIdentRange,
     CallRelationModel,
     ChildSort,
     DEFAULT_SLIM_KIND_IDS,
     parseSlimKindIds,
-    RelationGraph
+    RelationGraph,
+    RelationPatch
 } from './callRelation';
 
 export const CALL_RELATION_VIEW_TYPE = 'contextView.callRelation';
@@ -429,16 +431,28 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
             }
             case 'expandHop': {
                 const nodeId = String(message.nodeId || '');
-                const nodes = this.graph.nodes;
-                await this.withProgress(async () => {
-                    const loaded = await this.model.expandHop(nodeId, nodes);
-                    this.applyGraph(loaded?.graph, loaded?.seq ?? -1, { revealId: nodeId });
-                });
+                const node = this.graph.nodes.find(n => n.id === nodeId);
+                if (!node) {
+                    break;
+                }
+                const run = async () => {
+                    const loaded = await this.model.expandHop(nodeId, this.graph.nodes);
+                    if (loaded?.patch) {
+                        this.applyHopPatch(loaded.patch, loaded.seq, { revealId: nodeId });
+                    }
+                };
+                if (this.model.hopNeedsFetch(node)) {
+                    await this.withProgress(run);
+                } else {
+                    await run();
+                }
                 break;
             }
             case 'collapseHop':
-                this.graph = this.model.collapseHop(String(message.nodeId || ''), this.graph.nodes);
-                this.postGraph();
+                this.applyHopPatch(
+                    this.model.collapseHop(String(message.nodeId || ''), this.graph.nodes),
+                    this.model.generation
+                );
                 break;
             case 'expandAll':
                 await this.withProgress(async () => {
@@ -531,6 +545,23 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         await this.withProgress(async () => {
             const loaded = await this.model.loadRoot(editor.document.uri, editor.selection.active);
             this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+        });
+    }
+
+    private applyHopPatch(
+        patch: RelationPatch,
+        seq: number,
+        opts?: { revealId?: string }
+    ): void {
+        if (!this.panel || !this.model.isCurrent(seq)) {
+            return;
+        }
+        this.graph = applyRelationPatch(this.graph, patch);
+        this.schedulePersist();
+        this.panel.webview.postMessage({
+            type: 'graphPatch',
+            patch,
+            revealId: opts?.revealId || ''
         });
     }
 

@@ -174,6 +174,14 @@ let layoutH = 0;
 let canvasEl = null;
 /** @type {HTMLElement | null} */
 let zoomWrap = null;
+/** @type {SVGSVGElement | null} */
+let liveSvg = null;
+/** @type {SVGGElement | null} */
+let liveHoverLayer = null;
+/** @type {Map<string, string[]>} */
+let liveEdgesByNode = new Map();
+/** @type {(pathDs: string[]) => void} */
+let liveSetHoverPaths = () => {};
 
 /** @type {any} */
 let lastGraph = null;
@@ -801,7 +809,25 @@ function createCycleBadge(node) {
 let hoverTwinKey = '';
 /** @type {any} */
 let hoverNode = null;
-let refreshHover = () => {};
+let refreshHover = () => {
+    if (!hoverNode) {
+        liveSetHoverPaths([]);
+        paintTwins();
+        return;
+    }
+    const twinIds = (altHeld && hoverNode.itemKey)
+        ? symbolTwins(hoverNode.itemKey).map(t => t.id)
+        : [hoverNode.id];
+    const hoverDs = [];
+    for (const id of twinIds) {
+        const list = liveEdgesByNode.get(id);
+        if (list) {
+            hoverDs.push(...list);
+        }
+    }
+    liveSetHoverPaths(hoverDs);
+    paintTwins();
+};
 
 function symbolTwins(key) {
     if (!lastGraph || !key) {
@@ -3149,6 +3175,526 @@ function captureView() {
     };
 }
 
+function cssAttr(value) {
+    return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/"/g, '\\"');
+}
+
+function nodeElById(id) {
+    if (!canvasEl) {
+        return null;
+    }
+    return canvasEl.querySelector('.cr-node[data-node-id="' + cssAttr(encodeNodeId(id)) + '"]');
+}
+
+function edgeElByEnds(from, to) {
+    if (!liveSvg) {
+        return null;
+    }
+    return liveSvg.querySelector(
+        '.cr-edge-group[data-from="' + cssAttr(encodeNodeId(from)) + '"][data-to="' + cssAttr(encodeNodeId(to)) + '"]'
+    );
+}
+
+function createEdgeGroup(graph, edge, pos, ports, canvas, skipRecord) {
+    const a = pos[edge.from];
+    const b = pos[edge.to];
+    if (!a || !b) {
+        return null;
+    }
+    const d = edgePath(graph, edge, pos, ports);
+    if (!d) {
+        return null;
+    }
+    if (!skipRecord) {
+        if (!liveEdgesByNode.has(edge.from)) {
+            liveEdgesByNode.set(edge.from, []);
+        }
+        if (!liveEdgesByNode.has(edge.to)) {
+            liveEdgesByNode.set(edge.to, []);
+        }
+        liveEdgesByNode.get(edge.from).push(d);
+        liveEdgesByNode.get(edge.to).push(d);
+    }
+    const live = !!(edge.sites && edge.sites.length) && edge.style !== 'anchor';
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'cr-edge-group' + (live ? ' is-live' : ''));
+    g.setAttribute('data-from', encodeNodeId(edge.from));
+    g.setAttribute('data-to', encodeNodeId(edge.to));
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('class', 'cr-edge' + (edge.style === 'anchor' ? ' is-anchor' : ''));
+    path.setAttribute('d', d);
+    path.setAttribute('marker-end', 'url(#cr-arrow)');
+    g.appendChild(path);
+    if (live) {
+        const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hit.setAttribute('class', 'cr-edge-hit');
+        hit.setAttribute('d', edgePath(graph, edge, pos, ports, true) || d);
+        const n = edge.sites.length;
+        hit.setAttribute('title', n > 1
+            ? `${n} call sites — click to choose`
+            : 'Open call site in Context Window');
+        hit.addEventListener('click', ev => {
+            ev.stopPropagation();
+            const pt = eventOnCanvas(ev, canvas);
+            if (n === 1) {
+                hideSiteMenu();
+                openCallSite(edge, 0);
+                return;
+            }
+            showSitePicker(canvas, pt.x, pt.y, edge);
+        });
+        g.addEventListener('pointerenter', () => {
+            const cur = path.getAttribute('d');
+            liveSetHoverPaths(cur ? [cur] : []);
+        });
+        g.addEventListener('pointerleave', () => {
+            liveSetHoverPaths([]);
+        });
+        g.appendChild(hit);
+    }
+    if (live && edge.sites.length > 1) {
+        const from = graph.nodes.find(n => n.id === edge.from);
+        const nearTail = !!(from && from.parentId === edge.to);
+        addSiteCountLabel(g, path, edge.sites.length, nearTail, pos[nearTail ? edge.from : edge.to]);
+    }
+    return g;
+}
+
+function createToggleBtn(graph, node, el) {
+    const hasKids = graph.nodes.some(n => n.parentId === node.id);
+    const collapse = !!(node.expanded || hasKids);
+    const exp = document.createElement('button');
+    exp.type = 'button';
+    exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
+    exp.setAttribute('aria-label', collapse
+        ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
+        : (node.hop < 0 ? 'Expand callers' : 'Expand callees'));
+    exp.addEventListener('pointerenter', ev => {
+        ev.stopPropagation();
+        tipHover = null;
+        if (nodeTipEl) {
+            hideNodeTip();
+            markTipUsed(el);
+        } else {
+            hideNodeTip();
+        }
+    });
+    exp.addEventListener('pointerleave', ev => {
+        ev.stopPropagation();
+        const next = ev.relatedTarget;
+        if (next && el.contains(next) && !(next.closest && next.closest('.cr-thumb, .cr-toggle'))) {
+            tipMoveX = ev.clientX;
+            tipMoveY = ev.clientY;
+            if (usesNodeTip(node)) {
+                armNodeTip(node, el, ev);
+            }
+        }
+    });
+    exp.addEventListener('click', ev => {
+        ev.stopPropagation();
+        hideNodeTip();
+        const nowCollapse = exp.classList.contains('is-collapse');
+        exp.classList.toggle('is-collapse', !nowCollapse);
+        exp.setAttribute('aria-label', nowCollapse
+            ? (node.hop < 0 ? 'Expand callers' : 'Expand callees')
+            : (node.hop < 0 ? 'Collapse callers' : 'Collapse callees'));
+        vscode.postMessage({
+            type: nowCollapse ? 'collapseHop' : 'expandHop',
+            nodeId: node.id
+        });
+    });
+    return exp;
+}
+
+function syncNodeToggle(el, graph, node, p) {
+    if (node.kind !== 'symbol' || node.id === graph.rootId) {
+        return;
+    }
+    const hasKids = graph.nodes.some(n => n.parentId === node.id);
+    const collapse = !!(node.expanded || hasKids);
+    const prefetch = !!(node.prefetching && !collapse);
+    el.classList.toggle('is-prefetch', prefetch);
+    if (prefetch) {
+        el.setAttribute('aria-busy', 'true');
+        if (!el.querySelector('.cr-prefetch-ring')) {
+            el.appendChild(createPrefetchRing(nodeW(p), p.h));
+            armPrefetchSpin();
+        }
+    } else {
+        el.removeAttribute('aria-busy');
+        const ring = el.querySelector('.cr-prefetch-ring');
+        if (ring) {
+            ring.remove();
+        }
+    }
+    const wantToggle = (node.expandable || collapse) && !prefetch;
+    el.classList.toggle('has-toggle-left', wantToggle && node.hop < 0);
+    el.classList.toggle('has-toggle-right', wantToggle && node.hop >= 0);
+    let exp = el.querySelector('.cr-toggle');
+    if (!wantToggle) {
+        if (exp) {
+            exp.remove();
+        }
+        return;
+    }
+    if (!exp) {
+        exp = createToggleBtn(graph, node, el);
+        el.appendChild(exp);
+    }
+    exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
+    exp.setAttribute('aria-label', collapse
+        ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
+        : (node.hop < 0 ? 'Expand callers' : 'Expand callees'));
+}
+
+function createNodeEl(graph, node, p) {
+    const el = document.createElement('div');
+    el.className = 'cr-node';
+    if (node.id === graph.rootId) {
+        el.classList.add('is-root');
+    }
+    if (node.prevCenter) {
+        el.classList.add('is-prev');
+    }
+    if (isNodeSelected(node)) {
+        el.classList.add('is-selected');
+    }
+    if (isTwinHighlight(node)) {
+        el.classList.add('is-twin');
+    }
+    if (node.kind === 'more') {
+        el.classList.add('is-more');
+    }
+    if (node.kind === 'group') {
+        el.classList.add('is-group');
+        if (node.expanded) {
+            el.classList.add('is-expanded');
+        }
+    }
+    if (node.compact) {
+        el.classList.add('is-compact');
+    }
+    if (isCyclicNode(graph, node)) {
+        el.classList.add('is-cycle');
+    }
+    setElNodeId(el, node.id);
+    el.style.left = p.x + 'px';
+    el.style.top = p.y + 'px';
+    el.style.width = nodeW(p) + 'px';
+    el.style.height = p.h + 'px';
+    el.addEventListener('pointerenter', ev => {
+        setHoverTwin(node);
+        beginTipVisit(el);
+        if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle, .cr-thumb')) {
+            return;
+        }
+        if (usesNodeTip(node)) {
+            tipMoveX = ev.clientX;
+            tipMoveY = ev.clientY;
+            armNodeTip(node, el, ev);
+        }
+    });
+    el.addEventListener('pointermove', ev => {
+        if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle')) {
+            if (tipHover && tipHover.el === el) {
+                tipHover = null;
+                hideNodeTip();
+            }
+            return;
+        }
+        if (usesNodeTip(node)) {
+            onNodeTipMove(ev, node, el);
+        }
+    });
+    el.addEventListener('pointerleave', ev => {
+        setHoverTwin(undefined);
+        if (usesNodeTip(node)) {
+            const next = ev.relatedTarget;
+            if (next && el.contains(next)) {
+                return;
+            }
+            tipHover = null;
+            endTipVisit(el);
+            hideNodeTip();
+        }
+    });
+
+    if (node.kind === 'more') {
+        el.textContent = node.name;
+        el.addEventListener('click', ev => {
+            ev.stopPropagation();
+            if (ev.altKey) {
+                togglePathPin(node.id);
+                return;
+            }
+            selectNode(node, false);
+            vscode.postMessage({ type: 'expandMore', nodeId: node.expandKey || node.id });
+        });
+    } else if (node.kind === 'group') {
+        const head = document.createElement('div');
+        head.className = 'cr-node-head';
+        const name = document.createElement('div');
+        name.className = 'cr-node-name';
+        fillNodeName(name, node);
+        const caret = document.createElement('span');
+        caret.className = 'cr-group-caret';
+        caret.setAttribute('aria-hidden', 'true');
+        head.appendChild(caret);
+        head.appendChild(name);
+        el.appendChild(head);
+        const meta = document.createElement('div');
+        meta.className = 'cr-node-meta';
+        const n = node.moreCount || 0;
+        meta.textContent = `${n} library symbol${n === 1 ? '' : 's'}`;
+        el.appendChild(meta);
+        el.addEventListener('click', ev => {
+            ev.stopPropagation();
+            if (ev.altKey) {
+                togglePathPin(node.id);
+                return;
+            }
+            selectNode(node, false);
+            vscode.postMessage({ type: 'toggleGroup', nodeId: node.id });
+        });
+        addThumb(el, head, node);
+    } else {
+        const head = document.createElement('div');
+        head.className = 'cr-node-head';
+        const name = document.createElement('div');
+        name.className = 'cr-node-name';
+        fillNodeName(name, node);
+        head.appendChild(name);
+        el.appendChild(head);
+        const meta = document.createElement('div');
+        meta.className = 'cr-node-meta';
+        meta.textContent = node.file ? `${node.file}:${node.line}` : '';
+        el.appendChild(meta);
+        el.addEventListener('pointerdown', ev => {
+            if (ev.button !== 0) {
+                return;
+            }
+            if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle, .cr-thumb')) {
+                return;
+            }
+            selectNode(node, false);
+        });
+        el.addEventListener('click', ev => {
+            if (ev.altKey) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                togglePathPin(node.id);
+                return;
+            }
+            if (ev.detail > 1) {
+                return;
+            }
+            vscode.postMessage({ type: 'openNode', nodeId: node.id });
+        });
+        el.addEventListener('dblclick', ev => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (node.id === graph.rootId) {
+                return;
+            }
+            selectNode(node, false);
+            clearPathPin();
+            vscode.postMessage({ type: 'focusNode', nodeId: node.id });
+        });
+        const hasKids = graph.nodes.some(n => n.parentId === node.id);
+        const collapse = !!(node.expanded || hasKids);
+        const prefetch = !!(node.prefetching && !collapse);
+        if (prefetch) {
+            el.classList.add('is-prefetch');
+            el.setAttribute('aria-busy', 'true');
+            el.appendChild(createPrefetchRing(nodeW(p), p.h));
+            armPrefetchSpin();
+        }
+        if ((node.expandable || collapse) && !prefetch && node.id !== graph.rootId) {
+            el.classList.add(node.hop < 0 ? 'has-toggle-left' : 'has-toggle-right');
+            el.appendChild(createToggleBtn(graph, node, el));
+        }
+        addThumb(el, head, node);
+    }
+    if (el.classList.contains('is-cycle')) {
+        el.appendChild(createCycleBadge(node));
+    } else if (node.kind === 'symbol' && node.itemKey) {
+        const twins = symbolTwins(node.itemKey);
+        if (twins.length > 1) {
+            el.classList.add('is-alias');
+            el.appendChild(createTwinBadge(node, twins));
+        }
+    }
+    return el;
+}
+
+function applyGraphPatch(patch, revealId) {
+    if (!lastGraph || !canvasEl || !liveSvg || !zoomWrap || !stage) {
+        if (lastGraph) {
+            render(lastGraph);
+        }
+        return;
+    }
+    savedView = captureView();
+    if (patch.op === 'expand') {
+        const have = new Set(lastGraph.nodes.map(n => n.id));
+        for (const n of patch.nodes || []) {
+            if (!have.has(n.id)) {
+                lastGraph.nodes.push(n);
+                have.add(n.id);
+            }
+        }
+        if (!lastGraph.edges) {
+            lastGraph.edges = [];
+        }
+        const seen = new Set(lastGraph.edges.map(e => e.from + '\0' + e.to));
+        for (const e of patch.edges || []) {
+            const k = e.from + '\0' + e.to;
+            if (!seen.has(k)) {
+                lastGraph.edges.push(e);
+                seen.add(k);
+            }
+        }
+        const parent = lastGraph.nodes.find(n => n.id === patch.parentId);
+        if (parent) {
+            const grew = (patch.nodes || []).length > 0;
+            parent.expanded = grew;
+            parent.prefetching = false;
+            if (!grew) {
+                parent.expandable = false;
+            }
+        }
+    } else {
+        const drop = new Set(patch.dropIds || []);
+        if (!drop.size) {
+            lastGraph = dropDescendants(lastGraph, patch.parentId);
+        } else {
+            lastGraph.nodes = lastGraph.nodes.filter(n => !drop.has(n.id));
+            lastGraph.edges = (lastGraph.edges || []).filter(e => !drop.has(e.from) && !drop.has(e.to));
+        }
+        const parent = lastGraph.nodes.find(n => n.id === patch.parentId);
+        if (parent) {
+            parent.expanded = false;
+        }
+    }
+    relayoutLive(revealId || patch.parentId);
+}
+
+function relayoutLive(revealId) {
+    const graph = lastGraph;
+    if (!graph || !canvasEl || !liveSvg || !zoomWrap || !stage) {
+        if (graph) {
+            render(graph);
+        }
+        return;
+    }
+    hideSiteMenu();
+    const viewW = stage.clientWidth || 800;
+    const viewH = stage.clientHeight || 600;
+    const { pos, width, height } = layout(graph, viewW, viewH);
+    lastPos = pos;
+    layoutW = width;
+    layoutH = height;
+    canvasEl.style.width = width + 'px';
+    canvasEl.style.height = height + 'px';
+    canvasEl.style.transform = `scale(${zoom})`;
+    zoomWrap.style.width = (width * zoom) + 'px';
+    zoomWrap.style.height = (height * zoom) + 'px';
+    liveSvg.setAttribute('width', String(width));
+    liveSvg.setAttribute('height', String(height));
+
+    const haveNodes = new Set(graph.nodes.map(n => n.id));
+    canvasEl.querySelectorAll('.cr-node').forEach(el => {
+        if (!haveNodes.has(elNodeId(el))) {
+            el.remove();
+        }
+    });
+    for (const node of graph.nodes) {
+        const p = pos[node.id];
+        if (!p) {
+            continue;
+        }
+        let el = nodeElById(node.id);
+        if (!el) {
+            const mounted = createNodeEl(graph, node, p);
+            if (liveSvg && liveSvg.parentNode === canvasEl) {
+                canvasEl.insertBefore(mounted, liveSvg);
+            } else {
+                canvasEl.appendChild(mounted);
+            }
+            continue;
+        }
+        el.style.left = p.x + 'px';
+        el.style.top = p.y + 'px';
+        el.style.width = nodeW(p) + 'px';
+        el.style.height = p.h + 'px';
+        syncNodeToggle(el, graph, node, p);
+    }
+
+    const haveEdges = new Set((graph.edges || []).map(e => e.from + '\0' + e.to));
+    liveSvg.querySelectorAll('.cr-edge-group').forEach(g => {
+        const from = decodeNodeId(g.getAttribute('data-from') || '');
+        const to = decodeNodeId(g.getAttribute('data-to') || '');
+        if (!haveEdges.has(from + '\0' + to)) {
+            g.remove();
+        }
+    });
+    const ports = isSpreadStyle(edgeStyle) ? edgePorts(graph, pos) : {};
+    liveEdgesByNode = new Map();
+    for (const edge of graph.edges || []) {
+        const a = pos[edge.from];
+        const b = pos[edge.to];
+        const d = a && b ? edgePath(graph, edge, pos, ports) : '';
+        if (!d) {
+            continue;
+        }
+        if (!liveEdgesByNode.has(edge.from)) {
+            liveEdgesByNode.set(edge.from, []);
+        }
+        if (!liveEdgesByNode.has(edge.to)) {
+            liveEdgesByNode.set(edge.to, []);
+        }
+        liveEdgesByNode.get(edge.from).push(d);
+        liveEdgesByNode.get(edge.to).push(d);
+        let g = edgeElByEnds(edge.from, edge.to);
+        if (!g) {
+            g = createEdgeGroup(graph, edge, pos, ports, canvasEl, true);
+            if (g && liveHoverLayer) {
+                liveSvg.insertBefore(g, liveHoverLayer);
+            } else if (g) {
+                liveSvg.appendChild(g);
+            }
+            continue;
+        }
+        const path = g.querySelector('.cr-edge');
+        if (path) {
+            path.setAttribute('d', d);
+        }
+        const hit = g.querySelector('.cr-edge-hit');
+        if (hit) {
+            hit.setAttribute('d', edgePath(graph, edge, pos, ports, true) || d);
+        }
+        g.querySelectorAll('.cr-edge-count').forEach(el => el.remove());
+        if (edge.sites && edge.sites.length > 1 && path) {
+            const from = graph.nodes.find(n => n.id === edge.from);
+            const nearTail = !!(from && from.parentId === edge.to);
+            addSiteCountLabel(g, path, edge.sites.length, nearTail, pos[nearTail ? edge.from : edge.to]);
+        }
+    }
+
+    canvasEl.querySelectorAll('.cr-group-frame').forEach(el => el.remove());
+    drawGroupFrames(canvasEl, graph, pos);
+    applyZoomChrome();
+    applyView(graph, pos);
+    if (revealId) {
+        const ids = graph.nodes.filter(n => n.id === revealId || n.parentId === revealId).map(n => n.id);
+        ensureNodesInView(ids);
+    }
+    applyPathFocus();
+    applyFind({ keepIndex: true });
+    applyPendingHop();
+    refreshHover();
+}
+
 function applyView(graph, pos) {
     if (!stage || !pos[graph.rootId]) {
         return;
@@ -3194,6 +3740,9 @@ function render(graph) {
         lastPos = null;
         canvasEl = null;
         zoomWrap = null;
+        liveSvg = null;
+        liveHoverLayer = null;
+        liveEdgesByNode = new Map();
         hideNodeTip();
         stage.innerHTML = '';
         const empty = document.createElement('div');
@@ -3237,7 +3786,9 @@ function render(graph) {
     const hoverLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     hoverLayer.setAttribute('class', 'cr-edge-hover-layer');
     hoverLayer.setAttribute('pointer-events', 'none');
-    const setHoverPaths = (pathDs) => {
+    liveSvg = svg;
+    liveHoverLayer = hoverLayer;
+    liveSetHoverPaths = (pathDs) => {
         while (hoverLayer.firstChild) {
             hoverLayer.removeChild(hoverLayer.firstChild);
         }
@@ -3252,88 +3803,12 @@ function render(graph) {
             hoverLayer.appendChild(hoverPath);
         }
     };
-    refreshHover = () => {
-        if (!hoverNode) {
-            setHoverPaths([]);
-            paintTwins();
-            return;
-        }
-        const twinIds = (altHeld && hoverNode.itemKey)
-            ? symbolTwins(hoverNode.itemKey).map(t => t.id)
-            : [hoverNode.id];
-        const hoverDs = [];
-        for (const id of twinIds) {
-            const list = edgesByNode.get(id);
-            if (list) {
-                hoverDs.push(...list);
-            }
-        }
-        setHoverPaths(hoverDs);
-        paintTwins();
-    };
     const ports = isSpreadStyle(edgeStyle) ? edgePorts(graph, pos) : {};
-    /** @type {Map<string, string[]>} */
-    const edgesByNode = new Map();
-    const nodeById = new Map(graph.nodes.map(n => [n.id, n]));
+    liveEdgesByNode = new Map();
     for (const edge of graph.edges) {
-        const a = pos[edge.from];
-        const b = pos[edge.to];
-        if (!a || !b) {
-            continue;
-        }
-        const d = edgePath(graph, edge, pos, ports);
-        if (!d) {
-            continue;
-        }
-        if (!edgesByNode.has(edge.from)) {
-            edgesByNode.set(edge.from, []);
-        }
-        if (!edgesByNode.has(edge.to)) {
-            edgesByNode.set(edge.to, []);
-        }
-        edgesByNode.get(edge.from).push(d);
-        edgesByNode.get(edge.to).push(d);
-        const live = !!(edge.sites && edge.sites.length) && edge.style !== 'anchor';
-        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        g.setAttribute('class', 'cr-edge-group' + (live ? ' is-live' : ''));
-        g.setAttribute('data-from', encodeNodeId(edge.from));
-        g.setAttribute('data-to', encodeNodeId(edge.to));
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('class', 'cr-edge' + (edge.style === 'anchor' ? ' is-anchor' : ''));
-        path.setAttribute('d', d);
-        path.setAttribute('marker-end', 'url(#cr-arrow)');
-        g.appendChild(path);
-        if (live) {
-            const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            hit.setAttribute('class', 'cr-edge-hit');
-            hit.setAttribute('d', edgePath(graph, edge, pos, ports, true) || d);
-            const n = edge.sites.length;
-            hit.setAttribute('title', n > 1
-                ? `${n} call sites — click to choose`
-                : 'Open call site in Context Window');
-            hit.addEventListener('click', ev => {
-                ev.stopPropagation();
-                const pt = eventOnCanvas(ev, canvas);
-                if (n === 1) {
-                    hideSiteMenu();
-                    openCallSite(edge, 0);
-                    return;
-                }
-                showSitePicker(canvas, pt.x, pt.y, edge);
-            });
-            g.addEventListener('pointerenter', () => {
-                setHoverPaths([d]);
-            });
-            g.addEventListener('pointerleave', () => {
-                setHoverPaths([]);
-            });
-            g.appendChild(hit);
-        }
-        svg.appendChild(g);
-        if (live && edge.sites.length > 1) {
-            const from = nodeById.get(edge.from);
-            const nearTail = !!(from && from.parentId === edge.to);
-            addSiteCountLabel(g, path, edge.sites.length, nearTail, pos[nearTail ? edge.from : edge.to]);
+        const g = createEdgeGroup(graph, edge, pos, ports, canvas);
+        if (g) {
+            svg.appendChild(g);
         }
     }
     svg.appendChild(hoverLayer);
@@ -3343,221 +3818,7 @@ function render(graph) {
         if (!p) {
             continue;
         }
-        const el = document.createElement('div');
-        el.className = 'cr-node';
-        if (node.id === graph.rootId) {
-            el.classList.add('is-root');
-        }
-        if (node.prevCenter) {
-            el.classList.add('is-prev');
-        }
-        if (isNodeSelected(node)) {
-            el.classList.add('is-selected');
-        }
-        if (isTwinHighlight(node)) {
-            el.classList.add('is-twin');
-        }
-        if (node.kind === 'more') {
-            el.classList.add('is-more');
-        }
-        if (node.kind === 'group') {
-            el.classList.add('is-group');
-            if (node.expanded) {
-                el.classList.add('is-expanded');
-            }
-        }
-        if (node.compact) {
-            el.classList.add('is-compact');
-        }
-        if (isCyclicNode(graph, node)) {
-            el.classList.add('is-cycle');
-        }
-        setElNodeId(el, node.id);
-        el.style.left = p.x + 'px';
-        el.style.top = p.y + 'px';
-        el.style.width = nodeW(p) + 'px';
-        el.style.height = p.h + 'px';
-        el.addEventListener('pointerenter', ev => {
-            setHoverTwin(node);
-            beginTipVisit(el);
-            if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle, .cr-thumb')) {
-                return;
-            }
-            if (usesNodeTip(node)) {
-                tipMoveX = ev.clientX;
-                tipMoveY = ev.clientY;
-                armNodeTip(node, el, ev);
-            }
-        });
-        el.addEventListener('pointermove', ev => {
-            if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle')) {
-                if (tipHover && tipHover.el === el) {
-                    tipHover = null;
-                    hideNodeTip();
-                }
-                return;
-            }
-            if (usesNodeTip(node)) {
-                onNodeTipMove(ev, node, el);
-            }
-        });
-        el.addEventListener('pointerleave', ev => {
-            setHoverTwin(undefined);
-            if (usesNodeTip(node)) {
-                const next = ev.relatedTarget;
-                if (next && el.contains(next)) {
-                    return;
-                }
-                tipHover = null;
-                endTipVisit(el);
-                hideNodeTip();
-            }
-        });
-
-        if (node.kind === 'more') {
-            el.textContent = node.name;
-            el.addEventListener('click', ev => {
-                ev.stopPropagation();
-                if (ev.altKey) {
-                    togglePathPin(node.id);
-                    return;
-                }
-                selectNode(node, false);
-                vscode.postMessage({ type: 'expandMore', nodeId: node.expandKey || node.id });
-            });
-        } else if (node.kind === 'group') {
-            const head = document.createElement('div');
-            head.className = 'cr-node-head';
-            const name = document.createElement('div');
-            name.className = 'cr-node-name';
-            fillNodeName(name, node);
-            const caret = document.createElement('span');
-            caret.className = 'cr-group-caret';
-            caret.setAttribute('aria-hidden', 'true');
-            head.appendChild(caret);
-            head.appendChild(name);
-            el.appendChild(head);
-            const meta = document.createElement('div');
-            meta.className = 'cr-node-meta';
-            const n = node.moreCount || 0;
-            meta.textContent = `${n} library symbol${n === 1 ? '' : 's'}`;
-            el.appendChild(meta);
-            el.addEventListener('click', ev => {
-                ev.stopPropagation();
-                if (ev.altKey) {
-                    togglePathPin(node.id);
-                    return;
-                }
-                selectNode(node, false);
-                vscode.postMessage({ type: 'toggleGroup', nodeId: node.id });
-            });
-            addThumb(el, head, node);
-        } else {
-            const head = document.createElement('div');
-            head.className = 'cr-node-head';
-            const name = document.createElement('div');
-            name.className = 'cr-node-name';
-            fillNodeName(name, node);
-            head.appendChild(name);
-            el.appendChild(head);
-            const meta = document.createElement('div');
-            meta.className = 'cr-node-meta';
-            meta.textContent = node.file ? `${node.file}:${node.line}` : '';
-            el.appendChild(meta);
-            el.addEventListener('pointerdown', ev => {
-                if (ev.button !== 0) {
-                    return;
-                }
-                if (ev.target && ev.target.closest && ev.target.closest('.cr-toggle, .cr-thumb')) {
-                    return;
-                }
-                selectNode(node, false);
-            });
-            el.addEventListener('click', ev => {
-                if (ev.altKey) {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    togglePathPin(node.id);
-                    return;
-                }
-                if (ev.detail > 1) {
-                    return;
-                }
-                vscode.postMessage({ type: 'openNode', nodeId: node.id });
-            });
-            el.addEventListener('dblclick', ev => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                if (node.id === graph.rootId) {
-                    return;
-                }
-                selectNode(node, false);
-                clearPathPin();
-                vscode.postMessage({ type: 'focusNode', nodeId: node.id });
-            });
-            const hasKids = graph.nodes.some(n => n.parentId === node.id);
-            const collapse = !!(node.expanded || hasKids);
-            const prefetch = !!(node.prefetching && !collapse);
-            if (prefetch) {
-                el.classList.add('is-prefetch');
-                el.setAttribute('aria-busy', 'true');
-                el.appendChild(createPrefetchRing(nodeW(p), p.h));
-                armPrefetchSpin();
-            }
-            if ((node.expandable || collapse) && !prefetch && node.id !== graph.rootId) {
-                el.classList.add(node.hop < 0 ? 'has-toggle-left' : 'has-toggle-right');
-                const exp = document.createElement('button');
-                exp.type = 'button';
-                exp.className = 'cr-toggle ' + (node.hop < 0 ? 'is-left' : 'is-right') + (collapse ? ' is-collapse' : '');
-                const expLabel = collapse
-                    ? (node.hop < 0 ? 'Collapse callers' : 'Collapse callees')
-                    : (node.hop < 0 ? 'Expand callers' : 'Expand callees');
-                exp.setAttribute('aria-label', expLabel);
-                exp.addEventListener('pointerenter', ev => {
-                    ev.stopPropagation();
-                    tipHover = null;
-                    if (nodeTipEl) {
-                        hideNodeTip();
-                        markTipUsed(el);
-                    } else {
-                        hideNodeTip();
-                    }
-                });
-                exp.addEventListener('pointerleave', ev => {
-                    ev.stopPropagation();
-                    const next = ev.relatedTarget;
-                    if (next && el.contains(next) && !(next.closest && next.closest('.cr-thumb, .cr-toggle'))) {
-                        tipMoveX = ev.clientX;
-                        tipMoveY = ev.clientY;
-                        if (usesNodeTip(node)) {
-                            armNodeTip(node, el, ev);
-                        }
-                    }
-                });
-                exp.addEventListener('click', ev => {
-                    ev.stopPropagation();
-                    hideNodeTip();
-                    exp.classList.toggle('is-collapse', !collapse);
-                    exp.setAttribute('aria-label', collapse ? 'Expand' : 'Collapse');
-                    vscode.postMessage({
-                        type: collapse ? 'collapseHop' : 'expandHop',
-                        nodeId: node.id
-                    });
-                });
-                el.appendChild(exp);
-            }
-            addThumb(el, head, node);
-        }
-        if (el.classList.contains('is-cycle')) {
-            el.appendChild(createCycleBadge(node));
-        } else if (node.kind === 'symbol' && node.itemKey) {
-            const twins = symbolTwins(node.itemKey);
-            if (twins.length > 1) {
-                el.classList.add('is-alias');
-                el.appendChild(createTwinBadge(node, twins));
-            }
-        }
-        canvas.appendChild(el);
+        canvas.appendChild(createNodeEl(graph, node, p));
     }
     canvas.appendChild(svg);
     drawGroupFrames(canvas, graph, pos);
@@ -4216,6 +4477,8 @@ window.addEventListener('message', ev => {
             ? { type: 'reset' }
             : (msg.revealId ? { type: 'reveal', parentId: msg.revealId } : null);
         render(msg.graph || { nodes: [], edges: [], empty: 'No call hierarchy at this position.' });
+    } else if (msg.type === 'graphPatch') {
+        applyGraphPatch(msg.patch || {}, msg.revealId || '');
     } else if (msg.type === 'state') {
         if (pinBtn) {
             pinBtn.setAttribute('aria-pressed', msg.pinned ? 'true' : 'false');

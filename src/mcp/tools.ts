@@ -1,6 +1,13 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { CALL_MAX_HOP, CallRelationModel, RelationGraph, RelationNode, RelationOpenTarget } from '../callRelation';
+import {
+    applyRelationPatch,
+    CALL_MAX_HOP,
+    CallRelationModel,
+    RelationGraph,
+    RelationNode,
+    RelationOpenTarget
+} from '../callRelation';
 import { enclosingCallable, enclosingSymbolRange } from '../enclosingSymbol';
 
 /**
@@ -305,8 +312,8 @@ async function expandToDepth(
             // Node ids are derived from the item + hop + parent, so one that
             // survived the last expansion still resolves in the newest graph.
             const load = await model.expandHop(node.id, graph.nodes);
-            if (load) {
-                graph = load.graph;
+            if (load?.patch) {
+                graph = applyRelationPatch(graph, load.patch);
             }
         }
         if (capped) {
