@@ -10,6 +10,7 @@ import {
     RelationGraph,
     RelationPatch
 } from './callRelation';
+import { CacheKey, cacheKeyEquals, cacheKeyHasWord, cacheKeyNone, createCacheKey, createCacheKeyAt } from './wordCacheKey';
 
 export const CALL_RELATION_VIEW_TYPE = 'contextView.callRelation';
 
@@ -44,6 +45,9 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
     private compactFilter = false;
     private compactKinds: string[] = [...DEFAULT_SLIM_KIND_IDS];
     private followTimer: ReturnType<typeof setTimeout> | undefined;
+    /** Same word (uri + doc version + word range) as Context View — skip follow reload. */
+    private followCacheKey: CacheKey = cacheKeyNone;
+    private lastFollowDocVersion: number | undefined;
     private progressDepth = 0;
     private readonly disposables: vscode.Disposable[] = [];
     private persistTimer: ReturnType<typeof setTimeout> | undefined;
@@ -98,7 +102,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                     return;
                 }
                 if (rootUri === e.document.uri.toString()) {
-                    void this.reloadFromEditor(vscode.window.activeTextEditor);
+                    void this.reloadFromEditor(vscode.window.activeTextEditor, { force: true });
                 }
             }),
             vscode.window.onDidChangeTextEditorSelection(e => {
@@ -109,6 +113,18 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                     return;
                 }
                 if (e.textEditor.document.uri.scheme !== 'file') {
+                    return;
+                }
+                if (!e.selections[0].isEmpty) {
+                    return;
+                }
+                const version = e.textEditor.document.version;
+                if (this.lastFollowDocVersion !== undefined && version !== this.lastFollowDocVersion) {
+                    this.lastFollowDocVersion = version;
+                    return;
+                }
+                this.lastFollowDocVersion = version;
+                if (!this.shouldFollowEditor(e.textEditor)) {
                     return;
                 }
                 if (this.followTimer) {
@@ -157,7 +173,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
             await this.reloadFromUri(loc.uri, loc.position);
             return;
         }
-        await this.reloadFromEditor(editor);
+        await this.reloadFromEditor(editor, { force: true });
     }
 
     isActive(): boolean {
@@ -286,7 +302,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
             await this.reloadFromUri(loc.uri, loc.position);
             return;
         }
-        await this.reloadFromEditor(editor);
+        await this.reloadFromEditor(editor, { force: true });
     }
 
     private async onMessage(message: any): Promise<void> {
@@ -407,6 +423,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                         const loaded = await this.model.focusNode(nodeId, nodes);
                         this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
                     });
+                    this.invalidateFollowCacheKey();
                 }
                 break;
             }
@@ -420,6 +437,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                     const loaded = await this.model.focusTrail(index, nodes);
                     this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
                 });
+                this.invalidateFollowCacheKey();
                 break;
             }
             case 'expandMore': {
@@ -510,21 +528,48 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         }
     }
 
+    private invalidateFollowCacheKey(): void {
+        this.followCacheKey = cacheKeyNone;
+    }
+
+    private shouldFollowEditor(editor: vscode.TextEditor): boolean {
+        const key = createCacheKey(editor);
+        if (!cacheKeyHasWord(key)) {
+            return false;
+        }
+        return !cacheKeyEquals(this.followCacheKey, key);
+    }
+
+    private async rememberFollowUri(uri: vscode.Uri, position: vscode.Position): Promise<void> {
+        try {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            this.followCacheKey = createCacheKeyAt(doc, position);
+            this.lastFollowDocVersion = doc.version;
+        } catch {
+            this.invalidateFollowCacheKey();
+        }
+    }
+
     private async reloadFromUri(uri: vscode.Uri, position: vscode.Position): Promise<void> {
         if (!this.panel) {
             return;
         }
         if (uri.scheme !== 'file') {
-            await this.reloadFromEditor(undefined);
+            await this.reloadFromEditor(undefined, { force: true });
             return;
         }
         await this.withProgress(async () => {
             const loaded = await this.model.loadRoot(uri, position);
-            this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+            if (this.applyGraph(loaded?.graph, loaded?.seq ?? -1)) {
+                await this.rememberFollowUri(uri, position);
+            }
         });
     }
 
-    private async reloadFromEditor(editor: vscode.TextEditor | undefined): Promise<void> {
+    private async reloadFromEditor(
+        editor: vscode.TextEditor | undefined,
+        opts?: { force?: boolean }
+    ): Promise<void> {
         if (!this.panel) {
             return;
         }
@@ -539,12 +584,22 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                 edges: [],
                 empty: 'Open a source file and place the cursor on a function or variable.'
             };
+            this.followCacheKey = cacheKeyNone;
             this.postGraph();
             return;
         }
+        const key = createCacheKey(editor);
+        if (!opts?.force) {
+            if (!cacheKeyHasWord(key) || cacheKeyEquals(this.followCacheKey, key)) {
+                return;
+            }
+        }
         await this.withProgress(async () => {
             const loaded = await this.model.loadRoot(editor.document.uri, editor.selection.active);
-            this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
+            if (this.applyGraph(loaded?.graph, loaded?.seq ?? -1)) {
+                this.followCacheKey = key;
+                this.lastFollowDocVersion = editor.document.version;
+            }
         });
     }
 
@@ -569,18 +624,19 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         graph: RelationGraph | undefined,
         seq: number,
         opts?: { resetView?: boolean; revealId?: string }
-    ): void {
+    ): boolean {
         if (!this.panel || graph === undefined || !this.model.isCurrent(seq)) {
-            return;
+            return false;
         }
         if (this.updateMode === 'sticky' && !graph.rootId && this.graph.rootId) {
-            return;
+            return false;
         }
         this.graph = graph;
         const kind = graph.mode === 'reference' ? 'References' : 'Call';
         this.panel.title = graph.title ? `Relation (${kind}) — ${graph.title}` : `Relation (${kind})`;
         this.schedulePersist();
         this.postGraph(opts);
+        return true;
     }
 
     private postGraph(opts?: { resetView?: boolean; revealId?: string }): void {
