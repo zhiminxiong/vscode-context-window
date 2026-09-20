@@ -13,6 +13,10 @@ const PAD = 40;
 
 /** @type {{ rootId: string, ox: number, oy: number } | null} */
 let savedView = null;
+/** Viewport + layout for a center we left; restored when that center is focused again. */
+const CENTER_VIEW_MAX = 24;
+/** @type {Map<string, { view: { ox: number, oy: number }, zoom: number, pos: Record<string, { x: number, y: number, h: number, w: number, hop?: number, parentId?: string }> }>} */
+const centerViews = new Map();
 /** @type {{ type: 'reset' } | { type: 'reveal', parentId: string } | null} */
 let pendingView = null;
 /** @type {Record<string, { x: number, y: number, h: number, w: number, hop?: number, parentId?: string }> | null} */
@@ -3175,6 +3179,39 @@ function captureView() {
     };
 }
 
+function clonePosMap(pos) {
+    /** @type {Record<string, { x: number, y: number, h: number, w: number, hop?: number, parentId?: string }>} */
+    const out = {};
+    for (const [id, p] of Object.entries(pos || {})) {
+        out[id] = { ...p };
+    }
+    return out;
+}
+
+function stashCenterView(rootId) {
+    const view = captureView();
+    if (!rootId || !view || !lastPos) {
+        return;
+    }
+    centerViews.delete(rootId);
+    centerViews.set(rootId, {
+        view: { ox: view.ox, oy: view.oy },
+        zoom,
+        pos: clonePosMap(lastPos)
+    });
+    while (centerViews.size > CENTER_VIEW_MAX) {
+        const first = centerViews.keys().next().value;
+        if (first === undefined) {
+            break;
+        }
+        centerViews.delete(first);
+    }
+}
+
+function takeCenterView(rootId) {
+    return rootId ? centerViews.get(rootId) : undefined;
+}
+
 function cssAttr(value) {
     return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : String(value).replace(/"/g, '\\"');
 }
@@ -3715,7 +3752,27 @@ function render(graph) {
     const reset = pendingView && pendingView.type === 'reset';
     const revealId = pendingView && pendingView.type === 'reveal' ? pendingView.parentId : '';
     pendingView = null;
-    savedView = reset ? null : captureView();
+    const prevRootId = lastGraph && lastGraph.rootId ? lastGraph.rootId : '';
+    const nextRootId = graph && graph.rootId ? graph.rootId : '';
+    const rootChanged = !!(prevRootId && nextRootId && prevRootId !== nextRootId);
+    if (rootChanged) {
+        stashCenterView(prevRootId);
+    }
+    if (rootChanged && !reset) {
+        const snap = takeCenterView(nextRootId);
+        lastPos = snap ? clonePosMap(snap.pos) : null;
+        savedView = snap
+            ? { rootId: nextRootId, ox: snap.view.ox, oy: snap.view.oy }
+            : null;
+        if (snap && typeof snap.zoom === 'number' && Number.isFinite(snap.zoom)) {
+            zoom = snap.zoom;
+        }
+    } else {
+        savedView = reset ? null : captureView();
+        if (reset && nextRootId) {
+            centerViews.delete(nextRootId);
+        }
+    }
     lastGraph = graph;
     if (graph.rootId && selectedRootId && selectedRootId !== graph.rootId) {
         selectedId = '';

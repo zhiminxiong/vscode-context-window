@@ -10,6 +10,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 - Context Window **line-blame hover**: `http://` / `https://` URLs and `<a href>` in the commit message are clickable and open in the system browser (the webview cannot navigate itself).
 - Relation paints the **center node immediately** from the identifier under the cursor (or the enclosing callable), then fills callers / callees when Call Hierarchy or Find References returns.
+- Relation remembers each center’s **canvas pan, zoom, and node layout** when you leave it (double-click or trail). Switching back opens that last view instead of recentering the symbol; leaving again stores whatever you changed.
 - Relation cost logs (`RELATION_COST` in `callRelation.ts`) cover neighbor prefetch: each incoming/outgoing job, batch totals, and the slow steps inside a fetch (resolve, LSP, sites, override-incoming merge with `files` / `lineHits`).
 
 #### Changed
