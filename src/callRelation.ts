@@ -1856,6 +1856,8 @@ export class CallRelationModel {
                 return undefined;
             }
             this.expanded.add(nodeId);
+            const preview = this.buildGraph();
+            this.prefetchActive = this.collectPrefetchJobs(preview.nodes).length > 0;
             const { nodes: kids, edges } = this.collectDirectSide(node, nodes);
             if (kids.length) {
                 await this.fillVisibleSnippets(seq, { rootId: '', title: '', nodes: kids, edges });
@@ -1863,6 +1865,9 @@ export class CallRelationModel {
             if (!this.isCurrent(seq) || this.collapseLock.has(nodeId)) {
                 costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
                 return undefined;
+            }
+            if (this.prefetchActive) {
+                this.prefetchInBackground(seq);
             }
             costLog('expandHop', Date.now() - t0, `${node.name} hop=${node.hop} kids=${kids.length}`);
             return { seq, patch: { op: 'expand', parentId: nodeId, nodes: kids, edges } };
