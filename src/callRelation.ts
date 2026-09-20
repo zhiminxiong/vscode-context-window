@@ -280,6 +280,8 @@ const CALL_ITEM_KINDS: ReadonlySet<vscode.SymbolKind> = new Set([
 ]);
 
 const TYPE_SEMANTIC_TYPES = new Set(['class', 'struct', 'interface', 'enum', 'type']);
+/** Outline-less params/locals: LSP semantic types that should use Find All References. */
+const VALUE_SEMANTIC_TYPES = new Set(['parameter', 'variable', 'property', 'enumMember']);
 const MAX_HERITAGE_TYPES = 16;
 
 interface FlatSymbol {
@@ -1514,6 +1516,12 @@ export class CallRelationModel {
         if (valueSym && isReferenceRelationKind(valueSym.kind)) {
             return this.loadReferenceRoot(uri, position, seqPrepare, t0);
         }
+        if (!valueSym && await this.semanticIsReferenceValue(uri, position)) {
+            if (!this.isCurrent(seqPrepare)) {
+                return undefined;
+            }
+            return this.loadReferenceRoot(uri, position, seqPrepare, t0);
+        }
 
         const prepared = await this.execLsp<vscode.CallHierarchyItem[]>(
             seqPrepare,
@@ -1610,6 +1618,12 @@ export class CallRelationModel {
             return undefined;
         }
         if (valueSym && isReferenceRelationKind(valueSym.kind)) {
+            return this.loadReferenceRoot(uri, position, seq, t0, { lean: true });
+        }
+        if (!valueSym && await this.semanticIsReferenceValue(uri, position)) {
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
             return this.loadReferenceRoot(uri, position, seq, t0, { lean: true });
         }
 
@@ -3379,6 +3393,27 @@ export class CallRelationModel {
             ? doc.positionAt(doc.offsetAt(afterName) + brace)
             : symbol.range.end;
         return new vscode.Range(start, end);
+    }
+
+    /** True when the token at `position` is a param/variable/property (no outline kind). */
+    private async semanticIsReferenceValue(uri: vscode.Uri, position: vscode.Position): Promise<boolean> {
+        let range = new vscode.Range(position, position);
+        try {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            range = doc.getWordRangeAtPosition(position) ?? range;
+        } catch {
+            /* empty range still matches a token that covers the caret */
+        }
+        const legend = await this.semanticLegend(uri);
+        if (!legend?.tokenTypes.length) {
+            return false;
+        }
+        const data = await this.semanticTokenData(uri, range);
+        if (!data) {
+            return false;
+        }
+        return decodeSemanticTokens(data, legend.tokenTypes, legend.tokenModifiers)
+            .some(tok => VALUE_SEMANTIC_TYPES.has(tok.type) && tokenOverlapsRange(tok, range));
     }
 
     private async semanticLegend(uri: vscode.Uri): Promise<SemanticLegendInfo | undefined> {
