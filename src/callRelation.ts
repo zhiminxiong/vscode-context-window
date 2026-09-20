@@ -70,6 +70,31 @@ export interface RelationCenter {
     line: number;
 }
 
+interface CenterSnapshot {
+    graph: RelationGraph;
+    shown: Map<string, number>;
+    expanded: Set<string>;
+    keepExpand: Set<string>;
+    keepGroups: Set<string>;
+    collapseLock: Set<string>;
+    relationMode: 'call' | 'reference';
+    incomingHint: vscode.CallHierarchyItem | undefined;
+    root: vscode.CallHierarchyItem;
+    rootTypeName: string;
+}
+
+function cloneRelationGraph(graph: RelationGraph): RelationGraph {
+    return {
+        ...graph,
+        nodes: graph.nodes.map(n => ({ ...n })),
+        edges: graph.edges.map(e => ({
+            ...e,
+            sites: e.sites?.map(s => ({ ...s }))
+        })),
+        centerTrail: graph.centerTrail?.map(c => ({ ...c }))
+    };
+}
+
 export interface RelationGraph {
     rootId: string;
     title: string;
@@ -753,6 +778,8 @@ export class CallRelationModel {
     private prevRoot: vscode.CallHierarchyItem | undefined;
     private centerTrail: vscode.CallHierarchyItem[] = [];
     private centerIndex = -1;
+    /** Built graphs keyed by center itemKey; trail / double-click restore these. */
+    private readonly centerSnaps = new Map<string, CenterSnapshot>();
     /** Shown on the left until root incoming lands (focus from a callee). */
     private incomingHint: vscode.CallHierarchyItem | undefined;
     /** Variables use Find All References on the left; functions use call hierarchy. */
@@ -847,6 +874,7 @@ export class CallRelationModel {
         this.prevRoot = undefined;
         this.centerTrail = [];
         this.centerIndex = -1;
+        this.centerSnaps.clear();
         this.incomingHint = undefined;
         this.relationMode = 'call';
         this.rootTypeName = '';
@@ -878,14 +906,17 @@ export class CallRelationModel {
 
     setCompactFilter(on: boolean): void {
         this.compactFilter = on;
+        this.centerSnaps.clear();
     }
 
     setCompactKinds(ids: readonly string[]): void {
         this.compactKinds = kindsFromIds(ids);
+        this.centerSnaps.clear();
     }
 
     setChildSort(sort: ChildSort): void {
         this.childSort = sort === 'order' ? 'order' : 'name';
+        this.centerSnaps.clear();
     }
 
     private firstCallLine(parentKey: string, dir: -1 | 1, child: vscode.CallHierarchyItem): number {
@@ -995,6 +1026,7 @@ export class CallRelationModel {
         }
         this.baseTypesCache.clear();
         this.ancestorCache.clear();
+        this.centerSnaps.clear();
     }
 
     remember(item: vscode.CallHierarchyItem): string {
@@ -1092,8 +1124,79 @@ export class CallRelationModel {
     }
 
     private resetCenter(item: vscode.CallHierarchyItem): void {
+        this.centerSnaps.clear();
         this.centerTrail = [item];
         this.centerIndex = 0;
+    }
+
+    private stashCenter(graph: RelationGraph): void {
+        if (!this.root || !graph.nodes.length) {
+            return;
+        }
+        const key = itemKey(this.root);
+        this.centerSnaps.delete(key);
+        this.centerSnaps.set(key, {
+            graph: cloneRelationGraph(graph),
+            shown: new Map(this.shown),
+            expanded: new Set(this.expanded),
+            keepExpand: new Set(this.keepExpand),
+            keepGroups: new Set(this.keepGroups),
+            collapseLock: new Set(this.collapseLock),
+            relationMode: this.relationMode,
+            incomingHint: this.incomingHint,
+            root: this.root,
+            rootTypeName: this.rootTypeName
+        });
+        const keep = new Set(this.centerTrail.map(item => itemKey(item)));
+        keep.add(key);
+        for (const snapKey of [...this.centerSnaps.keys()]) {
+            if (this.centerSnaps.size <= 24) {
+                break;
+            }
+            if (!keep.has(snapKey)) {
+                this.centerSnaps.delete(snapKey);
+            }
+        }
+        while (this.centerSnaps.size > 24) {
+            const first = this.centerSnaps.keys().next().value;
+            if (first === undefined) {
+                break;
+            }
+            this.centerSnaps.delete(first);
+        }
+    }
+
+    private restoreCenter(key: string): RelationGraph | undefined {
+        const snap = this.centerSnaps.get(key);
+        if (!snap) {
+            return undefined;
+        }
+        this.shown.clear();
+        for (const [k, n] of snap.shown) {
+            this.shown.set(k, n);
+        }
+        this.expanded.clear();
+        for (const id of snap.expanded) {
+            this.expanded.add(id);
+        }
+        this.keepExpand.clear();
+        for (const id of snap.keepExpand) {
+            this.keepExpand.add(id);
+        }
+        this.keepGroups.clear();
+        for (const id of snap.keepGroups) {
+            this.keepGroups.add(id);
+        }
+        this.collapseLock.clear();
+        for (const id of snap.collapseLock) {
+            this.collapseLock.add(id);
+        }
+        this.relationMode = snap.relationMode;
+        this.root = snap.root;
+        this.remember(snap.root);
+        this.incomingHint = snap.incomingHint;
+        this.rootTypeName = snap.rootTypeName;
+        return cloneRelationGraph(snap.graph);
     }
 
     private recordCenter(item: vscode.CallHierarchyItem): void {
@@ -1924,21 +2027,30 @@ export class CallRelationModel {
         return graph ? { graph, seq } : undefined;
     }
 
-    async focusNode(nodeId: string, nodes: RelationNode[]): Promise<RelationLoad | undefined> {
+    async focusNode(nodeId: string, graph: RelationGraph): Promise<RelationLoad | undefined> {
+        const nodes = graph.nodes;
         const fromReference = this.relationMode === 'reference';
         this.cancel();
         const seq = this.seq;
         const t0 = Date.now();
         const focus = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
         if (!focus) {
-            return { graph: this.buildGraph(), seq };
+            return { graph: this.attachCenterTrail(graph), seq };
         }
         const item = this.items.get(focus.itemKey);
         if (!item) {
-            return { graph: this.buildGraph(), seq };
+            return { graph: this.attachCenterTrail(graph), seq };
         }
         if (this.root && itemKey(this.root) === focus.itemKey && focus.hop === 0) {
-            return { graph: this.buildGraph(), seq };
+            return { graph: this.attachCenterTrail(graph), seq };
+        }
+        this.stashCenter(graph);
+        const cached = this.restoreCenter(focus.itemKey);
+        if (cached && this.root) {
+            this.recordCenter(this.root);
+            this.syncPrevFromTrail();
+            costLog('focusNode cache', Date.now() - t0, itemLabel(this.root));
+            return { graph: this.attachCenterTrail(cached), seq };
         }
 
         const drop = new Set<string>();
@@ -2028,31 +2140,37 @@ export class CallRelationModel {
             costLog('focusNode cancelled', Date.now() - t0, itemLabel(resolved));
             return undefined;
         }
-        const graph = await this.completeRootSides(seq, t0, itemLabel(resolved));
+        const built = await this.completeRootSides(seq, t0, itemLabel(resolved));
         costLog('focusNode', Date.now() - t0, itemLabel(resolved));
-        return graph ? { graph, seq } : undefined;
+        return built ? { graph: built, seq } : undefined;
     }
 
-    async focusTrail(index: number, nodes: RelationNode[]): Promise<RelationLoad | undefined> {
-        if (this.relationMode === 'reference') {
-            return { graph: this.buildGraph(), seq: this.seq };
-        }
+    async focusTrail(index: number, graph: RelationGraph): Promise<RelationLoad | undefined> {
+        const seq = this.seq;
         if (index < 0 || index >= this.centerTrail.length) {
-            return { graph: this.buildGraph(), seq: this.seq };
+            return { graph: this.attachCenterTrail(graph), seq };
         }
         const item = this.centerTrail[index];
         const key = itemKey(item);
         if (this.root && itemKey(this.root) === key) {
             this.centerIndex = index;
             this.syncPrevFromTrail();
-            return { graph: this.buildGraph(), seq: this.seq };
+            return { graph: this.attachCenterTrail(graph), seq };
         }
-        const node = nodes.find(n => n.kind === 'symbol' && n.itemKey === key);
+        this.stashCenter(graph);
+        const cached = this.restoreCenter(key);
+        if (cached) {
+            this.centerIndex = index;
+            this.syncPrevFromTrail();
+            costLog('focusTrail cache', 0, itemLabel(item));
+            return { graph: this.attachCenterTrail(cached), seq };
+        }
+        const node = graph.nodes.find(n => n.kind === 'symbol' && n.itemKey === key);
         if (node) {
-            return this.focusNode(node.id, nodes);
+            return this.focusNode(node.id, graph);
         }
         this.cancel();
-        const seq = this.seq;
+        const nextSeq = this.seq;
         const t0 = Date.now();
         this.centerIndex = index;
         this.syncPrevFromTrail();
@@ -2066,12 +2184,12 @@ export class CallRelationModel {
         this.collapseLock.clear();
         this.keepExpand.add(`self\0${key}`);
         this.incomingHint = this.prevRoot;
-        await this.ensureOutgoing(item, seq);
-        if (!this.isCurrent(seq)) {
+        await this.ensureOutgoing(item, nextSeq);
+        if (!this.isCurrent(nextSeq)) {
             return undefined;
         }
-        const graph = await this.completeRootSides(seq, t0, itemLabel(item));
-        return graph ? { graph, seq } : undefined;
+        const built = await this.completeRootSides(nextSeq, t0, itemLabel(item));
+        return built ? { graph: built, seq: nextSeq } : undefined;
     }
 
     async toggleGroup(nodeId: string, nodes: RelationNode[]): Promise<RelationLoad | undefined> {

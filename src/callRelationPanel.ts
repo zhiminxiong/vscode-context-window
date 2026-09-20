@@ -418,9 +418,8 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                 const nodeId = String(message.nodeId || '');
                 const current = this.graph.nodes.find(n => n.id === nodeId);
                 if (current && current.kind === 'symbol' && current.id !== this.graph.rootId) {
-                    const nodes = this.graph.nodes;
                     await this.withProgress(async () => {
-                        const loaded = await this.model.focusNode(nodeId, nodes);
+                        const loaded = await this.model.focusNode(nodeId, this.graph);
                         this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
                     });
                     this.invalidateFollowCacheKey();
@@ -432,9 +431,8 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                 if (!Number.isInteger(index)) {
                     break;
                 }
-                const nodes = this.graph.nodes;
                 await this.withProgress(async () => {
-                    const loaded = await this.model.focusTrail(index, nodes);
+                    const loaded = await this.model.focusTrail(index, this.graph);
                     this.applyGraph(loaded?.graph, loaded?.seq ?? -1);
                 });
                 this.invalidateFollowCacheKey();
