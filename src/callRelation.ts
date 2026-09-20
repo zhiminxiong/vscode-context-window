@@ -982,9 +982,24 @@ export class CallRelationModel {
     }
 
     private sideList(item: vscode.CallHierarchyItem, dir: -1 | 1): vscode.CallHierarchyItem[] | undefined {
-        const key = itemKey(item);
-        const raw = dir < 0 ? this.incoming.get(key) : this.outgoing.get(key);
-        const extra = dir > 0 ? this.superOutgoing.get(key) : undefined;
+        const keys = this.cacheKeysFor(item);
+        const cache = dir < 0 ? this.incoming : this.outgoing;
+        let raw: vscode.CallHierarchyItem[] | undefined;
+        for (const key of keys) {
+            const list = cache.get(key);
+            if (list && (!raw || list.length > raw.length)) {
+                raw = list;
+            }
+        }
+        let extra: vscode.CallHierarchyItem[] | undefined;
+        if (dir > 0) {
+            for (const key of keys) {
+                const list = this.superOutgoing.get(key);
+                if (list?.length) {
+                    extra = extra ? extra.concat(list) : list.slice();
+                }
+            }
+        }
         if (!raw && !extra?.length) {
             return undefined;
         }
@@ -1045,6 +1060,72 @@ export class CallRelationModel {
     }
 
     /**
+     * Same pick as focusNode: containing sel, else [0], else the original item.
+     * Remap the graph key onto the prepared item so + and recenter share one cache.
+     */
+    private bindPrepared(
+        item: vscode.CallHierarchyItem,
+        prepared: vscode.CallHierarchyItem[] | undefined
+    ): vscode.CallHierarchyItem {
+        const sel = item.selectionRange?.start ?? item.range.start;
+        const resolved = prepared?.length
+            ? (prepared.find(it => rangeContains(it.range, sel)) || prepared[0])
+            : item;
+        if (prepared?.length) {
+            this.markPrepared(resolved);
+            const orig = itemKey(item);
+            if (itemKey(resolved) !== orig) {
+                this.items.set(orig, resolved);
+                this.preparedKeys.add(orig);
+            }
+        }
+        return resolved;
+    }
+
+    /**
+     * prepareCallHierarchy at the same position focusNode uses, including a second
+     * prepare after remap (double-click also prepares the remapped item).
+     */
+    private async peekSubject(item: vscode.CallHierarchyItem): Promise<vscode.CallHierarchyItem> {
+        const sel = item.selectionRange?.start ?? item.range.start;
+        const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
+            'vscode.prepareCallHierarchy',
+            item.uri,
+            sel
+        );
+        const resolved = this.bindPrepared(item, prepared);
+        if (itemKey(resolved) === itemKey(item)) {
+            return resolved;
+        }
+        const sel2 = resolved.selectionRange?.start ?? resolved.range.start;
+        const prepared2 = await this.execLspHeld<vscode.CallHierarchyItem[]>(
+            'vscode.prepareCallHierarchy',
+            resolved.uri,
+            sel2
+        );
+        return this.bindPrepared(resolved, prepared2);
+    }
+
+    private shareSide(
+        cache: Map<string, vscode.CallHierarchyItem[]>,
+        fromKey: string,
+        toKey: string
+    ): void {
+        if (!toKey || fromKey === toKey) {
+            return;
+        }
+        const src = cache.get(fromKey);
+        if (src === undefined) {
+            return;
+        }
+        const dst = cache.get(toKey);
+        if (!dst || dst.length < src.length) {
+            cache.set(toKey, src);
+        }
+        this.aliasCallSites(fromKey, toKey);
+    }
+
+    /**
      * provideIncomingCalls / provideOutgoingCalls 要的是 prepareCallHierarchy 返回的节点
      *（语言服务常在 item 上挂内部 data）。References 图左侧是 enclosing 拼出来的，
      * 直接预取会空；先 prepare 再拉，并让合成 key 与 prepare key 共用缓存。
@@ -1061,15 +1142,20 @@ export class CallRelationModel {
             sel
         );
         if (!prepared?.length) {
-            return undefined;
+            return item;
         }
-        const hit = prepared.find(it => rangeContains(it.range, sel)) || prepared[0];
-        const hitKey = this.markPrepared(hit);
-        if (hitKey !== key) {
-            this.items.set(key, hit);
-            this.preparedKeys.add(key);
+        return this.bindPrepared(item, prepared);
+    }
+
+    private cacheKeysFor(item: vscode.CallHierarchyItem): string[] {
+        const primary = itemKey(item);
+        const keys = [primary];
+        for (const [k, mapped] of this.items) {
+            if (k !== primary && itemKey(mapped) === primary) {
+                keys.push(k);
+            }
         }
-        return hit;
+        return keys;
     }
 
     private cacheSides(
@@ -1840,13 +1926,7 @@ export class CallRelationModel {
         this.hopBusy.add(nodeId);
         this.collapseLock.delete(nodeId);
         try {
-            if (node.hop < 0) {
-                await this.ensureIncoming(item, seq);
-            } else if (node.hop > 0) {
-                await this.ensureOutgoing(item, seq);
-            } else {
-                await Promise.all([this.ensureIncoming(item, seq), this.ensureOutgoing(item, seq)]);
-            }
+            await this.awaitPeekedSide(item, node.itemKey, node.hop < 0 ? -1 : node.hop > 0 ? 1 : 0, seq);
             if (!this.isCurrent(seq)) {
                 costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
                 return undefined;
@@ -2122,12 +2202,7 @@ export class CallRelationModel {
             item.uri,
             sel
         );
-        const resolved = prepared?.length
-            ? (prepared.find(it => rangeContains(it.range, sel)) || prepared[0])
-            : item;
-        if (prepared?.length) {
-            this.markPrepared(resolved);
-        }
+        const resolved = this.bindPrepared(item, prepared);
         if (fromReference) {
             this.forgetEmptySides(item);
             this.forgetEmptySides(resolved);
@@ -2392,8 +2467,8 @@ export class CallRelationModel {
         });
     }
 
-    private collectPrefetchJobs(nodes: RelationNode[]): { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] {
-        const pending: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
+    private collectPrefetchJobs(nodes: RelationNode[]): { item: vscode.CallHierarchyItem; dir: -1 | 1; graphKey: string }[] {
+        const pending: { item: vscode.CallHierarchyItem; dir: -1 | 1; graphKey: string }[] = [];
         const seen = new Set<string>();
         for (const node of nodes) {
             if (node.kind !== 'symbol' || node.hop === 0 || Math.abs(node.hop) >= CALL_MAX_HOP) {
@@ -2411,21 +2486,24 @@ export class CallRelationModel {
             if (seen.has(mark)) {
                 continue;
             }
-            const peeked = dir < 0 ? this.incoming.has(node.itemKey) : this.outgoing.has(node.itemKey);
-            if (peeked) {
+            const cache = dir < 0 ? this.incoming : this.outgoing;
+            if (cache.has(node.itemKey) || cache.has(itemKey(item))) {
                 continue;
             }
             seen.add(mark);
-            pending.push({ item, dir });
+            pending.push({ item, dir, graphKey: node.itemKey });
         }
         return pending;
     }
 
     private takePrefetchWave(
-        remaining: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[]
-    ): { wave: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[]; rest: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] } {
-        const wave: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
-        const rest: { item: vscode.CallHierarchyItem; dir: -1 | 1 }[] = [];
+        remaining: { item: vscode.CallHierarchyItem; dir: -1 | 1; graphKey: string }[]
+    ): {
+        wave: { item: vscode.CallHierarchyItem; dir: -1 | 1; graphKey: string }[];
+        rest: { item: vscode.CallHierarchyItem; dir: -1 | 1; graphKey: string }[];
+    } {
+        const wave: { item: vscode.CallHierarchyItem; dir: -1 | 1; graphKey: string }[] = [];
+        const rest: { item: vscode.CallHierarchyItem; dir: -1 | 1; graphKey: string }[] = [];
         let incoming = 0;
         const outgoingFiles = new Set<string>();
         for (const job of remaining) {
@@ -2465,7 +2543,7 @@ export class CallRelationModel {
             0,
             `jobs=${pending.length} in=${inJobs} out=${pending.length - inJobs} inParallel=${PREFETCH_IN_PARALLEL}`
         );
-        let remaining = pending;
+        let remaining: { item: vscode.CallHierarchyItem; dir: -1 | 1; graphKey: string }[] = pending;
         let done = 0;
         let batch = 0;
         while (remaining.length) {
@@ -2481,18 +2559,21 @@ export class CallRelationModel {
             await Promise.all(chunk.map(async job => {
                 const tJob = Date.now();
                 const side = job.dir < 0 ? 'incoming' : 'outgoing';
-                const hit = job.dir < 0
-                    ? this.incoming.has(itemKey(job.item))
-                    : this.outgoing.has(itemKey(job.item));
+                const cache = job.dir < 0 ? this.incoming : this.outgoing;
+                const hit = cache.has(job.graphKey) || cache.has(itemKey(job.item));
+                const subject = await this.peekSubject(job.item);
                 if (job.dir < 0) {
-                    await this.ensureIncoming(job.item, seq);
+                    await this.ensureIncoming(subject, seq);
                 } else {
-                    await this.ensureOutgoing(job.item, seq);
+                    await this.ensureOutgoing(subject, seq);
                 }
+                const subjectKey = itemKey(subject);
+                this.shareSide(cache, subjectKey, itemKey(job.item));
+                this.shareSide(cache, subjectKey, job.graphKey);
                 costLog(
                     `prefetch ${side}`,
                     Date.now() - tJob,
-                    `${itemLabel(job.item)} ${hit ? 'cache' : 'fetch'} n=${this.sideCount(job.item, job.dir)}`
+                    `${itemLabel(job.item)} ${hit ? 'cache' : 'fetch'} n=${this.sideCount(subject, job.dir)}`
                 );
             }));
             done += chunk.length;
@@ -2839,6 +2920,43 @@ export class CallRelationModel {
             } else {
                 edges.push({ from: parent.id, to: moreId });
             }
+        }
+    }
+
+    /** + only waits for an in-flight peek; it does not prepare or fetch again. */
+    private async awaitPeekedSide(
+        item: vscode.CallHierarchyItem,
+        graphKey: string,
+        dir: -1 | 1 | 0,
+        seq: number
+    ): Promise<void> {
+        const wait = async (cache: Map<string, vscode.CallHierarchyItem[]>, inflight: Map<string, Promise<void>>) => {
+            if (cache.has(graphKey) || cache.has(itemKey(item))) {
+                return;
+            }
+            const pending = inflight.get(graphKey) || inflight.get(itemKey(item));
+            if (!pending) {
+                return;
+            }
+            let sub: vscode.Disposable | undefined;
+            const cancelled = new Promise<void>(resolve => {
+                if (!this.isCurrent(seq)) {
+                    resolve();
+                    return;
+                }
+                sub = this.cts.token.onCancellationRequested(() => resolve());
+            });
+            try {
+                await Promise.race([pending, cancelled]);
+            } finally {
+                sub?.dispose();
+            }
+        };
+        if (dir <= 0) {
+            await wait(this.incoming, this.inflightIn);
+        }
+        if (dir >= 0) {
+            await wait(this.outgoing, this.inflightOut);
         }
     }
 
@@ -3716,7 +3834,6 @@ export class CallRelationModel {
         const subject = await this.resolveForHierarchy(item);
         costLog('incoming resolve', Date.now() - tResolve, itemLabel(item));
         if (!subject) {
-            this.cacheSides(this.incoming, [key], []);
             costLog('incoming skip unprepared', Date.now() - t0, itemLabel(item));
             return;
         }
@@ -3790,7 +3907,6 @@ export class CallRelationModel {
         const subject = await this.resolveForHierarchy(item);
         costLog('outgoing resolve', Date.now() - tResolve, itemLabel(item));
         if (!subject) {
-            this.cacheSides(this.outgoing, [key], []);
             costLog('outgoing skip unprepared', Date.now() - t0, itemLabel(item));
             return;
         }
@@ -3871,9 +3987,8 @@ export class CallRelationModel {
         if (this.relationMode === 'reference' && this.root && itemKey(item) === itemKey(this.root) && dir > 0) {
             return false;
         }
-        const key = itemKey(item);
-        const peeked = dir < 0 ? this.incoming.has(key) : this.outgoing.has(key);
-        if (!peeked) {
+        const cache = dir < 0 ? this.incoming : this.outgoing;
+        if (!this.cacheKeysFor(item).some(k => cache.has(k))) {
             return false;
         }
         return this.sideCount(item, dir) > 0;

@@ -22,7 +22,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 #### Fixed
 
 - Dragging from the start of a line to its end no longer flashes and then drops the selection: an in-text drag that grows through partial ranges is not treated as a line-number click, and git line-blame does not redraw its trailing annotation during the drag. Double-clicking a line number still selects the enclosing symbol.
-- Relation: Collapse All recenters the canvas on the current symbol. Expanding one hop with + pans just enough to keep that node and its new children in view, and peeks those new leaves so a further + appears when they have callers.
+- Relation: Collapse All recenters the canvas on the current symbol. Expanding one hop with + pans just enough to keep that node and its new children in view, and peeks those new leaves so a further + appears when they have callers. Neighbor peek uses the same `prepareCallHierarchy` pick as double-click recenter and writes that incoming/outgoing list onto the graph node, so + expands the already-peeked callers instead of fetching a different set.
 - Relation: after a double-click that recenters on a node, that node’s tip stays attached to it. A hover timer from the previous graph no longer places the tip at the top-left of the webview.
 - Relation: reopening the same symbol no longer short-circuits while incoming or outgoing is still uncached. Nodes with no callees are cached empty so prefetch does not spin forever. References-mode enclosing nodes are prepared with the language server before neighbor fetches, so expand is not empty. Twin-path tips mention Hold Alt to highlight the other copies.
 
