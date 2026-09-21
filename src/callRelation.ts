@@ -685,6 +685,19 @@ function isLibPath(fsPath: string): boolean {
     return p.endsWith('.d.ts') || p.includes('/node_modules/');
 }
 
+/** TS/JS LS has no Type Hierarchy; calling prepareTypeHierarchy only queues empty round-trips. */
+function skipsTypeHierarchy(uri: vscode.Uri): boolean {
+    const ext = path.extname(uri.fsPath).toLowerCase();
+    if (ext === '.ts' || ext === '.tsx' || ext === '.js' || ext === '.jsx'
+        || ext === '.mts' || ext === '.cts' || ext === '.mjs' || ext === '.cjs') {
+        return true;
+    }
+    const open = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === uri.toString());
+    const lang = open?.languageId;
+    return lang === 'typescript' || lang === 'javascript'
+        || lang === 'typescriptreact' || lang === 'javascriptreact';
+}
+
 export const SLIM_KIND_OPTIONS: readonly { id: string; kind: vscode.SymbolKind; label: string }[] = [
     { id: 'function', kind: vscode.SymbolKind.Function, label: 'Function' },
     { id: 'method', kind: vscode.SymbolKind.Method, label: 'Method' },
@@ -3360,7 +3373,8 @@ export class CallRelationModel {
      * Override incoming is empty for virtual dispatch. Search same-named slots
      * on this type's ancestor chain. Keep external `action.xxx()` receivers and
      * nearest on-chain `this.xxx()`; drop sibling-hierarchy `this.xxx()`,
-     * declarations, and super calls.
+     * declarations, and super calls. Heritage classify is only for this-dispatch
+     * lines; other `recv.xxx()` is external without walking the caller's types.
      */
     private async mergeOverrideIncoming(
         item: vscode.CallHierarchyItem,
@@ -3436,6 +3450,8 @@ export class CallRelationModel {
         const lineCache = new Map<string, Promise<string[] | undefined>>();
         const fileSeen = new Set<string>();
         let lineHits = 0;
+        let thisHits = 0;
+        let extFast = 0;
         const tClassify = Date.now();
         const chunk = 12;
         for (let i = 0; i < locations.length; i += chunk) {
@@ -3482,12 +3498,20 @@ export class CallRelationModel {
                 if (!enc) {
                     return;
                 }
-                const kind = await this.classifyOverrideCaller(
-                    enc,
-                    loc.uri,
-                    familyKeys,
-                    heritageShare
-                );
+                const thisDispatch = isThisDispatchLine(lineText, ident);
+                const kind = thisDispatch
+                    ? await this.classifyOverrideCaller(
+                        enc,
+                        loc.uri,
+                        familyKeys,
+                        heritageShare
+                    )
+                    : { kind: 'external' as const, depth: 0 };
+                if (thisDispatch) {
+                    thisHits++;
+                } else {
+                    extFast++;
+                }
                 if (kind === 'sibling') {
                     return;
                 }
@@ -3516,14 +3540,14 @@ export class CallRelationModel {
             costLog(
                 'incoming merge classify',
                 Date.now() - tClassify,
-                `${itemLabel(item)} groups=${groups.size}${this.cacheEpoch !== epoch ? ' dropped' : ''} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits}`
+                `${itemLabel(item)} groups=${groups.size}${this.cacheEpoch !== epoch ? ' dropped' : ''} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast}`
             );
             return;
         }
         costLog(
             'incoming merge classify',
             Date.now() - tClassify,
-            `${itemLabel(item)} groups=${groups.size} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits}`
+            `${itemLabel(item)} groups=${groups.size} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast}`
         );
         let nearest = Number.POSITIVE_INFINITY;
         for (const group of groups.values()) {
@@ -3793,9 +3817,11 @@ export class CallRelationModel {
     }
 
     private async lookupDirectBaseTypes(type: TypeRef): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
-        const fromHierarchy = await this.basesFromTypeHierarchy(type);
-        if (fromHierarchy.length) {
-            return fromHierarchy;
+        if (!skipsTypeHierarchy(type.uri)) {
+            const fromHierarchy = await this.basesFromTypeHierarchy(type);
+            if (fromHierarchy.length) {
+                return fromHierarchy;
+            }
         }
         return this.basesFromSemanticTokens(type);
     }
