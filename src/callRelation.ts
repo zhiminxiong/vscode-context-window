@@ -83,6 +83,8 @@ interface CenterSnapshot {
     incomingHint: vscode.CallHierarchyItem | undefined;
     root: vscode.CallHierarchyItem;
     rootTypeName: string;
+    centerFamily: Map<string, number>;
+    centerFamilyRootKey: string;
 }
 
 function cloneRelationGraph(graph: RelationGraph): RelationGraph {
@@ -803,6 +805,16 @@ export class CallRelationModel {
     private relationMode: 'call' | 'reference' = 'call';
     /** Type shown on the References center tip. */
     private rootTypeName = '';
+    /** Center type + ancestors: typeRefKey / uri+name → depth (0 = center type). */
+    private readonly centerFamily = new Map<string, number>();
+    private centerFamilyRootKey = '';
+    /** itemKey → containing type, for incoming filter without touching the side cache. */
+    private readonly ownerKeyByItem = new Map<string, {
+        key: string;
+        uri: string;
+        name: string;
+        ancestorKeys: string[];
+    }>();
     /** When true, keep only compactKinds from incoming and outgoing. */
     private compactFilter = false;
     private compactKinds = kindsFromIds(DEFAULT_SLIM_KIND_IDS);
@@ -895,6 +907,9 @@ export class CallRelationModel {
         this.incomingHint = undefined;
         this.relationMode = 'call';
         this.rootTypeName = '';
+        this.centerFamily.clear();
+        this.centerFamilyRootKey = '';
+        this.ownerKeyByItem.clear();
         this.cacheEpoch++;
         this.fileGen.clear();
         this.inflightIn.clear();
@@ -1027,8 +1042,178 @@ export class CallRelationModel {
                     list.push(child);
                 }
             }
+            return list;
         }
-        return list;
+        return this.constrainIncomingToCenter(item, list);
+    }
+
+    /**
+     * Incoming cache stays "who calls this method". Only same-named override
+     * slots are collapsed: when a shared helper fans in several Prepares from
+     * this type family, keep the nearest on the center chain. Different names
+     * and same-named non-overrides (ActionManager.Prepare) are left alone.
+     */
+    private constrainIncomingToCenter(
+        parent: vscode.CallHierarchyItem,
+        kids: vscode.CallHierarchyItem[]
+    ): vscode.CallHierarchyItem[] {
+        if (this.relationMode !== 'call' || !this.root || !this.centerFamily.size || !kids.length) {
+            return kids;
+        }
+        const parentOwner = this.ownerKeyByItem.get(itemKey(parent));
+        const parentDepth = parentOwner ? this.chainDepth(parentOwner) : undefined;
+        if (parentDepth === undefined || parentDepth <= 0) {
+            return kids;
+        }
+        const byIdent = new Map<string, vscode.CallHierarchyItem[]>();
+        const kept: vscode.CallHierarchyItem[] = [];
+        for (const child of kids) {
+            const ident = identFromToken(child.name);
+            if (!ident) {
+                kept.push(child);
+                continue;
+            }
+            const group = byIdent.get(ident);
+            if (group) {
+                group.push(child);
+            } else {
+                byIdent.set(ident, [child]);
+            }
+        }
+        for (const group of byIdent.values()) {
+            if (group.length < 2) {
+                kept.push(group[0]);
+                continue;
+            }
+            const overrides: { child: vscode.CallHierarchyItem; depth: number }[] = [];
+            const rest: vscode.CallHierarchyItem[] = [];
+            for (const child of group) {
+                const owner = this.ownerKeyByItem.get(itemKey(child));
+                const kind = owner ? this.overrideKind(owner) : 'external';
+                if (kind === 'chain' && owner) {
+                    overrides.push({ child, depth: this.chainDepth(owner) ?? 0 });
+                } else if (kind === 'sibling') {
+                    overrides.push({ child, depth: Number.POSITIVE_INFINITY });
+                } else {
+                    rest.push(child);
+                }
+            }
+            if (overrides.length < 2) {
+                kept.push(...group);
+                continue;
+            }
+            let nearest: vscode.CallHierarchyItem | undefined;
+            let nearestDepth = Number.POSITIVE_INFINITY;
+            for (const row of overrides) {
+                if (row.depth < nearestDepth) {
+                    nearestDepth = row.depth;
+                    nearest = row.child;
+                }
+            }
+            if (nearest) {
+                kept.push(nearest);
+            } else {
+                kept.push(...overrides.map(row => row.child));
+            }
+            kept.push(...rest);
+        }
+        return kept;
+    }
+
+    private chainDepth(owner: { key: string; uri: string; name: string }): number | undefined {
+        return this.centerFamily.get(owner.key) ?? this.centerFamily.get(`${owner.uri}\0${owner.name}`);
+    }
+
+    /** Same virtual slot on the center type family; not a coincidental same name. */
+    private overrideKind(owner: {
+        key: string;
+        uri: string;
+        name: string;
+        ancestorKeys: string[];
+    }): 'chain' | 'sibling' | 'external' {
+        if (this.chainDepth(owner) !== undefined) {
+            return 'chain';
+        }
+        for (const key of owner.ancestorKeys) {
+            if (this.centerFamily.has(key)) {
+                return 'sibling';
+            }
+        }
+        return 'external';
+    }
+
+    private adoptRoot(item: vscode.CallHierarchyItem): void {
+        const key = itemKey(item);
+        if (!this.root || itemKey(this.root) !== key) {
+            this.centerFamily.clear();
+            this.centerFamilyRootKey = '';
+        }
+        this.root = item;
+        this.remember(item);
+    }
+
+    private async refreshCenterFamily(): Promise<void> {
+        if (this.relationMode !== 'call' || !this.root) {
+            this.centerFamily.clear();
+            this.centerFamilyRootKey = '';
+            return;
+        }
+        const key = itemKey(this.root);
+        if (key === this.centerFamilyRootKey && this.centerFamily.size) {
+            await this.rememberOwner(this.root);
+            return;
+        }
+        this.centerFamily.clear();
+        const family = await this.selfAndAncestorTypes(this.root);
+        for (const type of family) {
+            const typeKey = typeRefKey(type.uri, type.symbol);
+            const loose = `${type.uri.toString()}\0${type.symbol.name}`;
+            const prev = this.centerFamily.get(loose);
+            this.centerFamily.set(typeKey, type.depth);
+            if (prev === undefined || type.depth < prev) {
+                this.centerFamily.set(loose, type.depth);
+            }
+        }
+        this.centerFamilyRootKey = key;
+        await this.rememberOwner(this.root);
+    }
+
+    private async rememberOwner(item: vscode.CallHierarchyItem): Promise<void> {
+        const key = itemKey(item);
+        const cur = this.ownerKeyByItem.get(key);
+        if (cur?.ancestorKeys) {
+            return;
+        }
+        const owner = await this.containingTypeAt(
+            item.uri,
+            item.selectionRange?.start ?? item.range.start
+        );
+        if (!owner) {
+            return;
+        }
+        const ancestorKeys: string[] = [];
+        const bases = await this.collectAncestorTypesFrom({
+            uri: owner.uri,
+            symbol: owner.symbol,
+            depth: 0
+        });
+        for (const type of bases) {
+            ancestorKeys.push(typeRefKey(type.uri, type.symbol));
+            ancestorKeys.push(`${type.uri.toString()}\0${type.symbol.name}`);
+        }
+        this.ownerKeyByItem.set(key, {
+            key: typeRefKey(owner.uri, owner.symbol),
+            uri: owner.uri.toString(),
+            name: owner.symbol.name,
+            ancestorKeys
+        });
+    }
+
+    private async rememberOwners(items: vscode.CallHierarchyItem[]): Promise<void> {
+        const chunk = 12;
+        for (let i = 0; i < items.length; i += chunk) {
+            await Promise.all(items.slice(i, i + chunk).map(item => this.rememberOwner(item)));
+        }
     }
 
     invalidateUri(uri: vscode.Uri): void {
@@ -1041,6 +1226,7 @@ export class CallRelationModel {
             this.items.delete(key);
             this.incoming.delete(key);
             this.outgoing.delete(key);
+            this.ownerKeyByItem.delete(key);
         }
         for (const [key, list] of [...this.incoming]) {
             this.incoming.set(key, list.filter(item => item.uri.toString() !== u));
@@ -1266,7 +1452,9 @@ export class CallRelationModel {
             relationMode: this.relationMode,
             incomingHint: this.incomingHint,
             root: this.root,
-            rootTypeName: this.rootTypeName
+            rootTypeName: this.rootTypeName,
+            centerFamily: new Map(this.centerFamily),
+            centerFamilyRootKey: this.centerFamilyRootKey
         });
         const keep = new Set(this.centerTrail.map(item => itemKey(item)));
         keep.add(key);
@@ -1317,6 +1505,11 @@ export class CallRelationModel {
         this.remember(snap.root);
         this.incomingHint = snap.incomingHint;
         this.rootTypeName = snap.rootTypeName;
+        this.centerFamily.clear();
+        for (const [k, depth] of snap.centerFamily) {
+            this.centerFamily.set(k, depth);
+        }
+        this.centerFamilyRootKey = snap.centerFamilyRootKey;
         return cloneRelationGraph(snap.graph);
     }
 
@@ -1473,18 +1666,17 @@ export class CallRelationModel {
         this.prevRoot = undefined;
         this.incomingHint = undefined;
         this.relationMode = 'reference';
-        this.root = root;
-        this.remember(this.root);
-        this.resetCenter(this.root);
-        const rootKey = itemKey(this.root);
+        this.adoptRoot(root);
+        this.resetCenter(root);
+        const rootKey = itemKey(root);
         this.outgoing.set(rootKey, []);
         if (!opts?.lean) {
             this.paintNow(seq);
-            const sel = this.root.selectionRange?.start ?? this.root.range.start;
+            const sel = root.selectionRange?.start ?? root.range.start;
             this.rootTypeName = await resolveValueType(
-                this.root.uri,
+                root.uri,
                 sel,
-                identFromToken(this.root.name) || name
+                identFromToken(root.name) || name
             );
             if (!this.isCurrent(seq)) {
                 return undefined;
@@ -1569,13 +1761,12 @@ export class CallRelationModel {
             this.forgetEmptySides(next);
         }
         this.relationMode = 'call';
-        this.root = next;
-        this.remember(this.root);
-        this.resetCenter(this.root);
+        this.adoptRoot(next);
+        this.resetCenter(next);
         this.paintNow(seq);
-        const rootName = itemLabel(this.root);
+        const rootName = itemLabel(next);
         const tRoot = Date.now();
-        await this.ensureOutgoing(this.root, seq);
+        await this.ensureOutgoing(next, seq);
         costLog('root outgoing', Date.now() - tRoot, rootName);
         if (!this.isCurrent(seq)) {
             return undefined;
@@ -1676,8 +1867,7 @@ export class CallRelationModel {
         this.keepGroups.clear();
         this.collapseLock.clear();
         this.keepExpand.add(`self\0${itemKey(caller)}`);
-        this.root = callee;
-        this.remember(callee);
+        this.adoptRoot(callee);
         this.remember(caller);
         this.centerTrail = [caller, callee];
         this.centerIndex = 1;
@@ -1894,9 +2084,12 @@ export class CallRelationModel {
         this.prevRoot = undefined;
         this.incomingHint = undefined;
         this.relationMode = 'call';
-        this.root = next;
-        this.remember(this.root);
-        this.resetCenter(this.root);
+        this.adoptRoot(next);
+        this.resetCenter(next);
+        await this.refreshCenterFamily();
+        if (!this.isCurrent(seq) || !this.root) {
+            return undefined;
+        }
         await this.ensureIncoming(this.root, seq);
         if (!this.isCurrent(seq) || !this.root) {
             costLog('loadIncomingRoot cancelled', Date.now() - t0, itemLabel(next));
@@ -2252,8 +2445,7 @@ export class CallRelationModel {
             this.forgetEmptySides(item);
             this.forgetEmptySides(resolved);
         }
-        this.root = resolved;
-        this.remember(resolved);
+        this.adoptRoot(resolved);
         this.recordCenter(resolved);
         this.syncPrevFromTrail();
         this.shown.clear();
@@ -2320,8 +2512,7 @@ export class CallRelationModel {
         this.centerIndex = index;
         this.syncPrevFromTrail();
         this.relationMode = 'call';
-        this.root = item;
-        this.remember(item);
+        this.adoptRoot(item);
         this.shown.clear();
         this.expanded.clear();
         this.keepExpand.clear();
@@ -2400,9 +2591,8 @@ export class CallRelationModel {
             this.incomingHint = undefined;
             this.rootTypeName = '';
             this.relationMode = mode;
-            this.root = item;
-            this.remember(this.root);
-            this.resetCenter(this.root);
+            this.adoptRoot(item);
+            this.resetCenter(item);
             if (mode === 'reference' && !this.outgoing.has(key)) {
                 this.outgoing.set(key, []);
             }
@@ -2463,6 +2653,10 @@ export class CallRelationModel {
 
     private async completeRootSides(seq: number, t0: number, label: string): Promise<RelationGraph | undefined> {
         if (!this.root) {
+            return undefined;
+        }
+        await this.refreshCenterFamily();
+        if (!this.isCurrent(seq) || !this.root) {
             return undefined;
         }
         const rootKey = itemKey(this.root);
@@ -3019,9 +3213,24 @@ export class CallRelationModel {
     }
 
     private async ensureIncoming(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
-        return this.ensureCached(this.incoming, this.inflightIn, item, seq, (key, fetchSeq) => (
+        await this.ensureCached(this.incoming, this.inflightIn, item, seq, (key, fetchSeq) => (
             this.fetchIncoming(item, key, fetchSeq)
         ));
+        if (!this.isCurrent(seq)) {
+            return;
+        }
+        let raw: vscode.CallHierarchyItem[] | undefined;
+        for (const cacheKey of this.cacheKeysFor(item)) {
+            const list = this.incoming.get(cacheKey);
+            if (list && (!raw || list.length > raw.length)) {
+                raw = list;
+            }
+        }
+        if (!raw) {
+            return;
+        }
+        await this.rememberOwner(item);
+        await this.rememberOwners(raw);
     }
 
     private async ensureOutgoing(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
@@ -3950,6 +4159,12 @@ export class CallRelationModel {
         await this.mergeOverrideIncoming(subject, key, items, seen, ident);
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
             costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after merge`);
+            return;
+        }
+        await this.rememberOwner(subject);
+        await this.rememberOwners(items);
+        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
+            costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after owners`);
             return;
         }
         this.cacheSides(this.incoming, [key, resolvedKey], items);
