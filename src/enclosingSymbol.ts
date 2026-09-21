@@ -76,6 +76,11 @@ export function isReferenceRelationKind(kind: vscode.SymbolKind): boolean {
     return VALUE_KINDS.has(kind) || TYPE_KINDS.has(kind);
 }
 
+/** Outline fields that may still be getters/setters — try call hierarchy first. */
+export function isCallablePropertyKind(kind: vscode.SymbolKind): boolean {
+    return kind === vscode.SymbolKind.Property || kind === vscode.SymbolKind.Field;
+}
+
 /** Call signatures in .d.ts are often named "()". TS call hierarchy uses `<function>`. */
 export function isAnonymousSymbolName(name: string): boolean {
     const n = (name || '').trim();

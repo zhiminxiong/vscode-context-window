@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { enclosingCallable, isAnonymousSymbolName, isReferenceRelationKind, isUsableEnclosingName, symbolAtPosition } from './enclosingSymbol';
+import { enclosingCallable, isAnonymousSymbolName, isCallablePropertyKind, isReferenceRelationKind, isUsableEnclosingName, symbolAtPosition } from './enclosingSymbol';
 
 export type ChildSort = 'name' | 'order';
 
@@ -1940,13 +1940,7 @@ export class CallRelationModel {
         if (!this.isCurrent(seqPrepare)) {
             return undefined;
         }
-        if (valueSym && isReferenceRelationKind(valueSym.kind)) {
-            return this.loadReferenceRoot(uri, position, seqPrepare, t0);
-        }
-        if (!valueSym && await this.semanticIsReferenceValue(uri, position)) {
-            if (!this.isCurrent(seqPrepare)) {
-                return undefined;
-            }
+        if (valueSym && isReferenceRelationKind(valueSym.kind) && !isCallablePropertyKind(valueSym.kind)) {
             return this.loadReferenceRoot(uri, position, seqPrepare, t0);
         }
 
@@ -1962,6 +1956,15 @@ export class CallRelationModel {
         }
         if (!prepared?.length) {
             costLog('loadRoot empty', Date.now() - t0, loc);
+            if (valueSym && isReferenceRelationKind(valueSym.kind)) {
+                return this.loadReferenceRoot(uri, position, seqPrepare, t0);
+            }
+            if (await this.semanticIsReferenceValue(uri, position)) {
+                if (!this.isCurrent(seqPrepare)) {
+                    return undefined;
+                }
+                return this.loadReferenceRoot(uri, position, seqPrepare, t0);
+            }
             const name = await tokenAt(uri, position);
             if (!this.isCurrent(seqPrepare)) {
                 return undefined;
@@ -2044,13 +2047,7 @@ export class CallRelationModel {
         if (!this.isCurrent(seq)) {
             return undefined;
         }
-        if (valueSym && isReferenceRelationKind(valueSym.kind)) {
-            return this.loadReferenceRoot(uri, position, seq, t0, { lean: true });
-        }
-        if (!valueSym && await this.semanticIsReferenceValue(uri, position)) {
-            if (!this.isCurrent(seq)) {
-                return undefined;
-            }
+        if (valueSym && isReferenceRelationKind(valueSym.kind) && !isCallablePropertyKind(valueSym.kind)) {
             return this.loadReferenceRoot(uri, position, seq, t0, { lean: true });
         }
 
@@ -2066,6 +2063,15 @@ export class CallRelationModel {
         }
         if (!prepared?.length) {
             costLog('loadIncomingRoot empty', Date.now() - t0, loc);
+            if (valueSym && isReferenceRelationKind(valueSym.kind)) {
+                return this.loadReferenceRoot(uri, position, seq, t0, { lean: true });
+            }
+            if (await this.semanticIsReferenceValue(uri, position)) {
+                if (!this.isCurrent(seq)) {
+                    return undefined;
+                }
+                return this.loadReferenceRoot(uri, position, seq, t0, { lean: true });
+            }
             return this.lspEmptyGraph(seq);
         }
 
@@ -2580,7 +2586,9 @@ export class CallRelationModel {
         if (!item || !this.isCurrent(seq)) {
             return;
         }
-        const mode = isReferenceRelationKind(item.kind) ? 'reference' : 'call';
+        const mode = isReferenceRelationKind(item.kind) && !isCallablePropertyKind(item.kind)
+            ? 'reference'
+            : 'call';
         this.paintCenterNow(item, seq, mode);
     }
 
