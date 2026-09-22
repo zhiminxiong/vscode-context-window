@@ -5462,11 +5462,18 @@ export class CallRelationModel {
         );
         const pos = enc.selectionRange.start;
         const caller = (prepared || []).find(it => rangeContains(it.range, pos)) || prepared?.[0];
-        if (!caller || isArrowLikeName(caller.name)) {
-            return undefined;
+        if (caller && !isArrowLikeName(caller.name)) {
+            this.markPrepared(caller);
+            return caller;
         }
-        this.markPrepared(caller);
-        return caller;
+        return new vscode.CallHierarchyItem(
+            enc.kind,
+            enc.name,
+            enc.detail || '',
+            uri,
+            enc.range,
+            enc.selectionRange
+        );
     }
 
     private async liftArrowToEnclosing(
