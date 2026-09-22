@@ -886,6 +886,31 @@ function createTwinBadge(node, twins) {
     return badge;
 }
 
+/** Expand and collapse change how many copies are on screen. Refresh badges already painted. */
+function syncTwinBadge(el, node) {
+    const existing = el.querySelector('.cr-twin');
+    if (el.classList.contains('is-cycle') || node.kind !== 'symbol' || !node.itemKey) {
+        if (existing) {
+            existing.remove();
+        }
+        el.classList.remove('is-alias');
+        return;
+    }
+    const twins = symbolTwins(node.itemKey);
+    if (twins.length <= 1) {
+        if (existing) {
+            existing.remove();
+        }
+        el.classList.remove('is-alias');
+        return;
+    }
+    el.classList.add('is-alias');
+    if (existing) {
+        existing.remove();
+    }
+    el.appendChild(createTwinBadge(node, twins));
+}
+
 function formatSiteCount(count) {
     const n = Math.max(0, Number(count) || 0);
     return n > 99 ? '99+' : String(n);
@@ -3700,6 +3725,7 @@ function relayoutLive(revealId) {
         el.style.width = nodeW(p) + 'px';
         el.style.height = p.h + 'px';
         syncNodeToggle(el, graph, node, p);
+        syncTwinBadge(el, node);
     }
 
     const haveEdges = new Set((graph.edges || []).map(e => e.from + '\0' + e.to));
