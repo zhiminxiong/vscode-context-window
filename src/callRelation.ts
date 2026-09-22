@@ -1669,7 +1669,7 @@ export class CallRelationModel {
         graphKey: string,
         seq: number
     ): Promise<void> {
-        const sel = item.selectionRange?.start ?? item.range.start;
+        const sel = await this.nameTokenPosition(item.uri, item.range, item.selectionRange, item.name);
         const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
             'vscode.prepareCallHierarchy',
             item.uri,
@@ -1725,13 +1725,53 @@ export class CallRelationModel {
      * provideIncomingCalls / provideOutgoingCalls 要的是 prepareCallHierarchy 返回的节点
      *（语言服务常在 item 上挂内部 data）。References 图左侧是 enclosing 拼出来的，
      * 直接预取会空；先 prepare 再拉，并让合成 key 与 prepare key 共用缓存。
+     * 声明的 selection 可能落在 `public` 上，构造函数要改问 `constructor` 这个词。
      */
+    private async nameTokenPosition(
+        uri: vscode.Uri,
+        range: vscode.Range,
+        selection: vscode.Range | undefined,
+        name: string
+    ): Promise<vscode.Position> {
+        const ident = identFromToken(name);
+        const fallback = selection?.start ?? range.start;
+        if (!ident) {
+            return fallback;
+        }
+        let doc: vscode.TextDocument;
+        try {
+            doc = await vscode.workspace.openTextDocument(uri);
+        } catch {
+            return fallback;
+        }
+        const word = doc.getWordRangeAtPosition(fallback);
+        if (word && identFromToken(doc.getText(word)) === ident) {
+            return word.start;
+        }
+        const re = new RegExp(`\\b${escapeRegExp(ident)}\\b`);
+        const last = Math.min(doc.lineCount - 1, Math.max(range.end.line, fallback.line));
+        for (let line = Math.max(0, range.start.line); line <= last; line++) {
+            const text = doc.lineAt(line).text;
+            const brace = text.indexOf('{');
+            const slice = brace >= 0 ? text.slice(0, brace) : text;
+            const from = line === range.start.line ? range.start.character : 0;
+            const match = re.exec(from > 0 ? slice.slice(from) : slice);
+            if (match) {
+                return new vscode.Position(line, from + match.index);
+            }
+            if (brace >= 0) {
+                break;
+            }
+        }
+        return fallback;
+    }
+
     private async resolveForHierarchy(item: vscode.CallHierarchyItem): Promise<vscode.CallHierarchyItem | undefined> {
         const key = itemKey(item);
         if (this.preparedKeys.has(key)) {
             return this.items.get(key) || item;
         }
-        const sel = item.selectionRange?.start ?? item.range.start;
+        const sel = await this.nameTokenPosition(item.uri, item.range, item.selectionRange, item.name);
         const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
             'vscode.prepareCallHierarchy',
             item.uri,
@@ -2868,7 +2908,7 @@ export class CallRelationModel {
         }
 
         this.relationMode = 'call';
-        const sel = item.selectionRange?.start ?? item.range.start;
+        const sel = await this.nameTokenPosition(item.uri, item.range, item.selectionRange, item.name);
         const prepared = await this.execLsp<vscode.CallHierarchyItem[]>(
             seq,
             'vscode.prepareCallHierarchy',
@@ -5455,24 +5495,26 @@ export class CallRelationModel {
             return undefined;
         }
         const uri = enc.uri ?? fallbackUri;
+        const at = await this.nameTokenPosition(uri, enc.range, enc.selectionRange, enc.name);
         const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
             'vscode.prepareCallHierarchy',
             uri,
-            enc.selectionRange.start
+            at
         );
-        const pos = enc.selectionRange.start;
-        const caller = (prepared || []).find(it => rangeContains(it.range, pos)) || prepared?.[0];
+        const caller = (prepared || []).find(it => rangeContains(it.range, at)) || prepared?.[0];
         if (caller && !isArrowLikeName(caller.name)) {
             this.markPrepared(caller);
             return caller;
         }
+        const ident = identFromToken(enc.name);
+        const selection = new vscode.Range(at, at.translate(0, Math.max(1, ident.length)));
         return new vscode.CallHierarchyItem(
             enc.kind,
             enc.name,
             enc.detail || '',
             uri,
             enc.range,
-            enc.selectionRange
+            selection
         );
     }
 
