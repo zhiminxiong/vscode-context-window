@@ -121,11 +121,6 @@ class RelationIndex {
         return this.slots.get(id)?.deps ?? [];
     }
 
-    /** Slot is present. Does not re-check revisions or move the LRU entry. */
-    has(id: string): boolean {
-        return this.slots.has(id);
-    }
-
     async take<T>(id: string): Promise<T | undefined> {
         this.ensureListener();
         const slot = this.slots.get(id);

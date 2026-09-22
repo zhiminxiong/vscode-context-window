@@ -1361,12 +1361,6 @@ export class CallRelationModel {
     private readonly incomingScan = new Map<string, CenterIncomingScan>();
     /** Keys whose incoming more-button must stay "?" until the scan finishes. */
     private readonly incomingOpen = new Set<string>();
-    /** Sides restored from the index this session. Those lists are already fetched. */
-    private readonly sideFromIndex = new Set<string>();
-    /** Callers kept on screen this session before their peek cache exists. */
-    private readonly revealedKeys = new Map<string, Set<string>>();
-    /** +more clicks waiting to pull the next un-peeked page onto the screen. */
-    private readonly pendingReveal = new Map<string, number>();
     /** Resume cursor for an indexed partial page whose scan object is not in this session. */
     private readonly partialMeta = new Map<string, { phase: SerPartial['phase']; locIndex: number; callIndex: number }>();
     /** Frozen caller order for a scan that already painted a page. */
@@ -1469,9 +1463,6 @@ export class CallRelationModel {
         this.outgoingAt.clear();
         this.incomingScan.clear();
         this.incomingOpen.clear();
-        this.sideFromIndex.clear();
-        this.revealedKeys.clear();
-        this.pendingReveal.clear();
         this.partialMeta.clear();
         this.incomingOrder.clear();
         this.incomingResume.clear();
@@ -1849,9 +1840,6 @@ export class CallRelationModel {
         this.centerSnaps.clear();
         this.incomingScan.clear();
         this.incomingOpen.clear();
-        this.sideFromIndex.clear();
-        this.revealedKeys.clear();
-        this.pendingReveal.clear();
         this.partialMeta.clear();
         this.incomingOrder.clear();
     }
@@ -2273,11 +2261,6 @@ export class CallRelationModel {
             this.finishCompleteIncoming([...keys]);
         }
         this.applySide(keys, dir, body, gen);
-        for (const key of keys) {
-            if (key) {
-                this.sideFromIndex.add(key);
-            }
-        }
         return true;
     }
 
@@ -2330,7 +2313,6 @@ export class CallRelationModel {
                 continue;
             }
             this.incomingOpen.add(key);
-            this.sideFromIndex.add(key);
             this.incomingOrder.set(key, order);
             this.partialMeta.set(key, {
                 phase: body.phase,
@@ -3165,7 +3147,7 @@ export class CallRelationModel {
             this.incomingResume.add(rootKey);
             try {
                 const have = this.incoming.get(rootKey)?.length ?? scan.items.length;
-                const displayed = this.shown.get(nodeId) ?? (this.sideFromIndex.has(rootKey) ? have : CALL_PAGE);
+                const displayed = this.shown.get(nodeId) ?? CALL_PAGE;
                 const goal = displayed + CALL_PAGE;
                 if (have < goal) {
                     await this.resumeIncomingScan(scan, seq, goal, have);
@@ -3179,7 +3161,8 @@ export class CallRelationModel {
                 this.incomingResume.delete(rootKey);
             }
         } else {
-            this.pendingReveal.set(nodeId, (this.pendingReveal.get(nodeId) ?? 0) + CALL_PAGE);
+            const current = this.shown.get(nodeId) ?? CALL_PAGE;
+            this.shown.set(nodeId, current + CALL_PAGE);
         }
         const graph = await this.buildVisible(seq);
         return graph ? { graph, seq } : undefined;
@@ -4020,87 +4003,6 @@ export class CallRelationModel {
         };
     }
 
-    /** Peek writes this node's own side. No side means it stays in +n more. */
-    private peekCached(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {
-        const cache = dir < 0 ? this.incoming : this.outgoing;
-        const index = relationIndex();
-        for (const key of this.cacheKeysFor(item)) {
-            if (!key) {
-                continue;
-            }
-            if (cache.has(key) || index.has(`side\0${dir}\0${key}`)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Find Relation shows every caller. An open center scan still pages by `shown`.
-     * Otherwise a caller is on screen when it has a peek cache, or it was revealed
-     * this session and the peek has not landed yet. The rest are +n more.
-     */
-    private pageKeysFor(
-        shownKey: string,
-        parentKey: string,
-        dir: -1 | 1,
-        unique: readonly vscode.CallHierarchyItem[]
-    ): Set<string> {
-        if (this.incomingListAll) {
-            return new Set(unique.map(child => itemKey(child)));
-        }
-        if (dir < 0 && this.incomingOpen.has(parentKey)) {
-            const limit = this.shown.get(shownKey) ?? CALL_PAGE;
-            const page = new Set(unique.slice(0, limit).map(child => itemKey(child)));
-            let revealed = this.revealedKeys.get(shownKey);
-            if (!revealed) {
-                revealed = new Set();
-                this.revealedKeys.set(shownKey, revealed);
-            }
-            for (const key of page) {
-                revealed.add(key);
-            }
-            return page;
-        }
-        const peeked = new Set<string>();
-        for (const child of unique) {
-            if (this.peekCached(child, dir)) {
-                peeked.add(itemKey(child));
-            }
-        }
-        let revealed = this.revealedKeys.get(shownKey);
-        if (!revealed) {
-            revealed = new Set();
-            this.revealedKeys.set(shownKey, revealed);
-            if (peeked.size === 0) {
-                for (const child of unique.slice(0, CALL_PAGE)) {
-                    revealed.add(itemKey(child));
-                }
-            }
-        }
-        const pending = this.pendingReveal.get(shownKey) ?? 0;
-        if (pending > 0) {
-            let left = pending;
-            for (const child of unique) {
-                const k = itemKey(child);
-                if (peeked.has(k) || revealed.has(k)) {
-                    continue;
-                }
-                revealed.add(k);
-                left--;
-                if (left <= 0) {
-                    break;
-                }
-            }
-            this.pendingReveal.delete(shownKey);
-        }
-        const page = new Set<string>(peeked);
-        for (const key of revealed) {
-            page.add(key);
-        }
-        return page;
-    }
-
     private addSide(
         nodes: RelationNode[],
         edges: RelationEdge[],
@@ -4142,7 +4044,8 @@ export class CallRelationModel {
         } else {
             unique.sort((a, b) => this.compareChildren(parent.itemKey, dir, a, b));
         }
-        const pageKeys = this.pageKeysFor(shownKey, parent.itemKey, dir, unique);
+        const limit = this.shown.get(shownKey) ?? CALL_PAGE;
+        const pageKeys = new Set(unique.slice(0, limit).map(child => itemKey(child)));
         const visibleKeys = new Set(pageKeys);
         for (const child of unique) {
             const k = itemKey(child);
