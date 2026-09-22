@@ -435,7 +435,7 @@ function isParentOrDeclIncomingLine(text: string, ident: string): boolean {
  * `recv.foo()`; the whole line must not decide for every range on it.
  * Bare `foo(` stays a this-dispatch, matching the previous line heuristic.
  */
-function incomingUseAt(text: string, ident: string, column: number): 'drop' | 'this' | 'external' {
+function incomingUseAt(text: string, ident: string, column: number): 'drop' | 'this' | 'external' | 'super' {
     if (!ident) {
         return 'drop';
     }
@@ -461,7 +461,7 @@ function incomingUseAt(text: string, ident: string, column: number): 'drop' | 't
     }
     const before = text.slice(0, at);
     if (/(?:\bsuper|\bbase)\s*\.\s*$/.test(before) || /::\s*$/.test(before)) {
-        return 'drop';
+        return 'super';
     }
     if (/\bthis\s*(?:\.|->)\s*$/.test(before)) {
         return 'this';
@@ -476,6 +476,189 @@ function incomingUseAt(text: string, ident: string, column: number): 'drop' | 't
         }
     }
     return 'this';
+}
+
+/** `Foo.prototype.dispose()` / `_super.prototype.dispose.call(this)` — a super call, not a virtual receiver. */
+function isPrototypeSuperCall(text: string, ident: string, column: number): boolean {
+    if (!ident) {
+        return false;
+    }
+    const re = new RegExp(`\\b${escapeRegExp(ident)}\\b`, 'g');
+    let match: RegExpExecArray | null;
+    let at: number | undefined;
+    while ((match = re.exec(text))) {
+        const start = match.index;
+        const end = start + match[0].length;
+        if (column >= start && column <= end) {
+            at = start;
+            break;
+        }
+        if (at === undefined || Math.abs(start - column) < Math.abs(at - column)) {
+            at = start;
+        }
+    }
+    if (at === undefined) {
+        return false;
+    }
+    if (!/\bprototype\s*\.\s*$/.test(text.slice(0, at))) {
+        return false;
+    }
+    const after = text.slice(at + ident.length);
+    return /^\s*(?:\(\s*\)|\.\s*(?:call|apply)\b)/.test(after);
+}
+
+/** Text and query columns of `recv` in `recv.ident(`. Columns sit on identifiers, not on an index. */
+function readReceiver(
+    text: string,
+    identStart: number
+): { expr: string; column: number; queries: number[] } | undefined {
+    let i = identStart - 1;
+    while (i >= 0 && /\s/.test(text[i])) {
+        i--;
+    }
+    if (i >= 1 && text[i] === '>' && text[i - 1] === '-') {
+        i -= 2;
+    } else if (i >= 0 && text[i] === '.') {
+        i -= text[i - 1] === '?' ? 2 : 1;
+    } else {
+        return undefined;
+    }
+    while (i >= 0 && /\s/.test(text[i])) {
+        i--;
+    }
+    if (i < 0) {
+        return undefined;
+    }
+    const end = i;
+    const queries = receiverQueryColumns(text, end);
+    let depth = 0;
+    let start = i;
+    while (start >= 0) {
+        const ch = text[start];
+        if (ch === ')' || ch === ']' || ch === '}') {
+            depth++;
+            start--;
+            continue;
+        }
+        if (ch === '(' || ch === '[' || ch === '{') {
+            if (depth === 0) {
+                break;
+            }
+            depth--;
+            start--;
+            continue;
+        }
+        if (depth > 0) {
+            start--;
+            continue;
+        }
+        if (/[\w$]/.test(ch) || ch === '.' || ch === '?') {
+            start--;
+            continue;
+        }
+        if (ch === '>' && start >= 1 && text[start - 1] === '-') {
+            start -= 2;
+            continue;
+        }
+        break;
+    }
+    const expr = text.slice(start + 1, end + 1).trim();
+    if (!expr) {
+        return undefined;
+    }
+    return { expr, column: queries[0] ?? end, queries };
+}
+
+const TYPE_NAME_NOISE = new Set([
+    'readonly', 'typeof', 'keyof', 'unique', 'import', 'null', 'undefined', 'void',
+    'any', 'unknown', 'never', 'object', 'string', 'number', 'boolean', 'bigint',
+    'symbol', 'Array', 'ReadonlyArray', 'Set', 'ReadonlySet', 'Promise', 'Map'
+]);
+
+/** Type names written after the last `:` in a hover, one per union member. */
+function declaredTypeNames(hover: string): string[] {
+    const stripped = (hover || '').replace(/```(?:\w+)?/g, '');
+    const line = stripped.split(/\r?\n/).map(part => part.trim()).find(part => /:\s*[A-Za-z_$]/.test(part));
+    if (!line) {
+        return [];
+    }
+    const expr = line.slice(line.lastIndexOf(':') + 1).replace(/[=;].*$/, '').trim();
+    const names: string[] = [];
+    for (const part of expr.split('|')) {
+        const idents = part.match(/[A-Za-z_$][\w$]*/g) || [];
+        const kept = idents.filter(name => !TYPE_NAME_NOISE.has(name));
+        const name = kept[kept.length - 1];
+        if (name && !names.includes(name)) {
+            names.push(name);
+        }
+    }
+    return names;
+}
+
+/** Positions to ask for the receiver type. `list[i]` asks about `list`, not the index. */
+function receiverQueryColumns(text: string, end: number): number[] {
+    let cursor = end;
+    while (cursor >= 0 && /\s/.test(text[cursor])) {
+        cursor--;
+    }
+    if (cursor >= 0 && text[cursor] === ']') {
+        let depth = 0;
+        for (let j = cursor; j >= 0; j--) {
+            if (text[j] === ']') {
+                depth++;
+            } else if (text[j] === '[') {
+                depth--;
+                if (depth === 0) {
+                    return receiverQueryColumns(text, j - 1);
+                }
+            }
+        }
+    }
+    let i = cursor;
+    while (i >= 0 && !/[\w$]/.test(text[i])) {
+        i--;
+    }
+    if (i < 0) {
+        return [Math.max(0, end)];
+    }
+    const last = identStartEndingAt(text, i);
+    const cols = [last];
+    let j = last - 1;
+    while (j >= 0 && /\s/.test(text[j])) {
+        j--;
+    }
+    if (j >= 0 && text[j] === '.') {
+        j -= j >= 1 && text[j - 1] === '?' ? 2 : 1;
+        while (j >= 0 && /\s/.test(text[j])) {
+            j--;
+        }
+        if (j >= 0 && /[\w$]/.test(text[j])) {
+            const qual = identStartEndingAt(text, j);
+            const name = text.slice(qual, j + 1);
+            if (/^[A-Z]/.test(name) && name !== 'Instance') {
+                cols.push(qual);
+            }
+        }
+    }
+    return cols;
+}
+
+function identStartEndingAt(text: string, end: number): number {
+    let i = end;
+    while (i >= 0 && /[\w$]/.test(text[i])) {
+        i--;
+    }
+    return i + 1;
+}
+
+/** Type definition landed on the type's name, not on a member inside that type. */
+function definitionNamesType(loc: vscode.Location, symbol: FlatSymbol): boolean {
+    const sel = symbol.selectionRange ?? symbol.range;
+    if (rangeContains(sel, loc.range.start)) {
+        return true;
+    }
+    const span = loc.range.end.line - loc.range.start.line;
+    return span <= 2 && rangeContains(loc.range, sel.start);
 }
 
 function keepNonParentIncomingRanges(
@@ -877,7 +1060,11 @@ type CenterIncomingScan = {
     refGroups: Map<string, { item: vscode.CallHierarchyItem; sites: vscode.Range[] }>;
     slots: { uri: vscode.Uri; method: FlatSymbol }[];
     familyKeys: Map<string, number>;
-    heritageShare: Map<string, boolean>;
+    heritageShare: Map<string, 'subtype' | 'sibling' | 'unrelated'>;
+    /** file+line+receiver expression → whether that static type can call this slot. */
+    receiverReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>;
+    /** typeRefKey, or `name\0TypeName`, → same verdict. */
+    typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>;
     rootName: string;
 };
 
@@ -3576,10 +3763,13 @@ export class CallRelationModel {
 
     /**
      * Override incoming is empty for virtual dispatch. Search same-named slots
-     * on this type's ancestor chain. Keep external `action.xxx()` receivers and
-     * nearest on-chain `this.xxx()`; drop sibling-hierarchy `this.xxx()`,
-     * declarations, and super calls. Heritage classify is only for this-dispatch
-     * lines; other `recv.xxx()` is external without walking the caller's types.
+     * on this type's ancestor chain. A `this`/`self` call stays when its class
+     * is on that chain (nearest depth) or is a subtype of the center. `super`
+     * stays when the enclosing class is on that chain or is a subtype of the center.
+     * `recv.ident()` stays when the receiver's static type is on the chain
+     * (including an interface the chain implements) or is a subtype of the
+     * center. A resolved type on another chain is dropped. An unresolved type
+     * stays. Sibling `this` calls are dropped.
      * Center scans stop once the first page is full or INCOMING_BUDGET_MS elapses.
      */
     private async mergeOverrideIncoming(
@@ -3649,7 +3839,7 @@ export class CallRelationModel {
         }
         costLog('incoming merge refs', Date.now() - tRefs, `${itemLabel(item)} locs=${locations.length} slots=${slots.length}`);
         const familyKeys = new Map(family.map(a => [typeRefKey(a.uri, a.symbol), a.depth]));
-        const heritageShare = new Map<string, boolean>();
+        const heritageShare = new Map<string, 'subtype' | 'sibling' | 'unrelated'>();
         const groups = new Map<string, {
             item: vscode.CallHierarchyItem;
             sites: vscode.Range[];
@@ -3694,6 +3884,7 @@ export class CallRelationModel {
         let lineHits = 0;
         let thisHits = 0;
         let extFast = 0;
+        let extDrop = 0;
         type MergeHit = {
             caller: vscode.CallHierarchyItem;
             range: vscode.Range;
@@ -3755,6 +3946,53 @@ export class CallRelationModel {
                 if (use === 'drop') {
                     return;
                 }
+                const superCall = use === 'super' || isPrototypeSuperCall(lineText, ident, loc.range.start.character);
+                if (superCall) {
+                    const enc = await enclosingCallable(loc.uri, loc.range.start.line, ident);
+                    if (!enc) {
+                        return;
+                    }
+                    const owner = await this.containingTypeAt(enc.uri ?? loc.uri, enc.selectionRange.start);
+                    if (!owner) {
+                        extDrop++;
+                        return;
+                    }
+                    const reach = await this.typeReachesFamily(owner, familyKeys, scan.typeReach);
+                    if (reach !== 'yes') {
+                        extDrop++;
+                        return;
+                    }
+                    lineHits++;
+                    const caller = await this.prepareFromEnclosing(enc, loc.uri);
+                    if (!caller) {
+                        return;
+                    }
+                    const fromKey = itemKey(caller);
+                    if (fromKey === key || identFromToken(caller.name) === ident) {
+                        return;
+                    }
+                    hits.push({
+                        caller,
+                        range: loc.range,
+                        depth: 0,
+                        external: true
+                    });
+                    return;
+                }
+                if (use === 'external') {
+                    const reach = await this.receiverReachesFamily(
+                        scan,
+                        loc.uri,
+                        loc.range.start.line,
+                        lineText,
+                        loc.range.start.character,
+                        familyKeys
+                    );
+                    if (reach === 'no') {
+                        extDrop++;
+                        return;
+                    }
+                }
                 lineHits++;
                 const enc = await enclosingCallable(loc.uri, loc.range.start.line, ident);
                 if (!enc) {
@@ -3774,7 +4012,8 @@ export class CallRelationModel {
                 } else {
                     extFast++;
                 }
-                if (kind === 'sibling') {
+                if (kind === 'sibling' || kind === 'unrelated') {
+                    extDrop++;
                     return;
                 }
                 const caller = await this.prepareFromEnclosing(enc, loc.uri);
@@ -3789,7 +4028,7 @@ export class CallRelationModel {
                     caller,
                     range: loc.range,
                     depth: kind.depth,
-                    external: kind.kind === 'external'
+                    external: kind.kind === 'external' || kind.kind === 'subtype'
                 });
             }));
             for (const hit of hits) {
@@ -3830,7 +4069,7 @@ export class CallRelationModel {
             costLog(
                 'incoming merge classify',
                 Date.now() - tClassify,
-                `${itemLabel(item)} groups=${groups.size} dropped locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast}`
+                `${itemLabel(item)} groups=${groups.size} dropped locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast} extDrop=${extDrop}`
             );
             return false;
         }
@@ -3838,7 +4077,7 @@ export class CallRelationModel {
         costLog(
             'incoming merge classify',
             Date.now() - tClassify,
-            `${itemLabel(item)} groups=${groups.size} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast}`
+            `${itemLabel(item)} groups=${groups.size} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast} extDrop=${extDrop}`
         );
         costLog('incoming merge total', Date.now() - t0, `${itemLabel(item)} added=${items.length} groups=${groups.size}`);
         return false;
@@ -3953,7 +4192,7 @@ export class CallRelationModel {
         groups: Map<string, MergeGroup>,
         slots: { uri: vscode.Uri; method: FlatSymbol }[],
         familyKeys: Map<string, number>,
-        heritageShare: Map<string, boolean>
+        heritageShare: Map<string, 'subtype' | 'sibling' | 'unrelated'>
     ): CenterIncomingScan {
         return {
             key,
@@ -3975,6 +4214,8 @@ export class CallRelationModel {
             slots,
             familyKeys,
             heritageShare,
+            receiverReach: new Map(),
+            typeReach: new Map(),
             rootName: ''
         };
     }
@@ -4037,6 +4278,8 @@ export class CallRelationModel {
             slots: [],
             familyKeys: new Map(),
             heritageShare: new Map(),
+            receiverReach: new Map(),
+            typeReach: new Map(),
             rootName: ''
         };
     }
@@ -4322,32 +4565,323 @@ export class CallRelationModel {
         }
     }
 
+    /**
+     * `recv.ident()` stays only when a resolved static type can dispatch to this
+     * slot: the type is the center type, an ancestor, an implemented interface
+     * already on that chain, or a subtype of the center type. A resolved type
+     * on another chain is dropped. No type, `any`, or a union we cannot split
+     * stays.
+     */
+    private receiverReachesFamily(
+        scan: CenterIncomingScan,
+        uri: vscode.Uri,
+        line: number,
+        text: string,
+        identColumn: number,
+        familyKeys: Map<string, number>
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        const receiver = readReceiver(text, identColumn);
+        if (!receiver) {
+            return Promise.resolve('unknown');
+        }
+        const cacheKey = `${uri.toString()}\0${line}\0${receiver.expr}`;
+        let pending = scan.receiverReach.get(cacheKey);
+        if (!pending) {
+            pending = this.resolveReceiverReach(uri, line, receiver.queries, familyKeys, scan.typeReach);
+            scan.receiverReach.set(cacheKey, pending);
+        }
+        return pending;
+    }
+
+    private async resolveReceiverReach(
+        uri: vscode.Uri,
+        line: number,
+        columns: number[],
+        familyKeys: Map<string, number>,
+        typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        let types: { uri: vscode.Uri; symbol: FlatSymbol }[] = [];
+        for (const column of columns) {
+            try {
+                types = await this.typeDefinitionsAt(uri, new vscode.Position(line, column));
+            } catch {
+                continue;
+            }
+            if (types.length) {
+                break;
+            }
+        }
+        const fromDefs = await this.judgeReceiverTypes(types, familyKeys, typeReach);
+        if (fromDefs !== 'unknown') {
+            return fromDefs;
+        }
+        const names = await this.hoverTypeNames(uri, new vscode.Position(line, columns[0] ?? 0));
+        if (!names.length) {
+            return 'unknown';
+        }
+        let unresolved = false;
+        for (const name of names) {
+            const verdict = await this.typeNameReachesFamily(name, familyKeys, typeReach);
+            if (verdict === 'yes') {
+                return 'yes';
+            }
+            if (verdict === 'unknown') {
+                unresolved = true;
+            }
+        }
+        return unresolved ? 'unknown' : 'no';
+    }
+
+    private async judgeReceiverTypes(
+        types: { uri: vscode.Uri; symbol: FlatSymbol }[],
+        familyKeys: Map<string, number>,
+        typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        if (!types.length) {
+            return 'unknown';
+        }
+        let anyUnknown = false;
+        for (const type of types) {
+            if (type.symbol.name === 'any' || type.symbol.name === 'unknown') {
+                anyUnknown = true;
+                continue;
+            }
+            const verdict = await this.typeReachesFamily(type, familyKeys, typeReach);
+            if (verdict === 'yes') {
+                return 'yes';
+            }
+            if (verdict === 'unknown') {
+                anyUnknown = true;
+            }
+        }
+        return anyUnknown ? 'unknown' : 'no';
+    }
+
+    private async hoverTypeNames(uri: vscode.Uri, position: vscode.Position): Promise<string[]> {
+        try {
+            const hovers = await vscode.commands.executeCommand('vscode.executeHoverProvider', uri, position);
+            return declaredTypeNames(hoverPlain(hovers));
+        } catch {
+            return [];
+        }
+    }
+
+    /** A declared type name: on the chain by name, otherwise the symbol's own bases. */
+    private typeNameReachesFamily(
+        name: string,
+        familyKeys: Map<string, number>,
+        typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        if (this.familyDepthByName(familyKeys, name) !== undefined) {
+            return Promise.resolve('yes');
+        }
+        const cacheKey = `name\0${name}`;
+        let pending = typeReach.get(cacheKey);
+        if (!pending) {
+            pending = this.resolveTypeNameReach(name, familyKeys, typeReach);
+            typeReach.set(cacheKey, pending);
+        }
+        return pending;
+    }
+
+    private async resolveTypeNameReach(
+        name: string,
+        familyKeys: Map<string, number>,
+        typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        let symbols: vscode.SymbolInformation[] | undefined;
+        try {
+            symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+                'vscode.executeWorkspaceSymbolProvider',
+                name
+            );
+        } catch {
+            return 'unknown';
+        }
+        const hits = (symbols || []).filter(sym => (
+            sym.name === name
+            && !!sym.location
+            && TYPE_CONTAINER_KINDS.has(sym.kind)
+            && !isLibPath(sym.location.uri.fsPath)
+        )).slice(0, 8);
+        if (!hits.length) {
+            return 'unknown';
+        }
+        let unresolved = false;
+        for (const sym of hits) {
+            const hit = await this.containingTypeAt(sym.location.uri, sym.location.range.start);
+            if (!hit) {
+                unresolved = true;
+                continue;
+            }
+            const verdict = await this.typeReachesFamily(hit, familyKeys, typeReach);
+            if (verdict === 'yes') {
+                return 'yes';
+            }
+            if (verdict === 'unknown') {
+                unresolved = true;
+            }
+        }
+        return unresolved ? 'unknown' : 'no';
+    }
+
+    private typeReachesFamily(
+        type: { uri: vscode.Uri; symbol: FlatSymbol },
+        familyKeys: Map<string, number>,
+        typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        const key = typeRefKey(type.uri, type.symbol);
+        let pending = typeReach.get(key);
+        if (!pending) {
+            pending = this.resolveTypeReach(type, familyKeys);
+            typeReach.set(key, pending);
+        }
+        return pending;
+    }
+
+    private async resolveTypeReach(
+        type: { uri: vscode.Uri; symbol: FlatSymbol },
+        familyKeys: Map<string, number>
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        if (this.familyDepth(familyKeys, type.uri, type.symbol) !== undefined) {
+            return 'yes';
+        }
+        const hasCenter = [...familyKeys.values()].some(depth => depth === 0);
+        if (!hasCenter) {
+            return 'unknown';
+        }
+        try {
+            const bases = await this.collectAncestorTypesFrom({
+                uri: type.uri,
+                symbol: type.symbol,
+                depth: 0
+            });
+            return bases.some(base => this.familyDepth(familyKeys, base.uri, base.symbol) === 0) ? 'yes' : 'no';
+        } catch {
+            return 'unknown';
+        }
+    }
+
+    /** Exact symbol, or the same file and type name when the selection position differs. */
+    private familyDepth(
+        familyKeys: Map<string, number>,
+        uri: vscode.Uri,
+        symbol: FlatSymbol
+    ): number | undefined {
+        const exact = familyKeys.get(typeRefKey(uri, symbol));
+        if (exact !== undefined) {
+            return exact;
+        }
+        const wantName = symbol.name;
+        const wantPath = uri.fsPath.replace(/\\/g, '/').toLowerCase();
+        for (const [key, depth] of familyKeys) {
+            const split = key.indexOf('\0');
+            const nameAt = split < 0 ? -1 : key.indexOf('\0', split + 1);
+            if (nameAt < 0) {
+                continue;
+            }
+            if (key.slice(split + 1, nameAt) !== wantName) {
+                continue;
+            }
+            let keyPath = key.slice(0, split);
+            try {
+                keyPath = vscode.Uri.parse(keyPath).fsPath.replace(/\\/g, '/').toLowerCase();
+            } catch {
+                // keep the raw key text
+            }
+            if (keyPath === wantPath) {
+                return depth;
+            }
+        }
+        return undefined;
+    }
+
+    private familyDepthByName(familyKeys: Map<string, number>, name: string): number | undefined {
+        for (const [key, depth] of familyKeys) {
+            const split = key.indexOf('\0');
+            const nameAt = split < 0 ? -1 : key.indexOf('\0', split + 1);
+            if (nameAt >= 0 && key.slice(split + 1, nameAt) === name) {
+                return depth;
+            }
+        }
+        return undefined;
+    }
+
+    private async typeDefinitionsAt(
+        uri: vscode.Uri,
+        position: vscode.Position
+    ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
+        let defs: unknown;
+        try {
+            defs = await vscode.commands.executeCommand(
+                'vscode.executeTypeDefinitionProvider',
+                uri,
+                position
+            );
+        } catch {
+            return [];
+        }
+        const out: { uri: vscode.Uri; symbol: FlatSymbol }[] = [];
+        const seen = new Set<string>();
+        for (const raw of Array.isArray(defs) ? defs : []) {
+            const loc = this.asLocation(raw);
+            if (!loc) {
+                continue;
+            }
+            const hit = await this.containingTypeAt(loc.uri, loc.range.start);
+            if (!hit || !definitionNamesType(loc, hit.symbol)) {
+                continue;
+            }
+            const key = typeRefKey(hit.uri, hit.symbol);
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+            out.push(hit);
+        }
+        return out;
+    }
+
     private async classifyOverrideCaller(
         enc: { uri?: vscode.Uri; selectionRange: vscode.Range },
         locUri: vscode.Uri,
         familyKeys: Map<string, number>,
-        heritageShare: Map<string, boolean>
-    ): Promise<'sibling' | { kind: 'chain' | 'external'; depth: number }> {
+        heritageShare: Map<string, 'subtype' | 'sibling' | 'unrelated'>
+    ): Promise<'sibling' | 'unrelated' | { kind: 'chain' | 'external' | 'subtype'; depth: number }> {
         const owner = await this.containingTypeAt(enc.uri ?? locUri, enc.selectionRange.start);
         if (!owner) {
             return { kind: 'external', depth: 0 };
         }
         const ownerKey = typeRefKey(owner.uri, owner.symbol);
-        const onChain = familyKeys.get(ownerKey);
+        const onChain = this.familyDepth(familyKeys, owner.uri, owner.symbol);
         if (onChain !== undefined) {
             return { kind: 'chain', depth: onChain };
         }
-        let shares = heritageShare.get(ownerKey);
-        if (shares === undefined) {
+        let verdict = heritageShare.get(ownerKey);
+        if (!verdict) {
             const bases = await this.collectAncestorTypesFrom({
                 uri: owner.uri,
                 symbol: owner.symbol,
                 depth: 0
             });
-            shares = bases.some(base => familyKeys.has(typeRefKey(base.uri, base.symbol)));
-            heritageShare.set(ownerKey, shares);
+            let subtype = false;
+            let shares = false;
+            for (const base of bases) {
+                const depth = this.familyDepth(familyKeys, base.uri, base.symbol);
+                if (depth === 0) {
+                    subtype = true;
+                }
+                if (depth !== undefined) {
+                    shares = true;
+                }
+            }
+            verdict = subtype ? 'subtype' : shares ? 'sibling' : 'unrelated';
+            heritageShare.set(ownerKey, verdict);
         }
-        return shares ? 'sibling' : { kind: 'external', depth: 0 };
+        if (verdict === 'subtype') {
+            return { kind: 'subtype', depth: 0 };
+        }
+        return verdict;
     }
 
     private async collectAncestorTypesFrom(start: TypeRef): Promise<TypeRef[]> {
