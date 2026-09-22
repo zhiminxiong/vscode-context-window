@@ -904,6 +904,8 @@ interface SerSide {
     callers: SerItem[];
     sites: Record<string, RelationOpenTarget[]>;
     superCallers?: SerItem[];
+    /** itemKey → containing type. Present only after that pass has been stored with the side. */
+    owners?: Record<string, SerOwner>;
 }
 
 /** Incomplete incoming page. The caller list is not final; `locIndex` is where to resume. */
@@ -1027,6 +1029,20 @@ function ownerIndexId(uri: vscode.Uri, position: vscode.Position): string {
     return `owner\0${uri.toString()}\0${position.line}\0${position.character}`;
 }
 
+function ownerDepUris(owner: SerOwner): string[] {
+    const uris: string[] = [];
+    if (owner.uri) {
+        uris.push(owner.uri);
+    }
+    for (const key of owner.ancestorKeys) {
+        const uri = key.split('\0')[0];
+        if (uri) {
+            uris.push(uri);
+        }
+    }
+    return uris;
+}
+
 function isSerSide(raw: unknown): raw is SerSide {
     return !!raw && typeof raw === 'object' && Array.isArray((raw as SerSide).callers);
 }
@@ -1107,9 +1123,9 @@ function resultCount(value: unknown): number {
 /** One document-symbol query per file while several callers resolve together. */
 const documentSymbolInflight = new Map<string, Promise<FlatSymbol[] | undefined>>();
 
-const RELATION_COST = true;
+const RELATION_COST = false;
 /** Peek vs focus cache log. Output: Context View Relation. */
-const RELATION_PEEK = true;
+const RELATION_PEEK = false;
 let relationCost = RELATION_COST;
 let relationPeek = RELATION_PEEK;
 let relationCostChannel: vscode.OutputChannel | undefined;
@@ -1345,6 +1361,12 @@ export class CallRelationModel {
     private readonly incomingScan = new Map<string, CenterIncomingScan>();
     /** Keys whose incoming more-button must stay "?" until the scan finishes. */
     private readonly incomingOpen = new Set<string>();
+    /** Sides restored from the index this session. Those lists are already fetched. */
+    private readonly sideFromIndex = new Set<string>();
+    /** Callers kept on screen this session before their peek cache exists. */
+    private readonly revealedKeys = new Map<string, Set<string>>();
+    /** +more clicks waiting to pull the next un-peeked page onto the screen. */
+    private readonly pendingReveal = new Map<string, number>();
     /** Resume cursor for an indexed partial page whose scan object is not in this session. */
     private readonly partialMeta = new Map<string, { phase: SerPartial['phase']; locIndex: number; callIndex: number }>();
     /** Frozen caller order for a scan that already painted a page. */
@@ -1447,6 +1469,9 @@ export class CallRelationModel {
         this.outgoingAt.clear();
         this.incomingScan.clear();
         this.incomingOpen.clear();
+        this.sideFromIndex.clear();
+        this.revealedKeys.clear();
+        this.pendingReveal.clear();
         this.partialMeta.clear();
         this.incomingOrder.clear();
         this.incomingResume.clear();
@@ -1748,19 +1773,13 @@ export class CallRelationModel {
         }
         const uriStr = item.uri.toString();
         const flat = await this.documentSymbols(item.uri);
-        if (!flat) {
-            return;
-        }
         if (stat) {
             stat.fresh++;
         }
-        const symbol = pickContainingType(flat, position);
+        const symbol = flat ? pickContainingType(flat, position) : undefined;
         if (!symbol) {
-            if (!flat.length) {
-                if (stat) {
-                    stat.empty++;
-                }
-                return;
+            if (flat && !flat.length && stat) {
+                stat.empty++;
             }
             const none: SerOwner = { key: '', uri: '', name: '', ancestorKeys: [], none: true };
             this.ownerKeyByItem.set(key, none);
@@ -1830,6 +1849,9 @@ export class CallRelationModel {
         this.centerSnaps.clear();
         this.incomingScan.clear();
         this.incomingOpen.clear();
+        this.sideFromIndex.clear();
+        this.revealedKeys.clear();
+        this.pendingReveal.clear();
         this.partialMeta.clear();
         this.incomingOrder.clear();
     }
@@ -1873,8 +1895,8 @@ export class CallRelationModel {
     }
 
     /**
-     * Same prepare pick as focusNode, then only the side that node would expand:
-     * hop &lt; 0 (left) → incoming, hop &gt; 0 (right) → outgoing.
+     * One side of a neighbor. A cached side restores callers and owners without
+     * prepareCallHierarchy; a miss prepares inside the fetch.
      */
     private async peekNeighborSide(
         item: vscode.CallHierarchyItem,
@@ -1882,19 +1904,13 @@ export class CallRelationModel {
         graphKey: string,
         seq: number
     ): Promise<void> {
-        const sel = await this.nameTokenPosition(item.uri, item.range, item.selectionRange, item.name);
-        const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
-            'vscode.prepareCallHierarchy',
-            item.uri,
-            sel
-        );
-        const subject = this.bindPrepared(item, prepared);
         if (dir < 0) {
-            await this.ensureIncoming(subject, seq);
+            await this.ensureIncoming(item, seq);
         } else {
-            await this.ensureOutgoing(subject, seq);
+            await this.ensureOutgoing(item, seq);
         }
         const cache = dir < 0 ? this.incoming : this.outgoing;
+        const subject = this.items.get(itemKey(item)) || item;
         const subjectKey = itemKey(subject);
         this.shareSide(cache, subjectKey, itemKey(item));
         this.shareSide(cache, subjectKey, graphKey);
@@ -2085,6 +2101,13 @@ export class CallRelationModel {
                 this.superOutgoing.set(parentKey, body.superCallers.map(raw => this.itemFromSer(raw)));
             }
         }
+        if (dir < 0 && body.owners) {
+            for (const [ownerKey, owner] of Object.entries(body.owners)) {
+                if (owner && Array.isArray(owner.ancestorKeys)) {
+                    this.ownerKeyByItem.set(ownerKey, owner);
+                }
+            }
+        }
     }
 
     private captureSide(
@@ -2140,6 +2163,22 @@ export class CallRelationModel {
         if (superCallers?.length) {
             body.superCallers = superCallers;
         }
+        if (dir < 0) {
+            const owners: Record<string, SerOwner> = {};
+            for (const it of [parent, ...consider]) {
+                const owner = this.ownerKeyByItem.get(itemKey(it));
+                if (!owner) {
+                    continue;
+                }
+                owners[itemKey(it)] = owner;
+                for (const uri of ownerDepUris(owner)) {
+                    deps.add(uri);
+                }
+            }
+            if (Object.keys(owners).length) {
+                body.owners = owners;
+            }
+        }
         return { body, deps: [...deps] };
     }
 
@@ -2149,10 +2188,11 @@ export class CallRelationModel {
         parent: vscode.CallHierarchyItem,
         items: vscode.CallHierarchyItem[],
         extraDeps: readonly string[],
-        wave: number
+        wave: number,
+        live = false
     ): Promise<void> {
         const index = relationIndex();
-        if (index.waveNow() !== wave) {
+        if (!live && index.waveNow() !== wave) {
             return;
         }
         const captured = this.captureSide(dir, parentKeys, parent, items);
@@ -2166,13 +2206,25 @@ export class CallRelationModel {
         if (!keys.length) {
             return;
         }
+        if (live) {
+            for (const key of keys) {
+                for (const uri of index.depUris(`side\0${dir}\0${key}`)) {
+                    deps.add(uri);
+                }
+            }
+        }
         const canonical = `side\0${dir}\0${keys[0]}`;
         const depList = [...deps];
+        const write = (id: string, payload: unknown) => (
+            live
+                ? index.putLive(id, payload, depList)
+                : index.put(id, payload, depList, wave)
+        );
         for (const key of keys.slice(1)) {
-            await index.put(`side\0${dir}\0${key}`, { ref: canonical }, depList, wave);
+            await write(`side\0${dir}\0${key}`, { ref: canonical });
         }
-        await index.put(canonical, captured.body, depList, wave);
-        if (dir < 0 && index.waveNow() === wave) {
+        await write(canonical, captured.body);
+        if (dir < 0 && (live || index.waveNow() === wave)) {
             for (const key of keys) {
                 index.forget(`part\0-1\0${key}`);
             }
@@ -2221,6 +2273,11 @@ export class CallRelationModel {
             this.finishCompleteIncoming([...keys]);
         }
         this.applySide(keys, dir, body, gen);
+        for (const key of keys) {
+            if (key) {
+                this.sideFromIndex.add(key);
+            }
+        }
         return true;
     }
 
@@ -2273,6 +2330,7 @@ export class CallRelationModel {
                 continue;
             }
             this.incomingOpen.add(key);
+            this.sideFromIndex.add(key);
             this.incomingOrder.set(key, order);
             this.partialMeta.set(key, {
                 phase: body.phase,
@@ -3106,9 +3164,9 @@ export class CallRelationModel {
             }
             this.incomingResume.add(rootKey);
             try {
-                const limit = this.shown.get(nodeId) ?? CALL_PAGE;
                 const have = this.incoming.get(rootKey)?.length ?? scan.items.length;
-                const goal = limit + CALL_PAGE;
+                const displayed = this.shown.get(nodeId) ?? (this.sideFromIndex.has(rootKey) ? have : CALL_PAGE);
+                const goal = displayed + CALL_PAGE;
                 if (have < goal) {
                     await this.resumeIncomingScan(scan, seq, goal, have);
                 }
@@ -3121,8 +3179,7 @@ export class CallRelationModel {
                 this.incomingResume.delete(rootKey);
             }
         } else {
-            const current = this.shown.get(nodeId) ?? CALL_PAGE;
-            this.shown.set(nodeId, current + CALL_PAGE);
+            this.pendingReveal.set(nodeId, (this.pendingReveal.get(nodeId) ?? 0) + CALL_PAGE);
         }
         const graph = await this.buildVisible(seq);
         return graph ? { graph, seq } : undefined;
@@ -3963,6 +4020,87 @@ export class CallRelationModel {
         };
     }
 
+    /** Peek writes this node's own side. No side means it stays in +n more. */
+    private peekCached(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {
+        const cache = dir < 0 ? this.incoming : this.outgoing;
+        const index = relationIndex();
+        for (const key of this.cacheKeysFor(item)) {
+            if (!key) {
+                continue;
+            }
+            if (cache.has(key) || index.has(`side\0${dir}\0${key}`)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Find Relation shows every caller. An open center scan still pages by `shown`.
+     * Otherwise a caller is on screen when it has a peek cache, or it was revealed
+     * this session and the peek has not landed yet. The rest are +n more.
+     */
+    private pageKeysFor(
+        shownKey: string,
+        parentKey: string,
+        dir: -1 | 1,
+        unique: readonly vscode.CallHierarchyItem[]
+    ): Set<string> {
+        if (this.incomingListAll) {
+            return new Set(unique.map(child => itemKey(child)));
+        }
+        if (dir < 0 && this.incomingOpen.has(parentKey)) {
+            const limit = this.shown.get(shownKey) ?? CALL_PAGE;
+            const page = new Set(unique.slice(0, limit).map(child => itemKey(child)));
+            let revealed = this.revealedKeys.get(shownKey);
+            if (!revealed) {
+                revealed = new Set();
+                this.revealedKeys.set(shownKey, revealed);
+            }
+            for (const key of page) {
+                revealed.add(key);
+            }
+            return page;
+        }
+        const peeked = new Set<string>();
+        for (const child of unique) {
+            if (this.peekCached(child, dir)) {
+                peeked.add(itemKey(child));
+            }
+        }
+        let revealed = this.revealedKeys.get(shownKey);
+        if (!revealed) {
+            revealed = new Set();
+            this.revealedKeys.set(shownKey, revealed);
+            if (peeked.size === 0) {
+                for (const child of unique.slice(0, CALL_PAGE)) {
+                    revealed.add(itemKey(child));
+                }
+            }
+        }
+        const pending = this.pendingReveal.get(shownKey) ?? 0;
+        if (pending > 0) {
+            let left = pending;
+            for (const child of unique) {
+                const k = itemKey(child);
+                if (peeked.has(k) || revealed.has(k)) {
+                    continue;
+                }
+                revealed.add(k);
+                left--;
+                if (left <= 0) {
+                    break;
+                }
+            }
+            this.pendingReveal.delete(shownKey);
+        }
+        const page = new Set<string>(peeked);
+        for (const key of revealed) {
+            page.add(key);
+        }
+        return page;
+    }
+
     private addSide(
         nodes: RelationNode[],
         edges: RelationEdge[],
@@ -3987,7 +4125,6 @@ export class CallRelationModel {
             return;
         }
         const shownKey = `${parent.id}:${dir}`;
-        const limit = this.shown.get(shownKey) ?? CALL_PAGE;
         const seen = new Set<string>();
         const unique: vscode.CallHierarchyItem[] = [];
         for (const child of kids) {
@@ -4005,7 +4142,7 @@ export class CallRelationModel {
         } else {
             unique.sort((a, b) => this.compareChildren(parent.itemKey, dir, a, b));
         }
-        const pageKeys = new Set(unique.slice(0, limit).map(child => itemKey(child)));
+        const pageKeys = this.pageKeysFor(shownKey, parent.itemKey, dir, unique);
         const visibleKeys = new Set(pageKeys);
         for (const child of unique) {
             const k = itemKey(child);
@@ -4277,8 +4414,19 @@ export class CallRelationModel {
         if (!raw) {
             return;
         }
+        const group = [item, ...raw];
+        if (group.every(it => this.ownerKeyByItem.has(itemKey(it)))) {
+            return;
+        }
         await this.rememberOwner(item);
         await this.rememberOwners(raw);
+        if (!this.isCurrent(seq)) {
+            return;
+        }
+        if (this.cacheKeysFor(item).some(key => this.incomingOpen.has(key))) {
+            return;
+        }
+        await this.storeSide(-1, this.cacheKeysFor(item), item, raw, [], this.workspaceGen, true);
     }
 
     private async ensureOutgoing(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
@@ -6360,9 +6508,20 @@ export class CallRelationModel {
     private async fetchIncoming(item: vscode.CallHierarchyItem, key: string, _seq: number): Promise<void> {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
-        const rev = this.fileRev(item.uri);
         const gen = this.workspaceGen;
         const wave = relationIndex().waveNow();
+        if (await this.restoreSide([key], -1, gen, epoch)) {
+            const n = this.incoming.get(key)?.length ?? 0;
+            costLog('incoming index', Date.now() - t0, `${itemLabel(item)} n=${n} ${relationIndex().status()}`);
+            return;
+        }
+        const pagingEarly = !this.incomingListAll && this.isCenterItem(item);
+        if (pagingEarly && await this.restorePartialIncoming([key], gen, epoch)) {
+            const n = this.incoming.get(key)?.length ?? 0;
+            costLog('incoming partial index', Date.now() - t0, `${itemLabel(item)} n=${n} ${relationIndex().status()}`);
+            return;
+        }
+        const rev = this.fileRev(item.uri);
         const tResolve = Date.now();
         const subject = await this.resolveForHierarchy(item);
         costLog('incoming resolve', Date.now() - tResolve, itemLabel(item));
@@ -6446,9 +6605,14 @@ export class CallRelationModel {
     private async fetchOutgoing(item: vscode.CallHierarchyItem, key: string, _seq: number): Promise<void> {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
-        const rev = this.fileRev(item.uri);
         const gen = this.workspaceGen;
         const wave = relationIndex().waveNow();
+        if (await this.restoreSide([key], 1, gen, epoch)) {
+            const n = this.outgoing.get(key)?.length ?? 0;
+            costLog('outgoing index', Date.now() - t0, `${itemLabel(item)} n=${n} ${relationIndex().status()}`);
+            return;
+        }
+        const rev = this.fileRev(item.uri);
         const tResolve = Date.now();
         const subject = await this.resolveForHierarchy(item);
         costLog('outgoing resolve', Date.now() - tResolve, itemLabel(item));

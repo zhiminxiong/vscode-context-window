@@ -1060,11 +1060,19 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const startChar = range.start.character - 1;
         const endLine = range.end.line - 1;
         let endChar = range.end.character - 1;
-        // 点位置 range 是零宽，前端不会画符号高亮。有 token 时扩到该标识符。
+        // 点位置 range 是零宽，前端不会画符号高亮。光标处确实是这个标识符时才扩选。
         const tokenName = (token || '').trim();
         if (tokenName && startLine === endLine && startChar === endChar) {
             const ident = tokenName.replace(/\(.*\)$/, '').split(/::|\./).pop() || tokenName;
-            endChar = startChar + ident.length;
+            try {
+                const doc = await vscode.workspace.openTextDocument(targetUri);
+                const text = startLine < doc.lineCount ? doc.lineAt(startLine).text : '';
+                if (text.startsWith(ident, startChar)) {
+                    endChar = startChar + ident.length;
+                }
+            } catch {
+                // 对不上就不选，避免把行首的 import 切成 im。
+            }
         }
 
         const definition = new vscode.Location(
