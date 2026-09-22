@@ -5,6 +5,8 @@ import { enclosingCallable, isAnonymousSymbolName, isCallablePropertyKind, isRef
 export type ChildSort = 'name' | 'order';
 
 export const CALL_PAGE = 12;
+/** Center incoming scan paints what it has once this elapses. */
+const INCOMING_BUDGET_MS = 30_000;
 export const CALL_MAX_HOP = 32;
 /** Each Expand All adds at most this many nodes; run again to continue. */
 const CALL_EXPAND_ALL_NODES = 40;
@@ -45,6 +47,8 @@ export interface RelationNode {
     parentId?: string;
     kind: RelationNodeKind;
     moreCount?: number;
+    /** Scan stopped early; more button is "?" and a click continues it. */
+    moreUnknown?: boolean;
     expandable?: boolean;
     /** |hop| reached CALL_MAX_HOP; webview shows a red × instead of +/-. */
     hopCapped?: boolean;
@@ -839,6 +843,44 @@ function toSymbolNode(
     };
 }
 
+interface IncomingBudget {
+    seq: number;
+    deadline: number;
+    goal: number;
+    baseline: number;
+}
+
+interface MergeGroup {
+    item: vscode.CallHierarchyItem;
+    sites: vscode.Range[];
+    depth: number;
+    external: boolean;
+}
+
+type CenterIncomingScan = {
+    key: string;
+    resolvedKey: string;
+    gen: number;
+    epoch: number;
+    rev: number;
+    ident: string;
+    subject: vscode.CallHierarchyItem;
+    items: vscode.CallHierarchyItem[];
+    seen: Set<string>;
+    lineCache: Map<string, Promise<string[] | undefined>>;
+    phase: 'calls' | 'merge-setup' | 'merge' | 'refs';
+    calls?: vscode.CallHierarchyIncomingCall[];
+    callIndex: number;
+    locations: vscode.Location[];
+    locIndex: number;
+    groups: Map<string, MergeGroup>;
+    refGroups: Map<string, { item: vscode.CallHierarchyItem; sites: vscode.Range[] }>;
+    slots: { uri: vscode.Uri; method: FlatSymbol }[];
+    familyKeys: Map<string, number>;
+    heritageShare: Map<string, boolean>;
+    rootName: string;
+};
+
 export class CallRelationModel {
     private readonly items = new Map<string, vscode.CallHierarchyItem>();
     /** Keys whose CallHierarchyItem came from prepareCallHierarchy (has LSP data). */
@@ -894,6 +936,14 @@ export class CallRelationModel {
     private workspaceGen = 0;
     private readonly incomingAt = new Map<string, number>();
     private readonly outgoingAt = new Map<string, number>();
+    /** Center incoming that stopped before the scan finished. */
+    private readonly incomingScan = new Map<string, CenterIncomingScan>();
+    /** Keys whose incoming more-button must stay "?" until the scan finishes. */
+    private readonly incomingOpen = new Set<string>();
+    /** Frozen caller order for a scan that already painted a page. */
+    private readonly incomingOrder = new Map<string, string[]>();
+    /** Root keys whose "?" click is already continuing the scan. */
+    private readonly incomingResume = new Set<string>();
     /** Neighbor prefetch is async; the extension host is still one thread. */
     private prefetchBusy = false;
     /** Direct bases by type identity; dropped on any file change. */
@@ -986,6 +1036,10 @@ export class CallRelationModel {
         this.inflightOutGen.clear();
         this.incomingAt.clear();
         this.outgoingAt.clear();
+        this.incomingScan.clear();
+        this.incomingOpen.clear();
+        this.incomingOrder.clear();
+        this.incomingResume.clear();
         this.workspaceGen++;
         this.baseTypesCache.clear();
         this.ancestorCache.clear();
@@ -1318,6 +1372,9 @@ export class CallRelationModel {
         this.ancestorCache.clear();
         this.semanticLegendCache.delete(u);
         this.centerSnaps.clear();
+        this.incomingScan.clear();
+        this.incomingOpen.clear();
+        this.incomingOrder.clear();
     }
 
     remember(item: vscode.CallHierarchyItem): string {
@@ -1516,6 +1573,9 @@ export class CallRelationModel {
             this.inflightInGen.delete(key);
             this.inflightOutGen.delete(key);
             this.preparedKeys.delete(key);
+            this.incomingScan.delete(key);
+            this.incomingOpen.delete(key);
+            this.incomingOrder.delete(key);
             const prefix = `${key}\0`;
             for (const siteKey of [...this.callSites.keys()]) {
                 if (siteKey.startsWith(prefix)) {
@@ -1782,54 +1842,38 @@ export class CallRelationModel {
         const locations = (refs || [])
             .map(loc => this.asLocation(loc))
             .filter((loc): loc is vscode.Location => !!loc && !this.isDeclSite(root, loc));
-        const groups = new Map<string, { item: vscode.CallHierarchyItem; sites: vscode.Range[] }>();
-        const chunk = 12;
-        for (let i = 0; i < locations.length; i += chunk) {
-            if (!this.isCurrent(seq)) {
+        const epoch = this.cacheEpoch;
+        const rev = this.fileRev(root.uri);
+        const scan = this.blankIncomingScan(
+            root,
+            rootKey,
+            rootKey,
+            identFromToken(root.name) || name,
+            refGen,
+            epoch,
+            rev
+        );
+        scan.phase = 'refs';
+        scan.locations = locations;
+        scan.rootName = name;
+        const budget: IncomingBudget = {
+            seq,
+            deadline: t0 + INCOMING_BUDGET_MS,
+            goal: CALL_PAGE,
+            baseline: 0
+        };
+        const paused = await this.consumeReferenceLocations(scan, budget);
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
+        if (!paused) {
+            if (!this.sideGenerationLive(epoch, refGen, rev, root.uri)) {
                 return undefined;
             }
-            const found: { item: vscode.CallHierarchyItem; range: vscode.Range }[] = [];
-            await Promise.all(locations.slice(i, i + chunk).map(async loc => {
-                if (isLibPath(loc.uri.fsPath)) {
-                    return;
-                }
-                const enc = await enclosingCallable(loc.uri, loc.range.start.line, root.name);
-                const caller = enc
-                    ? new vscode.CallHierarchyItem(
-                        enc.kind,
-                        enc.name,
-                        enc.detail,
-                        loc.uri,
-                        enc.range,
-                        enc.selectionRange
-                    )
-                    : new vscode.CallHierarchyItem(
-                        vscode.SymbolKind.File,
-                        fileLabel(loc.uri),
-                        '',
-                        loc.uri,
-                        new vscode.Range(0, 0, 0, 0),
-                        new vscode.Range(0, 0, 0, 0)
-                    );
-                found.push({ item: caller, range: loc.range });
-            }));
-            for (const row of found) {
-                const key = itemKey(row.item);
-                const group = groups.get(key);
-                if (group) {
-                    group.sites.push(row.range);
-                    continue;
-                }
-                groups.set(key, { item: row.item, sites: [row.range] });
-            }
+            this.finishCompleteIncoming([rootKey]);
+            this.commitSides(this.incoming, this.incomingAt, [rootKey], scan.items, refGen);
         }
-        const callers: vscode.CallHierarchyItem[] = [];
-        for (const group of groups.values()) {
-            const key = this.remember(group.item);
-            callers.push(this.items.get(key)!);
-            this.rememberCallSite(rootKey, -1, group.item, group.item.uri, group.sites, root.name);
-        }
-        this.commitSides(this.incoming, this.incomingAt, [rootKey], callers, refGen);
+        const callers = this.incoming.get(rootKey) || scan.items;
         const graph = opts?.lean
             ? this.buildGraph()
             : await this.buildVisible(seq);
@@ -2208,8 +2252,34 @@ export class CallRelationModel {
 
     async expandMore(nodeId: string): Promise<RelationLoad | undefined> {
         const seq = this.seq;
-        const current = this.shown.get(nodeId) ?? CALL_PAGE;
-        this.shown.set(nodeId, current + CALL_PAGE);
+        const root = this.root;
+        const rootKey = root ? itemKey(root) : '';
+        const scan = rootKey ? this.incomingScan.get(rootKey) : undefined;
+        const rootMore = !!root && nodeId === `${itemKey(root)}@0:-1`;
+        if (rootMore && scan) {
+            if (this.incomingResume.has(rootKey)) {
+                return undefined;
+            }
+            this.incomingResume.add(rootKey);
+            try {
+                const limit = this.shown.get(nodeId) ?? CALL_PAGE;
+                const have = this.incoming.get(rootKey)?.length ?? scan.items.length;
+                const goal = limit + CALL_PAGE;
+                if (have < goal) {
+                    await this.resumeIncomingScan(scan, seq, goal, have);
+                }
+                if (!this.isCurrent(seq)) {
+                    return undefined;
+                }
+                const after = this.incoming.get(rootKey)?.length ?? have;
+                this.shown.set(nodeId, Math.min(after, goal));
+            } finally {
+                this.incomingResume.delete(rootKey);
+            }
+        } else {
+            const current = this.shown.get(nodeId) ?? CALL_PAGE;
+            this.shown.set(nodeId, current + CALL_PAGE);
+        }
         const graph = await this.buildVisible(seq);
         return graph ? { graph, seq } : undefined;
     }
@@ -3084,7 +3154,13 @@ export class CallRelationModel {
             seen.add(k);
             unique.push(child);
         }
-        unique.sort((a, b) => this.compareChildren(parent.itemKey, dir, a, b));
+        const frozen = dir < 0 ? this.incomingOrder.get(parent.itemKey) : undefined;
+        if (frozen) {
+            const rank = new Map(frozen.map((k, i) => [k, i]));
+            unique.sort((a, b) => (rank.get(itemKey(a)) ?? frozen.length) - (rank.get(itemKey(b)) ?? frozen.length));
+        } else {
+            unique.sort((a, b) => this.compareChildren(parent.itemKey, dir, a, b));
+        }
         const pageKeys = new Set(unique.slice(0, limit).map(child => itemKey(child)));
         const visibleKeys = new Set(pageKeys);
         for (const child of unique) {
@@ -3270,20 +3346,22 @@ export class CallRelationModel {
                 this.addSide(nodes, edges, childNode, dir);
             }
         }
-        if (hidden > 0) {
+        const scanOpen = dir < 0 && this.incomingOpen.has(parent.itemKey);
+        if (hidden > 0 || scanOpen) {
             const moreId = `${parent.id}:more:${dir}`;
             nodes.push({
                 id: moreId,
                 itemKey: '',
-                name: `+${hidden} more`,
-                detail: 'Show more at this level',
+                name: scanOpen ? '+? more' : `+${hidden} more`,
+                detail: scanOpen ? 'Continue loading callers' : 'Show more at this level',
                 file: '',
                 path: '',
                 line: 0,
                 hop,
                 parentId: parent.id,
                 kind: 'more',
-                moreCount: hidden,
+                moreCount: scanOpen ? undefined : hidden,
+                moreUnknown: scanOpen || undefined,
                 expandKey: shownKey,
                 compact
             });
@@ -3502,32 +3580,37 @@ export class CallRelationModel {
      * nearest on-chain `this.xxx()`; drop sibling-hierarchy `this.xxx()`,
      * declarations, and super calls. Heritage classify is only for this-dispatch
      * lines; other `recv.xxx()` is external without walking the caller's types.
+     * Center scans stop once the first page is full or INCOMING_BUDGET_MS elapses.
      */
     private async mergeOverrideIncoming(
         item: vscode.CallHierarchyItem,
         key: string,
+        resolvedKey: string,
         items: vscode.CallHierarchyItem[],
         seen: Set<string>,
-        ident: string
-    ): Promise<void> {
+        ident: string,
+        budget: IncomingBudget | undefined,
+        epoch: number,
+        gen: number,
+        rev: number
+    ): Promise<boolean> {
         if (!ident || /^constructor$/i.test(ident) || item.kind === vscode.SymbolKind.Constructor) {
-            return;
+            return false;
         }
         const t0 = Date.now();
-        const epoch = this.cacheEpoch;
         if (await this.methodDeclHasStaticKeyword(item)) {
             costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} static`);
-            return;
+            return false;
         }
         if (await this.nameTokenIsStatic(item)) {
             costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} static semantic`);
-            return;
+            return false;
         }
         const family = await this.selfAndAncestorTypes(item);
         const ancestors = family.filter(type => type.depth > 0);
         if (!ancestors.length) {
             costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} no ancestors`);
-            return;
+            return false;
         }
         costLog('incoming merge family', Date.now() - t0, `${itemLabel(item)} types=${family.length} ancestors=${ancestors.length}`);
         const tSlots = Date.now();
@@ -3535,7 +3618,7 @@ export class CallRelationModel {
             .filter(slot => !isLibPath(slot.uri.fsPath));
         if (!slots.length) {
             costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} no slots`);
-            return;
+            return false;
         }
         costLog('incoming merge slots', Date.now() - tSlots, `${itemLabel(item)} n=${slots.length}`);
         const locSeen = new Set<string>();
@@ -3562,7 +3645,7 @@ export class CallRelationModel {
         }
         if (!locations.length) {
             costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} no refs`);
-            return;
+            return false;
         }
         costLog('incoming merge refs', Date.now() - tRefs, `${itemLabel(item)} locs=${locations.length} slots=${slots.length}`);
         const familyKeys = new Map(family.map(a => [typeRefKey(a.uri, a.symbol), a.depth]));
@@ -3580,14 +3663,55 @@ export class CallRelationModel {
         let thisHits = 0;
         let extFast = 0;
         const tClassify = Date.now();
+        const scan = this.mergeScan(
+            item, key, resolvedKey, ident, items, seen, gen, epoch, rev, lineCache,
+            locations, 0, groups, slots, familyKeys, heritageShare
+        );
+        const paused = await this.continueMergeWindow(scan, budget, tClassify, t0);
+        return paused;
+    }
+
+    private async continueMergeWindow(
+        scan: CenterIncomingScan,
+        budget: IncomingBudget | undefined,
+        tClassify: number,
+        t0: number
+    ): Promise<boolean> {
         const chunk = 12;
+        const ident = scan.ident;
+        const identCall = new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`);
+        const item = scan.subject;
+        const key = scan.key;
+        const locations = scan.locations;
+        const groups = scan.groups;
+        const items = scan.items;
+        const seen = scan.seen;
+        const slots = scan.slots;
+        const familyKeys = scan.familyKeys;
+        const heritageShare = scan.heritageShare;
+        const lineCache = scan.lineCache;
+        const fileSeen = new Set<string>();
+        let lineHits = 0;
+        let thisHits = 0;
+        let extFast = 0;
         type MergeHit = {
             caller: vscode.CallHierarchyItem;
             range: vscode.Range;
             depth: number;
             external: boolean;
         };
-        for (let i = 0; i < locations.length; i += chunk) {
+        for (let i = scan.locIndex; i < locations.length; i += chunk) {
+            if (budget && !this.isCurrent(budget.seq)) {
+                if (this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, item.uri) && (items.length > 0 || groups.size > 0)) {
+                    this.flushMergeGroups(groups, seen, items, key, item);
+                    if (items.length > 0) {
+                        scan.locIndex = i;
+                        scan.phase = 'merge';
+                        await this.publishPartialIncoming(scan);
+                    }
+                }
+                return true;
+            }
             const hits: MergeHit[] = [];
             await Promise.all(locations.slice(i, i + chunk).map(async loc => {
                 if (isLibPath(loc.uri.fsPath) || this.isDeclSite(item, loc)) {
@@ -3688,20 +3812,86 @@ export class CallRelationModel {
                     external: hit.external
                 });
             }
+            const next = i + chunk;
+            const more = next < locations.length;
+            const have = items.length + this.acceptableMergeAdds(groups, seen);
+            const stop = !!budget && (!this.isCurrent(budget.seq) || this.incomingShouldPause(have, budget, more));
+            if (stop) {
+                if ((have > 0 || items.length > 0) && this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, item.uri)) {
+                    this.flushMergeGroups(groups, seen, items, key, item);
+                    scan.locIndex = Math.min(locations.length, next);
+                    scan.phase = 'merge';
+                    await this.publishPartialIncoming(scan);
+                }
+                return true;
+            }
         }
-        if (!groups.size || this.cacheEpoch !== epoch) {
+        if (!this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, item.uri)) {
             costLog(
                 'incoming merge classify',
                 Date.now() - tClassify,
-                `${itemLabel(item)} groups=${groups.size}${this.cacheEpoch !== epoch ? ' dropped' : ''} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast}`
+                `${itemLabel(item)} groups=${groups.size} dropped locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast}`
             );
-            return;
+            return false;
         }
+        this.flushMergeGroups(groups, seen, items, key, item);
         costLog(
             'incoming merge classify',
             Date.now() - tClassify,
             `${itemLabel(item)} groups=${groups.size} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast}`
         );
+        costLog('incoming merge total', Date.now() - t0, `${itemLabel(item)} added=${items.length} groups=${groups.size}`);
+        return false;
+    }
+
+    private sideGenerationLive(epoch: number, gen: number, rev: number, uri?: vscode.Uri): boolean {
+        if (this.cacheEpoch !== epoch || this.workspaceGen !== gen) {
+            return false;
+        }
+        return !uri || this.fileRev(uri) === rev;
+    }
+
+    private incomingShouldPause(have: number, budget: IncomingBudget, more: boolean): boolean {
+        if (!more) {
+            return false;
+        }
+        if (have >= budget.goal) {
+            return true;
+        }
+        return Date.now() >= budget.deadline && have > budget.baseline;
+    }
+
+    private isCenterItem(item: vscode.CallHierarchyItem): boolean {
+        return !!this.root && itemKey(this.root) === itemKey(item);
+    }
+
+    private acceptableMergeAdds(groups: Map<string, MergeGroup>, seen: Set<string>): number {
+        let nearest = Number.POSITIVE_INFINITY;
+        for (const group of groups.values()) {
+            if (!group.external && group.depth < nearest) {
+                nearest = group.depth;
+            }
+        }
+        let count = 0;
+        for (const group of groups.values()) {
+            if (!group.external && group.depth !== nearest) {
+                continue;
+            }
+            if (seen.has(itemKey(group.item))) {
+                continue;
+            }
+            count++;
+        }
+        return count;
+    }
+
+    private flushMergeGroups(
+        groups: Map<string, MergeGroup>,
+        seen: Set<string>,
+        items: vscode.CallHierarchyItem[],
+        key: string,
+        tokenItem: vscode.CallHierarchyItem
+    ): void {
         let nearest = Number.POSITIVE_INFINITY;
         for (const group of groups.values()) {
             if (!group.external && group.depth < nearest) {
@@ -3717,11 +3907,371 @@ export class CallRelationModel {
                 continue;
             }
             seen.add(fromKey);
-            const k = this.remember(group.item);
-            items.push(this.items.get(k)!);
-            this.rememberCallSite(key, -1, group.item, group.item.uri, group.sites, item.name);
+            const kept = this.remember(group.item);
+            items.push(this.items.get(kept)!);
+            this.rememberCallSite(key, -1, group.item, group.item.uri, group.sites, tokenItem.name);
         }
-        costLog('incoming merge total', Date.now() - t0, `${itemLabel(item)} added=${items.length} groups=${groups.size}`);
+    }
+
+    private freezeIncomingOrder(parentKey: string, items: vscode.CallHierarchyItem[]): vscode.CallHierarchyItem[] {
+        const prev = this.incomingOrder.get(parentKey);
+        let ordered: vscode.CallHierarchyItem[];
+        if (!prev) {
+            ordered = items.slice().sort((a, b) => this.compareChildren(parentKey, -1, a, b));
+        } else {
+            const rank = new Map(prev.map((k, i) => [k, i]));
+            const known: vscode.CallHierarchyItem[] = [];
+            const fresh: vscode.CallHierarchyItem[] = [];
+            for (const item of items) {
+                if (rank.has(itemKey(item))) {
+                    known.push(item);
+                } else {
+                    fresh.push(item);
+                }
+            }
+            known.sort((a, b) => (rank.get(itemKey(a)) ?? 0) - (rank.get(itemKey(b)) ?? 0));
+            ordered = known.concat(fresh);
+        }
+        const order = ordered.map(item => itemKey(item));
+        this.incomingOrder.set(parentKey, order);
+        return ordered;
+    }
+
+    private mergeScan(
+        item: vscode.CallHierarchyItem,
+        key: string,
+        resolvedKey: string,
+        ident: string,
+        items: vscode.CallHierarchyItem[],
+        seen: Set<string>,
+        gen: number,
+        epoch: number,
+        rev: number,
+        lineCache: Map<string, Promise<string[] | undefined>>,
+        locations: vscode.Location[],
+        locIndex: number,
+        groups: Map<string, MergeGroup>,
+        slots: { uri: vscode.Uri; method: FlatSymbol }[],
+        familyKeys: Map<string, number>,
+        heritageShare: Map<string, boolean>
+    ): CenterIncomingScan {
+        return {
+            key,
+            resolvedKey,
+            gen,
+            epoch,
+            rev,
+            ident,
+            subject: item,
+            items,
+            seen,
+            lineCache,
+            phase: 'merge',
+            callIndex: 0,
+            locations,
+            locIndex,
+            groups,
+            refGroups: new Map(),
+            slots,
+            familyKeys,
+            heritageShare,
+            rootName: ''
+        };
+    }
+
+    private async publishPartialIncoming(scan: CenterIncomingScan): Promise<void> {
+        const ordered = this.freezeIncomingOrder(scan.key, scan.items);
+        scan.items = ordered;
+        await this.rememberOwner(scan.subject);
+        await this.rememberOwners(ordered);
+        if (!this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, scan.subject.uri)) {
+            return;
+        }
+        const keys = scan.resolvedKey && scan.resolvedKey !== scan.key
+            ? [scan.key, scan.resolvedKey]
+            : [scan.key];
+        this.commitSides(this.incoming, this.incomingAt, keys, ordered, scan.gen);
+        this.aliasCallSites(scan.key, scan.resolvedKey);
+        const order = ordered.map(item => itemKey(item));
+        for (const key of keys) {
+            this.incomingOpen.add(key);
+            this.incomingScan.set(key, scan);
+            this.incomingOrder.set(key, order);
+        }
+        costLog('incoming partial', 0, `${itemLabel(scan.subject)} n=${ordered.length} phase=${scan.phase}`);
+    }
+
+    private closeIncomingScan(keys: string[]): void {
+        for (const key of keys) {
+            this.incomingOpen.delete(key);
+            this.incomingScan.delete(key);
+        }
+    }
+
+    private blankIncomingScan(
+        subject: vscode.CallHierarchyItem,
+        key: string,
+        resolvedKey: string,
+        ident: string,
+        gen: number,
+        epoch: number,
+        rev: number
+    ): CenterIncomingScan {
+        return {
+            key,
+            resolvedKey,
+            gen,
+            epoch,
+            rev,
+            ident,
+            subject,
+            items: [],
+            seen: new Set<string>(),
+            lineCache: new Map(),
+            phase: 'calls',
+            callIndex: 0,
+            locations: [],
+            locIndex: 0,
+            groups: new Map(),
+            refGroups: new Map(),
+            slots: [],
+            familyKeys: new Map(),
+            heritageShare: new Map(),
+            rootName: ''
+        };
+    }
+
+    private finishCompleteIncoming(keys: string[]): void {
+        this.closeIncomingScan(keys);
+        for (const key of keys) {
+            this.incomingOrder.delete(key);
+        }
+    }
+
+    private async commitFinishedScan(scan: CenterIncomingScan): Promise<void> {
+        if (!this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, scan.subject.uri)) {
+            return;
+        }
+        const ordered = this.incomingOrder.has(scan.key)
+            ? this.freezeIncomingOrder(scan.key, scan.items)
+            : scan.items;
+        await this.rememberOwner(scan.subject);
+        await this.rememberOwners(ordered);
+        const keys = scan.resolvedKey && scan.resolvedKey !== scan.key
+            ? [scan.key, scan.resolvedKey]
+            : [scan.key];
+        this.commitSides(this.incoming, this.incomingAt, keys, ordered, scan.gen);
+        this.aliasCallSites(scan.key, scan.resolvedKey);
+        this.closeIncomingScan(keys);
+    }
+
+    private async pumpIncomingCalls(scan: CenterIncomingScan, budget: IncomingBudget | undefined): Promise<boolean> {
+        const calls = scan.calls || [];
+        const key = scan.key;
+        const resolvedKey = scan.resolvedKey;
+        const subject = scan.subject;
+        const ident = scan.ident;
+        const linesOf = (uri: vscode.Uri) => {
+            const uk = uri.toString();
+            let pending = scan.lineCache.get(uk);
+            if (!pending) {
+                pending = this.fileLines(uri);
+                scan.lineCache.set(uk, pending);
+            }
+            return pending;
+        };
+        for (let callIndex = scan.callIndex; callIndex < calls.length; callIndex++) {
+            if (budget && !this.isCurrent(budget.seq)) {
+                if (scan.items.length > 0 && this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, subject.uri)) {
+                    scan.callIndex = callIndex;
+                    scan.phase = callIndex < calls.length ? 'calls' : 'merge-setup';
+                    await this.publishPartialIncoming(scan);
+                }
+                return true;
+            }
+            const call = calls[callIndex];
+            if (call?.from) {
+                let from = call.from;
+                let sites = call.fromRanges;
+                const lines = await linesOf(from.uri);
+                if (itemKey(from) === key || itemKey(from) === resolvedKey) {
+                    sites = await this.rewriteSelfSuper(from.uri, call.fromRanges, ident, subject, resolvedKey, lines);
+                }
+                sites = keepNonParentIncomingRanges(lines, sites, ident);
+                if (sites.length) {
+                    const lifted = await this.liftArrowToEnclosing(from, sites);
+                    if (lifted) {
+                        from = lifted;
+                    }
+                    const kept = this.remember(from);
+                    if (!scan.seen.has(kept)) {
+                        scan.seen.add(kept);
+                        scan.items.push(this.items.get(kept)!);
+                        this.rememberCallSite(key, -1, from, from.uri, sites, subject.name);
+                    }
+                }
+            }
+            if (budget && (!this.isCurrent(budget.seq) || this.incomingShouldPause(scan.items.length, budget, true))) {
+                if (scan.items.length > 0 && this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, subject.uri)) {
+                    scan.callIndex = callIndex + 1;
+                    scan.phase = callIndex + 1 < calls.length ? 'calls' : 'merge-setup';
+                    await this.publishPartialIncoming(scan);
+                }
+                return true;
+            }
+        }
+        scan.callIndex = calls.length;
+        scan.phase = 'merge-setup';
+        return false;
+    }
+
+    private async pumpMergeScan(scan: CenterIncomingScan, budget: IncomingBudget): Promise<void> {
+        if (scan.phase === 'merge-setup') {
+            const paused = await this.mergeOverrideIncoming(
+                scan.subject,
+                scan.key,
+                scan.resolvedKey,
+                scan.items,
+                scan.seen,
+                scan.ident,
+                budget,
+                scan.epoch,
+                scan.gen,
+                scan.rev
+            );
+            if (!paused) {
+                await this.commitFinishedScan(scan);
+            }
+            return;
+        }
+        const paused = await this.continueMergeWindow(scan, budget, Date.now(), Date.now());
+        if (!paused) {
+            await this.commitFinishedScan(scan);
+        }
+    }
+
+    private materializeRefGroups(scan: CenterIncomingScan): void {
+        for (const group of scan.refGroups.values()) {
+            const groupKey = itemKey(group.item);
+            this.rememberCallSite(scan.key, -1, group.item, group.item.uri, group.sites, scan.subject.name);
+            if (scan.seen.has(groupKey)) {
+                continue;
+            }
+            scan.seen.add(groupKey);
+            const kept = this.remember(group.item);
+            scan.items.push(this.items.get(kept)!);
+        }
+    }
+
+    private async consumeReferenceLocations(
+        scan: CenterIncomingScan,
+        budget: IncomingBudget | undefined
+    ): Promise<boolean> {
+        const chunk = 12;
+        const locations = scan.locations;
+        const groups = scan.refGroups;
+        const root = scan.subject;
+        for (let i = scan.locIndex; i < locations.length; i += chunk) {
+            if (!this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, root.uri)) {
+                return false;
+            }
+            if (budget && !this.isCurrent(budget.seq)) {
+                this.materializeRefGroups(scan);
+                if (scan.items.length > 0) {
+                    scan.locIndex = i;
+                    scan.phase = 'refs';
+                    await this.publishPartialIncoming(scan);
+                }
+                return true;
+            }
+            const found: { item: vscode.CallHierarchyItem; range: vscode.Range }[] = [];
+            await Promise.all(locations.slice(i, i + chunk).map(async loc => {
+                if (isLibPath(loc.uri.fsPath)) {
+                    return;
+                }
+                const enc = await enclosingCallable(loc.uri, loc.range.start.line, root.name);
+                const caller = enc
+                    ? new vscode.CallHierarchyItem(
+                        enc.kind,
+                        enc.name,
+                        enc.detail,
+                        loc.uri,
+                        enc.range,
+                        enc.selectionRange
+                    )
+                    : new vscode.CallHierarchyItem(
+                        vscode.SymbolKind.File,
+                        fileLabel(loc.uri),
+                        '',
+                        loc.uri,
+                        new vscode.Range(0, 0, 0, 0),
+                        new vscode.Range(0, 0, 0, 0)
+                    );
+                found.push({ item: caller, range: loc.range });
+            }));
+            for (const row of found) {
+                const rowKey = itemKey(row.item);
+                const group = groups.get(rowKey);
+                if (group) {
+                    group.sites.push(row.range);
+                    continue;
+                }
+                groups.set(rowKey, { item: row.item, sites: [row.range] });
+            }
+            this.materializeRefGroups(scan);
+            const next = i + chunk;
+            const more = next < locations.length;
+            const stop = !!budget && (!this.isCurrent(budget.seq) || this.incomingShouldPause(scan.items.length, budget, more));
+            if (stop) {
+                if (scan.items.length > 0 && this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, root.uri)) {
+                    scan.locIndex = Math.min(locations.length, next);
+                    scan.phase = 'refs';
+                    await this.publishPartialIncoming(scan);
+                }
+                return true;
+            }
+        }
+        this.materializeRefGroups(scan);
+        return false;
+    }
+
+    private async pumpRefScan(scan: CenterIncomingScan, budget: IncomingBudget): Promise<void> {
+        const paused = await this.consumeReferenceLocations(scan, budget);
+        if (!paused) {
+            await this.commitFinishedScan(scan);
+        }
+    }
+
+    private async resumeIncomingScan(
+        scan: CenterIncomingScan,
+        seq: number,
+        goal: number,
+        baseline: number
+    ): Promise<void> {
+        const budget: IncomingBudget = {
+            seq,
+            deadline: Date.now() + INCOMING_BUDGET_MS,
+            goal,
+            baseline
+        };
+        if (scan.phase === 'calls') {
+            const paused = await this.pumpIncomingCalls(scan, budget);
+            if (paused || !this.isCurrent(seq)) {
+                return;
+            }
+            if (scan.items.length >= budget.goal) {
+                scan.phase = 'merge-setup';
+                await this.publishPartialIncoming(scan);
+                return;
+            }
+            await this.pumpMergeScan(scan, budget);
+            return;
+        }
+        if (scan.phase === 'merge-setup' || scan.phase === 'merge') {
+            await this.pumpMergeScan(scan, budget);
+            return;
+        }
+        await this.pumpRefScan(scan, budget);
     }
 
     private async methodDeclHasStaticKeyword(item: vscode.CallHierarchyItem): Promise<boolean> {
@@ -4300,45 +4850,32 @@ export class CallRelationModel {
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
         const ident = identFromToken(subject.name);
-        const tSites = Date.now();
-        const lineCache = new Map<string, Promise<string[] | undefined>>();
-        const linesOf = (uri: vscode.Uri) => {
-            const uk = uri.toString();
-            let pending = lineCache.get(uk);
-            if (!pending) {
-                pending = this.fileLines(uri);
-                lineCache.set(uk, pending);
-            }
-            return pending;
-        };
-        for (const call of calls || []) {
-            if (!call?.from) {
-                continue;
-            }
-            let from = call.from;
-            let sites = call.fromRanges;
-            const lines = await linesOf(from.uri);
-            if (itemKey(from) === key || itemKey(from) === resolvedKey) {
-                sites = await this.rewriteSelfSuper(from.uri, call.fromRanges, ident, subject, resolvedKey, lines);
-            }
-            sites = keepNonParentIncomingRanges(lines, sites, ident);
-            if (!sites.length) {
-                continue;
-            }
-            const lifted = await this.liftArrowToEnclosing(from, sites);
-            if (lifted) {
-                from = lifted;
-            }
-            const k = this.remember(from);
-            if (seen.has(k)) {
-                continue;
-            }
-            seen.add(k);
-            items.push(this.items.get(k)!);
-            this.rememberCallSite(key, -1, from, from.uri, sites, subject.name);
+        const centerBudget: IncomingBudget | undefined = (this.isCenterItem(subject) || this.isCenterItem(item))
+            ? { seq: _seq, deadline: t0 + INCOMING_BUDGET_MS, goal: CALL_PAGE, baseline: 0 }
+            : undefined;
+        const callScan = this.blankIncomingScan(subject, key, resolvedKey, ident, gen, epoch, rev);
+        callScan.items = items;
+        callScan.seen = seen;
+        callScan.calls = calls || [];
+        callScan.callIndex = 0;
+        callScan.phase = 'calls';
+        const callsPaused = await this.pumpIncomingCalls(callScan, centerBudget);
+        if (callsPaused) {
+            return;
         }
-        costLog('incoming sites', Date.now() - tSites, `${itemLabel(item)} n=${items.length} files=${lineCache.size}`);
-        await this.mergeOverrideIncoming(subject, key, items, seen, ident);
+        if (centerBudget && items.length >= centerBudget.goal) {
+            callScan.phase = 'merge-setup';
+            if (this.sideGenerationLive(epoch, gen, rev, subject.uri)) {
+                await this.publishPartialIncoming(callScan);
+            }
+            return;
+        }
+        const mergePaused = await this.mergeOverrideIncoming(
+            subject, key, resolvedKey, items, seen, ident, centerBudget, epoch, gen, rev
+        );
+        if (mergePaused) {
+            return;
+        }
         if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev || this.workspaceGen !== gen) {
             costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after merge`);
             return;
@@ -4349,6 +4886,7 @@ export class CallRelationModel {
             costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after owners`);
             return;
         }
+        this.finishCompleteIncoming([key, resolvedKey]);
         this.commitSides(this.incoming, this.incomingAt, [key, resolvedKey], items, gen);
         this.aliasCallSites(key, resolvedKey);
         costLog('incoming total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);

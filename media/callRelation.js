@@ -2831,9 +2831,9 @@ function fillNodeTip(tip, node) {
         const detail = document.createElement('div');
         detail.className = 'cr-node-tip-detail';
         const n = node.moreCount || 0;
-        detail.textContent = n
-            ? `Show ${n} more sibling${n === 1 ? '' : 's'}`
-            : 'Show more siblings';
+        detail.textContent = node.moreUnknown
+            ? 'Continue loading callers'
+            : (n ? `Show ${n} more sibling${n === 1 ? '' : 's'}` : 'Show more siblings');
         tip.appendChild(detail);
         return;
     }
