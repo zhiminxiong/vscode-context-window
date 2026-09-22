@@ -507,11 +507,11 @@ function isPrototypeSuperCall(text: string, ident: string, column: number): bool
     return /^\s*(?:\(\s*\)|\.\s*(?:call|apply)\b)/.test(after);
 }
 
-/** Text and query columns of `recv` in `recv.ident(`. Columns sit on identifiers, not on an index. */
+/** Text and query columns of `recv` in `recv.ident(`. A numeric index stays on that digit. */
 function readReceiver(
     text: string,
     identStart: number
-): { expr: string; column: number; queries: number[] } | undefined {
+): { expr: string; column: number; queries: number[]; index?: number } | undefined {
     let i = identStart - 1;
     while (i >= 0 && /\s/.test(text[i])) {
         i--;
@@ -530,7 +530,7 @@ function readReceiver(
         return undefined;
     }
     const end = i;
-    const queries = receiverQueryColumns(text, end);
+    const queried = receiverQueryColumns(text, end);
     let depth = 0;
     let start = i;
     while (start >= 0) {
@@ -566,7 +566,7 @@ function readReceiver(
     if (!expr) {
         return undefined;
     }
-    return { expr, column: queries[0] ?? end, queries };
+    return { expr, column: queried.columns[0] ?? end, queries: queried.columns, index: queried.index };
 }
 
 const TYPE_NAME_NOISE = new Set([
@@ -576,13 +576,23 @@ const TYPE_NAME_NOISE = new Set([
 ]);
 
 /** Type names written after the last `:` in a hover, one per union member. */
-function declaredTypeNames(hover: string): string[] {
+function declaredTypeNames(hover: string, index?: number): string[] {
     const stripped = (hover || '').replace(/```(?:\w+)?/g, '');
-    const line = stripped.split(/\r?\n/).map(part => part.trim()).find(part => /:\s*[A-Za-z_$]/.test(part));
+    const line = stripped.split(/\r?\n/).map(part => part.trim()).find(part => /:\s*[A-Za-z_$\[]/.test(part));
     if (!line) {
         return [];
     }
     const expr = line.slice(line.lastIndexOf(':') + 1).replace(/[=;].*$/, '').trim();
+    if (index !== undefined) {
+        const element = tupleElementAt(expr, index);
+        if (element !== undefined) {
+            return typeNamesFromExpr(element);
+        }
+    }
+    return typeNamesFromExpr(expr);
+}
+
+function typeNamesFromExpr(expr: string): string[] {
     const names: string[] = [];
     for (const part of expr.split('|')) {
         const idents = part.match(/[A-Za-z_$][\w$]*/g) || [];
@@ -595,8 +605,43 @@ function declaredTypeNames(hover: string): string[] {
     return names;
 }
 
-/** Positions to ask for the receiver type. `list[i]` asks about `list`, not the index. */
-function receiverQueryColumns(text: string, end: number): number[] {
+/** `expr[N]` element, or undefined when `expr` is not a tuple. */
+function tupleElementAt(expr: string, index: number): string | undefined {
+    const body = expr.trim().replace(/^readonly\s+/, '');
+    if (!body.startsWith('[') || !body.endsWith(']')) {
+        return undefined;
+    }
+    const parts = splitTypeList(body.slice(1, -1));
+    if (index < 0 || index >= parts.length) {
+        return '';
+    }
+    return parts[index].trim();
+}
+
+function splitTypeList(expr: string): string[] {
+    const parts: string[] = [];
+    let depth = 0;
+    let start = 0;
+    for (let i = 0; i < expr.length; i++) {
+        const ch = expr[i];
+        if (ch === '<' || ch === '[' || ch === '(') {
+            depth++;
+        } else if (ch === '>' || ch === ']' || ch === ')') {
+            depth = Math.max(0, depth - 1);
+        } else if (ch === ',' && depth === 0) {
+            parts.push(expr.slice(start, i));
+            start = i + 1;
+        }
+    }
+    parts.push(expr.slice(start));
+    return parts;
+}
+
+/**
+ * Positions to ask for the receiver type.
+ * `list[i]` asks about `list`. `item[1]` asks about the digit, then `item`.
+ */
+function receiverQueryColumns(text: string, end: number): { columns: number[]; index?: number } {
     let cursor = end;
     while (cursor >= 0 && /\s/.test(text[cursor])) {
         cursor--;
@@ -609,7 +654,17 @@ function receiverQueryColumns(text: string, end: number): number[] {
             } else if (text[j] === '[') {
                 depth--;
                 if (depth === 0) {
-                    return receiverQueryColumns(text, j - 1);
+                    const inside = text.slice(j + 1, cursor);
+                    const num = inside.match(/^\s*(\d+)\s*$/);
+                    if (!num) {
+                        return receiverQueryColumns(text, j - 1);
+                    }
+                    const base = receiverQueryColumns(text, j - 1);
+                    const digitAt = j + 1 + inside.indexOf(num[1]);
+                    return {
+                        columns: [digitAt, ...base.columns],
+                        index: Number(num[1])
+                    };
                 }
             }
         }
@@ -619,7 +674,7 @@ function receiverQueryColumns(text: string, end: number): number[] {
         i--;
     }
     if (i < 0) {
-        return [Math.max(0, end)];
+        return { columns: [Math.max(0, end)] };
     }
     const last = identStartEndingAt(text, i);
     const cols = [last];
@@ -640,7 +695,7 @@ function receiverQueryColumns(text: string, end: number): number[] {
             }
         }
     }
-    return cols;
+    return { columns: cols };
 }
 
 function identStartEndingAt(text: string, end: number): number {
@@ -1131,6 +1186,8 @@ export class CallRelationModel {
     private readonly incomingOrder = new Map<string, string[]>();
     /** Root keys whose "?" click is already continuing the scan. */
     private readonly incomingResume = new Set<string>();
+    /** Find Relation lists every kept caller. The graph pages the center instead. */
+    private incomingListAll = false;
     /** Neighbor prefetch is async; the extension host is still one thread. */
     private prefetchBusy = false;
     /** Direct bases by type identity; dropped on any file change. */
@@ -2043,12 +2100,14 @@ export class CallRelationModel {
         scan.phase = 'refs';
         scan.locations = locations;
         scan.rootName = name;
-        const budget: IncomingBudget = {
-            seq,
-            deadline: t0 + INCOMING_BUDGET_MS,
-            goal: CALL_PAGE,
-            baseline: 0
-        };
+        const budget: IncomingBudget | undefined = opts?.lean
+            ? undefined
+            : {
+                seq,
+                deadline: t0 + INCOMING_BUDGET_MS,
+                goal: CALL_PAGE,
+                baseline: 0
+            };
         const paused = await this.consumeReferenceLocations(scan, budget);
         if (!this.isCurrent(seq)) {
             return undefined;
@@ -2349,7 +2408,8 @@ export class CallRelationModel {
     /**
      * Find Relation: same root as loadRoot, but only first-level incoming.
      * No outgoing, no neighbor prefetch, no call-site recenter via the
-     * enclosing caller's outgoing.
+     * enclosing caller's outgoing. Incoming runs to completion with the
+     * same caller filter as the graph, without the center page budget.
      */
     async loadIncomingRoot(
         uri: vscode.Uri,
@@ -2359,6 +2419,7 @@ export class CallRelationModel {
         const loc = `${fileLabel(uri)}:${position.line + 1}:${position.character + 1}`;
         this.cancel();
         const seq = this.seq;
+        this.incomingListAll = true;
         costLog('loadIncomingRoot begin', 0, loc);
 
         const valueSym = await symbolAtPosition(uri, position);
@@ -3815,6 +3876,9 @@ export class CallRelationModel {
         const locations: vscode.Location[] = [];
         const tRefs = Date.now();
         for (const slot of slots) {
+            if (!this.sideGenerationLive(epoch, gen, rev, item.uri)) {
+                return false;
+            }
             const refs = await this.execLspHeld<unknown[]>(
                 'vscode.executeReferenceProvider',
                 slot.uri,
@@ -3892,6 +3956,9 @@ export class CallRelationModel {
             external: boolean;
         };
         for (let i = scan.locIndex; i < locations.length; i += chunk) {
+            if (!budget && !this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, item.uri)) {
+                return false;
+            }
             if (budget && !this.isCurrent(budget.seq)) {
                 if (this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, item.uri) && (items.length > 0 || groups.size > 0)) {
                     this.flushMergeGroups(groups, seen, items, key, item);
@@ -4324,6 +4391,9 @@ export class CallRelationModel {
             return pending;
         };
         for (let callIndex = scan.callIndex; callIndex < calls.length; callIndex++) {
+            if (!budget && !this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, subject.uri)) {
+                return false;
+            }
             if (budget && !this.isCurrent(budget.seq)) {
                 if (scan.items.length > 0 && this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, subject.uri)) {
                     scan.callIndex = callIndex;
@@ -4587,7 +4657,14 @@ export class CallRelationModel {
         const cacheKey = `${uri.toString()}\0${line}\0${receiver.expr}`;
         let pending = scan.receiverReach.get(cacheKey);
         if (!pending) {
-            pending = this.resolveReceiverReach(uri, line, receiver.queries, familyKeys, scan.typeReach);
+            pending = this.resolveReceiverReach(
+                uri,
+                line,
+                receiver.queries,
+                receiver.index,
+                familyKeys,
+                scan.typeReach
+            );
             scan.receiverReach.set(cacheKey, pending);
         }
         return pending;
@@ -4597,9 +4674,16 @@ export class CallRelationModel {
         uri: vscode.Uri,
         line: number,
         columns: number[],
+        index: number | undefined,
         familyKeys: Map<string, number>,
         typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>
     ): Promise<'yes' | 'no' | 'unknown'> {
+        if (index !== undefined) {
+            const fromIndex = await this.judgeHoverColumns(uri, line, columns, index, familyKeys, typeReach);
+            if (fromIndex !== 'unknown') {
+                return fromIndex;
+            }
+        }
         let types: { uri: vscode.Uri; symbol: FlatSymbol }[] = [];
         for (const column of columns) {
             try {
@@ -4615,13 +4699,30 @@ export class CallRelationModel {
         if (fromDefs !== 'unknown') {
             return fromDefs;
         }
-        const names = await this.hoverTypeNames(uri, new vscode.Position(line, columns[0] ?? 0));
+        return this.judgeHoverColumns(uri, line, columns, index, familyKeys, typeReach);
+    }
+
+    private async judgeHoverColumns(
+        uri: vscode.Uri,
+        line: number,
+        columns: number[],
+        index: number | undefined,
+        familyKeys: Map<string, number>,
+        typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        let names: string[] = [];
+        for (const column of columns) {
+            names = await this.hoverTypeNames(uri, new vscode.Position(line, column), index);
+            if (names.length) {
+                break;
+            }
+        }
         if (!names.length) {
             return 'unknown';
         }
         let unresolved = false;
         for (const name of names) {
-            const verdict = await this.typeNameReachesFamily(name, familyKeys, typeReach);
+            const verdict = await this.typeNameReachesFamily(name, uri, familyKeys, typeReach);
             if (verdict === 'yes') {
                 return 'yes';
             }
@@ -4657,10 +4758,14 @@ export class CallRelationModel {
         return anyUnknown ? 'unknown' : 'no';
     }
 
-    private async hoverTypeNames(uri: vscode.Uri, position: vscode.Position): Promise<string[]> {
+    private async hoverTypeNames(
+        uri: vscode.Uri,
+        position: vscode.Position,
+        index?: number
+    ): Promise<string[]> {
         try {
             const hovers = await vscode.commands.executeCommand('vscode.executeHoverProvider', uri, position);
-            return declaredTypeNames(hoverPlain(hovers));
+            return declaredTypeNames(hoverPlain(hovers), index);
         } catch {
             return [];
         }
@@ -4669,16 +4774,17 @@ export class CallRelationModel {
     /** A declared type name: on the chain by name, otherwise the symbol's own bases. */
     private typeNameReachesFamily(
         name: string,
+        uri: vscode.Uri,
         familyKeys: Map<string, number>,
         typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>
     ): Promise<'yes' | 'no' | 'unknown'> {
         if (this.familyDepthByName(familyKeys, name) !== undefined) {
             return Promise.resolve('yes');
         }
-        const cacheKey = `name\0${name}`;
+        const cacheKey = `name\0${uri.toString()}\0${name}`;
         let pending = typeReach.get(cacheKey);
         if (!pending) {
-            pending = this.resolveTypeNameReach(name, familyKeys, typeReach);
+            pending = this.resolveTypeNameReach(name, uri, familyKeys, typeReach);
             typeReach.set(cacheKey, pending);
         }
         return pending;
@@ -4686,6 +4792,7 @@ export class CallRelationModel {
 
     private async resolveTypeNameReach(
         name: string,
+        uri: vscode.Uri,
         familyKeys: Map<string, number>,
         typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>
     ): Promise<'yes' | 'no' | 'unknown'> {
@@ -4696,7 +4803,7 @@ export class CallRelationModel {
                 name
             );
         } catch {
-            return 'unknown';
+            symbols = undefined;
         }
         const hits = (symbols || []).filter(sym => (
             sym.name === name
@@ -4705,7 +4812,11 @@ export class CallRelationModel {
             && !isLibPath(sym.location.uri.fsPath)
         )).slice(0, 8);
         if (!hits.length) {
-            return 'unknown';
+            const local = await this.documentTypeByName(uri, name);
+            if (!local) {
+                return 'unknown';
+            }
+            return this.typeReachesFamily(local, familyKeys, typeReach);
         }
         let unresolved = false;
         for (const sym of hits) {
@@ -4723,6 +4834,23 @@ export class CallRelationModel {
             }
         }
         return unresolved ? 'unknown' : 'no';
+    }
+
+    /** Class or interface declared in this file, including ones without export. */
+    private async documentTypeByName(
+        uri: vscode.Uri,
+        name: string
+    ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol } | undefined> {
+        let symbols: unknown;
+        try {
+            symbols = await vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', uri);
+        } catch {
+            return undefined;
+        }
+        const flat: FlatSymbol[] = [];
+        flattenSymbols(symbols, flat);
+        const symbol = flat.find(item => item.name === name && TYPE_CONTAINER_KINDS.has(item.kind));
+        return symbol ? { uri, symbol } : undefined;
     }
 
     private typeReachesFamily(
@@ -5384,7 +5512,8 @@ export class CallRelationModel {
         const items: vscode.CallHierarchyItem[] = [];
         const seen = new Set<string>();
         const ident = identFromToken(subject.name);
-        const centerBudget: IncomingBudget | undefined = (this.isCenterItem(subject) || this.isCenterItem(item))
+        const centerBudget: IncomingBudget | undefined = !this.incomingListAll
+            && (this.isCenterItem(subject) || this.isCenterItem(item))
             ? { seq: _seq, deadline: t0 + INCOMING_BUDGET_MS, goal: CALL_PAGE, baseline: 0 }
             : undefined;
         const callScan = this.blankIncomingScan(subject, key, resolvedKey, ident, gen, epoch, rev);
@@ -5395,6 +5524,9 @@ export class CallRelationModel {
         callScan.phase = 'calls';
         const callsPaused = await this.pumpIncomingCalls(callScan, centerBudget);
         if (callsPaused) {
+            return;
+        }
+        if (!this.sideGenerationLive(epoch, gen, rev, subject.uri)) {
             return;
         }
         if (centerBudget && items.length >= centerBudget.goal) {
