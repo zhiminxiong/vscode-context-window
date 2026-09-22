@@ -1,6 +1,8 @@
+import { AsyncLocalStorage } from 'async_hooks';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { enclosingCallable, isAnonymousSymbolName, isCallablePropertyKind, isReferenceRelationKind, isUsableEnclosingName, symbolAtPosition } from './enclosingSymbol';
+import { relationIndex } from './relationIndex';
 
 export type ChildSort = 'name' | 'order';
 
@@ -868,6 +870,167 @@ function itemKey(item: vscode.CallHierarchyItem): string {
     return `${item.uri.toString()}\0${sel.line}\0${sel.character}\0${item.name}`;
 }
 
+/** Files read while resolving a type or receiver. Nested lookups merge into the outer set. */
+const indexDeps = new AsyncLocalStorage<Set<string>>();
+
+function noteIndexDep(uri: vscode.Uri | string | undefined): void {
+    if (!uri) {
+        return;
+    }
+    indexDeps.getStore()?.add(typeof uri === 'string' ? uri : uri.toString());
+}
+
+function familyStamp(familyKeys: Map<string, number>): string {
+    const parts: string[] = [];
+    for (const [key, depth] of familyKeys) {
+        parts.push(`${depth}\0${key}`);
+    }
+    parts.sort();
+    return parts.join('\n');
+}
+
+type SerRange = [number, number, number, number];
+
+interface SerItem {
+    kind: number;
+    name: string;
+    detail: string;
+    uri: string;
+    range: SerRange;
+    sel: SerRange;
+}
+
+interface SerSide {
+    callers: SerItem[];
+    sites: Record<string, RelationOpenTarget[]>;
+    superCallers?: SerItem[];
+}
+
+/** Incomplete incoming page. The caller list is not final; `locIndex` is where to resume. */
+interface SerPartial {
+    side: SerSide;
+    phase: 'calls' | 'merge-setup' | 'merge' | 'refs';
+    locIndex: number;
+    callIndex: number;
+}
+
+/** Containing type plus ancestor keys, so prefetch can skip document-symbol queries. */
+interface SerOwner {
+    key: string;
+    uri: string;
+    name: string;
+    ancestorKeys: string[];
+    /** Outline covers this position and no class/struct/interface contains it. */
+    none?: boolean;
+}
+
+interface OwnerFill {
+    hit: number;
+    fresh: number;
+    stored: number;
+    empty: number;
+}
+
+interface SerRefPointer {
+    root: SerItem;
+    ref: string;
+}
+
+interface SerType {
+    uri: string;
+    name: string;
+    kind: number;
+    range: SerRange;
+    sel: SerRange;
+    depth: number;
+}
+
+interface SerLoc {
+    uri: string;
+    sl: number;
+    sc: number;
+    el: number;
+    ec: number;
+}
+
+interface ReachBody {
+    v: 'yes' | 'no';
+    uris: string[];
+}
+
+function serRange(range: vscode.Range | undefined, fallback?: vscode.Range): SerRange {
+    const source = range ?? fallback;
+    if (!source) {
+        return [0, 0, 0, 0];
+    }
+    return [source.start.line, source.start.character, source.end.line, source.end.character];
+}
+
+function deRange(raw: SerRange | undefined): vscode.Range {
+    const tuple = raw && raw.length === 4 ? raw : [0, 0, 0, 0];
+    return new vscode.Range(tuple[0], tuple[1], tuple[2], tuple[3]);
+}
+
+function serItem(item: vscode.CallHierarchyItem): SerItem {
+    return {
+        kind: item.kind,
+        name: item.name,
+        detail: item.detail || '',
+        uri: item.uri.toString(),
+        range: serRange(item.range, item.selectionRange),
+        sel: serRange(item.selectionRange, item.range)
+    };
+}
+
+function serSymbol(uri: vscode.Uri, symbol: FlatSymbol, depth: number): SerType {
+    return {
+        uri: uri.toString(),
+        name: symbol.name,
+        kind: symbol.kind,
+        range: serRange(symbol.range, symbol.selectionRange),
+        sel: serRange(symbol.selectionRange, symbol.range),
+        depth
+    };
+}
+
+function symbolFromSer(raw: SerType): FlatSymbol {
+    return {
+        name: raw.name,
+        kind: raw.kind,
+        range: deRange(raw.range),
+        selectionRange: deRange(raw.sel)
+    };
+}
+
+function serLoc(loc: vscode.Location): SerLoc {
+    return {
+        uri: loc.uri.toString(),
+        sl: loc.range.start.line,
+        sc: loc.range.start.character,
+        el: loc.range.end.line,
+        ec: loc.range.end.character
+    };
+}
+
+function locFromSer(raw: SerLoc): vscode.Location {
+    return new vscode.Location(
+        vscode.Uri.parse(raw.uri),
+        new vscode.Range(raw.sl, raw.sc, raw.el, raw.ec)
+    );
+}
+
+function referenceIndexId(uri: vscode.Uri, position: vscode.Position, name: string): string {
+    return `refroot\0${uri.toString()}\0${position.line}\0${position.character}\0${name}`;
+}
+
+function ownerIndexId(uri: vscode.Uri, position: vscode.Position): string {
+    return `owner\0${uri.toString()}\0${position.line}\0${position.character}`;
+}
+
+function isSerSide(raw: unknown): raw is SerSide {
+    return !!raw && typeof raw === 'object' && Array.isArray((raw as SerSide).callers);
+}
+
 /** Display sort key: last identifier, case-insensitive (AAAA.bbbb → bbbb). */
 function sortName(item: vscode.CallHierarchyItem): string {
     const ident = (item.name || '').replace(/\(.*\)$/, '').trim();
@@ -941,9 +1104,12 @@ function resultCount(value: unknown): number {
     return value == null ? 0 : 1;
 }
 
-const RELATION_COST = false;
+/** One document-symbol query per file while several callers resolve together. */
+const documentSymbolInflight = new Map<string, Promise<FlatSymbol[] | undefined>>();
+
+const RELATION_COST = true;
 /** Peek vs focus cache log. Output: Context View Relation. */
-const RELATION_PEEK = false;
+const RELATION_PEEK = true;
 let relationCost = RELATION_COST;
 let relationPeek = RELATION_PEEK;
 let relationCostChannel: vscode.OutputChannel | undefined;
@@ -1101,6 +1267,8 @@ type CenterIncomingScan = {
     gen: number;
     epoch: number;
     rev: number;
+    /** Index wave captured when this scan started. An edit bumps it and the page is not stored. */
+    wave: number;
     ident: string;
     subject: vscode.CallHierarchyItem;
     items: vscode.CallHierarchyItem[];
@@ -1154,12 +1322,7 @@ export class CallRelationModel {
     private readonly centerFamily = new Map<string, number>();
     private centerFamilyRootKey = '';
     /** itemKey → containing type, for incoming filter without touching the side cache. */
-    private readonly ownerKeyByItem = new Map<string, {
-        key: string;
-        uri: string;
-        name: string;
-        ancestorKeys: string[];
-    }>();
+    private readonly ownerKeyByItem = new Map<string, SerOwner>();
     /** When true, keep only compactKinds from incoming and outgoing. */
     private compactFilter = false;
     private compactKinds = kindsFromIds(DEFAULT_SLIM_KIND_IDS);
@@ -1182,6 +1345,8 @@ export class CallRelationModel {
     private readonly incomingScan = new Map<string, CenterIncomingScan>();
     /** Keys whose incoming more-button must stay "?" until the scan finishes. */
     private readonly incomingOpen = new Set<string>();
+    /** Resume cursor for an indexed partial page whose scan object is not in this session. */
+    private readonly partialMeta = new Map<string, { phase: SerPartial['phase']; locIndex: number; callIndex: number }>();
     /** Frozen caller order for a scan that already painted a page. */
     private readonly incomingOrder = new Map<string, string[]>();
     /** Root keys whose "?" click is already continuing the scan. */
@@ -1282,6 +1447,7 @@ export class CallRelationModel {
         this.outgoingAt.clear();
         this.incomingScan.clear();
         this.incomingOpen.clear();
+        this.partialMeta.clear();
         this.incomingOrder.clear();
         this.incomingResume.clear();
         this.workspaceGen++;
@@ -1560,46 +1726,92 @@ export class CallRelationModel {
         await this.rememberOwner(this.root);
     }
 
-    private async rememberOwner(item: vscode.CallHierarchyItem): Promise<void> {
+    private async rememberOwner(item: vscode.CallHierarchyItem, stat?: OwnerFill): Promise<void> {
         const key = itemKey(item);
         const cur = this.ownerKeyByItem.get(key);
         if (cur?.ancestorKeys) {
+            if (stat) {
+                stat.hit++;
+            }
             return;
         }
-        const owner = await this.containingTypeAt(
-            item.uri,
-            item.selectionRange?.start ?? item.range.start
-        );
-        if (!owner) {
+        const position = item.selectionRange?.start ?? item.range.start;
+        const id = ownerIndexId(item.uri, position);
+        const index = relationIndex();
+        const hit = await index.take<SerOwner>(id);
+        if (hit?.none || (hit && Array.isArray(hit.ancestorKeys) && hit.key && hit.uri && hit.name)) {
+            this.ownerKeyByItem.set(key, hit);
+            if (stat) {
+                stat.hit++;
+            }
             return;
         }
-        const ancestorKeys: string[] = [];
+        const uriStr = item.uri.toString();
+        const flat = await this.documentSymbols(item.uri);
+        if (!flat) {
+            return;
+        }
+        if (stat) {
+            stat.fresh++;
+        }
+        const symbol = pickContainingType(flat, position);
+        if (!symbol) {
+            if (!flat.length) {
+                if (stat) {
+                    stat.empty++;
+                }
+                return;
+            }
+            const none: SerOwner = { key: '', uri: '', name: '', ancestorKeys: [], none: true };
+            this.ownerKeyByItem.set(key, none);
+            if (await index.putLive(id, none, [uriStr])) {
+                if (stat) {
+                    stat.stored++;
+                }
+            }
+            return;
+        }
         const bases = await this.collectAncestorTypesFrom({
-            uri: owner.uri,
-            symbol: owner.symbol,
+            uri: item.uri,
+            symbol,
             depth: 0
         });
+        const ancestorKeys: string[] = [];
         for (const type of bases) {
             ancestorKeys.push(typeRefKey(type.uri, type.symbol));
             ancestorKeys.push(`${type.uri.toString()}\0${type.symbol.name}`);
         }
-        this.ownerKeyByItem.set(key, {
-            key: typeRefKey(owner.uri, owner.symbol),
-            uri: owner.uri.toString(),
-            name: owner.symbol.name,
+        const record: SerOwner = {
+            key: typeRefKey(item.uri, symbol),
+            uri: uriStr,
+            name: symbol.name,
             ancestorKeys
-        });
+        };
+        this.ownerKeyByItem.set(key, record);
+        if (await index.putLive(id, record, [uriStr, ...bases.map(type => type.uri.toString())])) {
+            if (stat) {
+                stat.stored++;
+            }
+        }
     }
 
     private async rememberOwners(items: vscode.CallHierarchyItem[]): Promise<void> {
+        const t0 = Date.now();
+        const stat: OwnerFill = { hit: 0, fresh: 0, stored: 0, empty: 0 };
         const chunk = 12;
         for (let i = 0; i < items.length; i += chunk) {
-            await Promise.all(items.slice(i, i + chunk).map(item => this.rememberOwner(item)));
+            await Promise.all(items.slice(i, i + chunk).map(item => this.rememberOwner(item, stat)));
         }
+        costLog(
+            'owners',
+            Date.now() - t0,
+            `n=${items.length} hit=${stat.hit} fresh=${stat.fresh} stored=${stat.stored} empty=${stat.empty} ${relationIndex().status()}`
+        );
     }
 
     invalidateUri(uri: vscode.Uri): void {
         const u = uri.toString();
+        relationIndex().invalidateUri(u);
         this.fileGen.set(u, (this.fileGen.get(u) ?? 0) + 1);
         // Any edit can add or remove a caller. Keep the lists on screen, but
         // stamp them stale so the next show / focus / + refetches instead of
@@ -1618,6 +1830,7 @@ export class CallRelationModel {
         this.centerSnaps.clear();
         this.incomingScan.clear();
         this.incomingOpen.clear();
+        this.partialMeta.clear();
         this.incomingOrder.clear();
     }
 
@@ -1836,6 +2049,256 @@ export class CallRelationModel {
                 this.callSites.set(alias, sites);
             }
         }
+    }
+
+    private itemFromSer(raw: SerItem): vscode.CallHierarchyItem {
+        const made = new vscode.CallHierarchyItem(
+            raw.kind,
+            raw.name,
+            raw.detail || '',
+            vscode.Uri.parse(raw.uri),
+            deRange(raw.range),
+            deRange(raw.sel)
+        );
+        const key = itemKey(made);
+        const existing = this.items.get(key);
+        if (existing) {
+            return existing;
+        }
+        this.items.set(key, made);
+        return made;
+    }
+
+    private applySide(keys: readonly string[], dir: -1 | 1, body: SerSide, gen: number): void {
+        const items = (body.callers || []).map(raw => this.itemFromSer(raw));
+        const cache = dir < 0 ? this.incoming : this.outgoing;
+        const stamps = dir < 0 ? this.incomingAt : this.outgoingAt;
+        this.commitSides(cache, stamps, keys, items, gen);
+        for (const parentKey of keys) {
+            if (!parentKey) {
+                continue;
+            }
+            for (const [childKey, sites] of Object.entries(body.sites || {})) {
+                this.callSites.set(`${parentKey}\0${dir}\0${childKey}`, sites);
+            }
+            if (dir > 0 && body.superCallers?.length) {
+                this.superOutgoing.set(parentKey, body.superCallers.map(raw => this.itemFromSer(raw)));
+            }
+        }
+    }
+
+    private captureSide(
+        dir: -1 | 1,
+        parentKeys: readonly string[],
+        parent: vscode.CallHierarchyItem,
+        items: vscode.CallHierarchyItem[]
+    ): { body: SerSide; deps: string[] } {
+        const sites: Record<string, RelationOpenTarget[]> = {};
+        const consider = items.slice();
+        let superCallers: SerItem[] | undefined;
+        if (dir > 0) {
+            for (const parentKey of parentKeys) {
+                const list = this.superOutgoing.get(parentKey);
+                if (!list?.length) {
+                    continue;
+                }
+                superCallers = list.map(serItem);
+                for (const extra of list) {
+                    if (!consider.some(child => itemKey(child) === itemKey(extra))) {
+                        consider.push(extra);
+                    }
+                }
+                break;
+            }
+        }
+        for (const child of consider) {
+            const childKey = itemKey(child);
+            for (const parentKey of parentKeys) {
+                const stored = this.callSites.get(`${parentKey}\0${dir}\0${childKey}`);
+                if (stored?.length) {
+                    sites[childKey] = stored;
+                    break;
+                }
+            }
+        }
+        const deps = new Set<string>();
+        deps.add(parent.uri.toString());
+        for (const child of consider) {
+            deps.add(child.uri.toString());
+        }
+        for (const list of Object.values(sites)) {
+            for (const site of list) {
+                if (site.uri) {
+                    deps.add(site.uri);
+                }
+            }
+        }
+        const body: SerSide = {
+            callers: items.map(serItem),
+            sites
+        };
+        if (superCallers?.length) {
+            body.superCallers = superCallers;
+        }
+        return { body, deps: [...deps] };
+    }
+
+    private async storeSide(
+        dir: -1 | 1,
+        parentKeys: readonly string[],
+        parent: vscode.CallHierarchyItem,
+        items: vscode.CallHierarchyItem[],
+        extraDeps: readonly string[],
+        wave: number
+    ): Promise<void> {
+        const index = relationIndex();
+        if (index.waveNow() !== wave) {
+            return;
+        }
+        const captured = this.captureSide(dir, parentKeys, parent, items);
+        const deps = new Set<string>(captured.deps);
+        for (const uri of extraDeps) {
+            if (uri) {
+                deps.add(uri);
+            }
+        }
+        const keys = [...new Set(parentKeys.filter((key): key is string => !!key))];
+        if (!keys.length) {
+            return;
+        }
+        const canonical = `side\0${dir}\0${keys[0]}`;
+        const depList = [...deps];
+        for (const key of keys.slice(1)) {
+            await index.put(`side\0${dir}\0${key}`, { ref: canonical }, depList, wave);
+        }
+        await index.put(canonical, captured.body, depList, wave);
+        if (dir < 0 && index.waveNow() === wave) {
+            for (const key of keys) {
+                index.forget(`part\0-1\0${key}`);
+            }
+        }
+        costLog('index store', 0, `${dir < 0 ? 'in' : 'out'} ${itemLabel(parent)} n=${items.length} ${index.status()}`);
+    }
+
+    private async loadSide(keys: readonly string[], dir: -1 | 1): Promise<SerSide | undefined> {
+        const index = relationIndex();
+        for (const key of keys) {
+            if (!key) {
+                continue;
+            }
+            const id = `side\0${dir}\0${key}`;
+            const raw = await index.take<SerSide | { ref: string }>(id);
+            if (!raw) {
+                continue;
+            }
+            if (isSerSide(raw)) {
+                return raw;
+            }
+            const ref = raw.ref;
+            if (!ref) {
+                continue;
+            }
+            const body = await index.take<SerSide>(ref);
+            if (isSerSide(body)) {
+                return body;
+            }
+            index.forget(id);
+        }
+        return undefined;
+    }
+
+    private async restoreSide(
+        keys: readonly string[],
+        dir: -1 | 1,
+        gen: number,
+        epoch: number
+    ): Promise<boolean> {
+        const body = await this.loadSide(keys, dir);
+        if (!body || this.cacheEpoch !== epoch || this.workspaceGen !== gen) {
+            return false;
+        }
+        if (dir < 0) {
+            this.finishCompleteIncoming([...keys]);
+        }
+        this.applySide(keys, dir, body, gen);
+        return true;
+    }
+
+    private async storePartialIncoming(scan: CenterIncomingScan, keys: readonly string[], items: vscode.CallHierarchyItem[]): Promise<void> {
+        const index = relationIndex();
+        if (index.waveNow() !== scan.wave || !keys.length) {
+            return;
+        }
+        const captured = this.captureSide(-1, keys, scan.subject, items);
+        const deps = new Set<string>(captured.deps);
+        for (const uri of this.scanDepUris(scan)) {
+            deps.add(uri);
+        }
+        const body: SerPartial = {
+            side: captured.body,
+            phase: scan.phase,
+            locIndex: scan.locIndex,
+            callIndex: scan.callIndex
+        };
+        const depList = [...deps];
+        for (const key of keys) {
+            if (key) {
+                await index.put(`part\0-1\0${key}`, body, depList, scan.wave);
+            }
+        }
+        costLog('index partial', 0, `${itemLabel(scan.subject)} n=${items.length} phase=${scan.phase} at=${scan.locIndex} ${index.status()}`);
+    }
+
+    private async restorePartialIncoming(keys: readonly string[], gen: number, epoch: number): Promise<boolean> {
+        const index = relationIndex();
+        let body: SerPartial | undefined;
+        for (const key of keys) {
+            if (!key) {
+                continue;
+            }
+            const hit = await index.take<SerPartial>(`part\0-1\0${key}`);
+            if (hit?.side && Array.isArray(hit.side.callers)) {
+                body = hit;
+                break;
+            }
+        }
+        if (!body || this.cacheEpoch !== epoch || this.workspaceGen !== gen) {
+            return false;
+        }
+        this.applySide(keys, -1, body.side, gen);
+        const stored = this.incoming.get(keys[0]) || this.incoming.get(keys[1] || '') || [];
+        const order = stored.map(item => itemKey(item));
+        for (const key of keys) {
+            if (!key) {
+                continue;
+            }
+            this.incomingOpen.add(key);
+            this.incomingOrder.set(key, order);
+            this.partialMeta.set(key, {
+                phase: body.phase,
+                locIndex: body.locIndex,
+                callIndex: body.callIndex
+            });
+        }
+        return true;
+    }
+
+    private scanDepUris(scan: CenterIncomingScan): string[] {
+        const deps = new Set<string>();
+        deps.add(scan.subject.uri.toString());
+        for (const loc of scan.locations) {
+            deps.add(loc.uri.toString());
+        }
+        for (const slot of scan.slots) {
+            deps.add(slot.uri.toString());
+        }
+        for (const key of scan.familyKeys.keys()) {
+            const uri = key.split('\0')[0];
+            if (uri) {
+                deps.add(uri);
+            }
+        }
+        return [...deps];
     }
 
     private forgetEmptySides(item: vscode.CallHierarchyItem): void {
@@ -2063,6 +2526,71 @@ export class CallRelationModel {
         return new vscode.CallHierarchyItem(vscode.SymbolKind.Variable, word, '', uri, range, range);
     }
 
+    private async presentCachedReference(
+        rootRaw: SerItem,
+        side: SerSide,
+        seq: number,
+        t0: number,
+        opts: { lean?: boolean } | undefined,
+        name: string
+    ): Promise<{ graph: RelationGraph; seq: number } | undefined> {
+        const root = this.itemFromSer(rootRaw);
+        const rootKey = itemKey(root);
+        this.finishCompleteIncoming([rootKey]);
+        this.applySide([rootKey], -1, side, this.workspaceGen);
+        costLog('reference index', Date.now() - t0, `${itemLabel(root)} n=${side.callers.length}`);
+        return this.presentReferenceRoot(root, seq, t0, opts, name);
+    }
+
+    /** Incoming for `root` is already committed. Paint the reference center and return the graph. */
+    private async presentReferenceRoot(
+        root: vscode.CallHierarchyItem,
+        seq: number,
+        t0: number,
+        opts: { lean?: boolean } | undefined,
+        name: string
+    ): Promise<{ graph: RelationGraph; seq: number } | undefined> {
+        this.shown.clear();
+        this.expanded.clear();
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.collapseLock.clear();
+        this.prevRoot = undefined;
+        this.incomingHint = undefined;
+        this.relationMode = 'reference';
+        this.adoptRoot(root);
+        this.resetCenter(root);
+        const rootKey = itemKey(root);
+        this.outgoing.set(rootKey, []);
+        if (!opts?.lean) {
+            this.paintNow(seq);
+            const sel = root.selectionRange?.start ?? root.range.start;
+            this.rootTypeName = await resolveValueType(
+                root.uri,
+                sel,
+                identFromToken(root.name) || name
+            );
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            this.paintNow(seq);
+        }
+        const callers = this.incoming.get(rootKey) || [];
+        const graph = opts?.lean
+            ? this.buildGraph()
+            : await this.buildVisible(seq);
+        if (!graph || !this.isCurrent(seq)) {
+            return undefined;
+        }
+        if (!callers.length) {
+            graph.notice = name
+                ? `No references for “${name}” outside its declaration.`
+                : 'No references at this position.';
+        }
+        costLog('reference root', Date.now() - t0, `${itemLabel(root)} n=${callers.length}${opts?.lean ? ' lean' : ''}`);
+        return { graph, seq };
+    }
+
     private async loadReferenceRoot(
         uri: vscode.Uri,
         position: vscode.Position,
@@ -2078,16 +2606,19 @@ export class CallRelationModel {
             }
             this.paintCenterNow(early || this.stubCenterItem(uri, position, name), seq, 'reference');
         }
-        const refGen = this.workspaceGen;
-        const refs = await this.execLsp<vscode.Location[]>(
-            seq,
-            'vscode.executeReferenceProvider',
-            uri,
-            position
-        );
-        if (!this.isCurrent(seq)) {
-            return undefined;
+        const cursorId = referenceIndexId(uri, position, name);
+        const pointer = await relationIndex().take<SerRefPointer>(cursorId);
+        if (pointer && this.isCurrent(seq)) {
+            const side = await relationIndex().take<SerSide>(pointer.ref);
+            if (side && this.isCurrent(seq)) {
+                return this.presentCachedReference(pointer.root, side, seq, t0, opts, name);
+            }
+            if (!side) {
+                relationIndex().forget(cursorId);
+            }
         }
+        const refGen = this.workspaceGen;
+        const refWave = relationIndex().waveNow();
         const root = await this.referenceRootItem(uri, position, name);
         if (!this.isCurrent(seq)) {
             return undefined;
@@ -2097,6 +2628,19 @@ export class CallRelationModel {
             this.prevRoot = undefined;
             this.incomingHint = undefined;
             return { graph: this.buildGraph(), seq };
+        }
+        const rootKeyEarly = itemKey(root);
+        if (await this.restoreSide([rootKeyEarly], -1, refGen, this.cacheEpoch)) {
+            return this.presentReferenceRoot(root, seq, t0, opts, name);
+        }
+        const refs = await this.execLsp<vscode.Location[]>(
+            seq,
+            'vscode.executeReferenceProvider',
+            uri,
+            position
+        );
+        if (!this.isCurrent(seq)) {
+            return undefined;
         }
         this.shown.clear();
         this.expanded.clear();
@@ -2135,7 +2679,8 @@ export class CallRelationModel {
             identFromToken(root.name) || name,
             refGen,
             epoch,
-            rev
+            rev,
+            refWave
         );
         scan.phase = 'refs';
         scan.locations = locations;
@@ -2158,6 +2703,14 @@ export class CallRelationModel {
             }
             this.finishCompleteIncoming([rootKey]);
             this.commitSides(this.incoming, this.incomingAt, [rootKey], scan.items, refGen);
+            const locUris = locations.map(loc => loc.uri.toString());
+            await relationIndex().put(
+                cursorId,
+                { root: serItem(root), ref: `side\0-1\0${rootKey}` } satisfies SerRefPointer,
+                [uri.toString(), root.uri.toString(), ...locUris],
+                refWave
+            );
+            await this.storeSide(-1, [rootKey], root, scan.items, [uri.toString(), ...locUris], refWave);
         }
         const callers = this.incoming.get(rootKey) || scan.items;
         const graph = opts?.lean
@@ -2542,8 +3095,11 @@ export class CallRelationModel {
         const seq = this.seq;
         const root = this.root;
         const rootKey = root ? itemKey(root) : '';
-        const scan = rootKey ? this.incomingScan.get(rootKey) : undefined;
+        let scan = rootKey ? this.incomingScan.get(rootKey) : undefined;
         const rootMore = !!root && nodeId === `${itemKey(root)}@0:-1`;
+        if (rootMore && !scan && root && this.incomingOpen.has(rootKey)) {
+            scan = await this.rehydrateIncomingScan(root);
+        }
         if (rootMore && scan) {
             if (this.incomingResume.has(rootKey)) {
                 return undefined;
@@ -3862,6 +4418,39 @@ export class CallRelationModel {
         return ranges || [];
     }
 
+    private async referencesForSlot(slot: { uri: vscode.Uri; method: FlatSymbol }): Promise<vscode.Location[]> {
+        const sel = slot.method.selectionRange?.start ?? slot.method.range.start;
+        const id = `refs\0${slot.uri.toString()}\0${sel.line}\0${sel.character}\0${slot.method.name}`;
+        const index = relationIndex();
+        const hit = await index.take<SerLoc[]>(id);
+        if (hit) {
+            costLog('refs index', 0, `${slot.method.name} n=${hit.length}`);
+            return hit.map(locFromSer);
+        }
+        const wave = index.waveNow();
+        const refs = await this.execLspHeld<unknown[]>(
+            'vscode.executeReferenceProvider',
+            slot.uri,
+            sel
+        );
+        const locs: vscode.Location[] = [];
+        const ser: SerLoc[] = [];
+        const deps = new Set<string>([slot.uri.toString()]);
+        if (refs) {
+            for (const raw of refs) {
+                const loc = this.asLocation(raw);
+                if (!loc) {
+                    continue;
+                }
+                locs.push(loc);
+                ser.push(serLoc(loc));
+                deps.add(loc.uri.toString());
+            }
+            await index.put(id, ser, [...deps], wave);
+        }
+        return locs;
+    }
+
     /**
      * Override incoming is empty for virtual dispatch. Search same-named slots
      * on this type's ancestor chain. A `this`/`self` call stays when its class
@@ -3883,7 +4472,9 @@ export class CallRelationModel {
         budget: IncomingBudget | undefined,
         epoch: number,
         gen: number,
-        rev: number
+        rev: number,
+        touch?: Set<string>,
+        wave?: number
     ): Promise<boolean> {
         if (!ident || /^constructor$/i.test(ident) || item.kind === vscode.SymbolKind.Constructor) {
             return false;
@@ -3898,6 +4489,12 @@ export class CallRelationModel {
             return false;
         }
         const family = await this.selfAndAncestorTypes(item);
+        if (touch) {
+            touch.add(item.uri.toString());
+            for (const type of family) {
+                touch.add(type.uri.toString());
+            }
+        }
         const ancestors = family.filter(type => type.depth > 0);
         if (!ancestors.length) {
             costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} no ancestors`);
@@ -3919,15 +4516,13 @@ export class CallRelationModel {
             if (!this.sideGenerationLive(epoch, gen, rev, item.uri)) {
                 return false;
             }
-            const refs = await this.execLspHeld<unknown[]>(
-                'vscode.executeReferenceProvider',
-                slot.uri,
-                slot.method.selectionRange.start
-            );
-            for (const raw of refs || []) {
-                const loc = this.asLocation(raw);
-                if (!loc) {
-                    continue;
+            if (touch) {
+                touch.add(slot.uri.toString());
+            }
+            const refs = await this.referencesForSlot(slot);
+            for (const loc of refs) {
+                if (touch) {
+                    touch.add(loc.uri.toString());
                 }
                 const k = `${loc.uri.toString()}\0${loc.range.start.line}\0${loc.range.start.character}`;
                 if (locSeen.has(k)) {
@@ -3961,6 +4556,7 @@ export class CallRelationModel {
             item, key, resolvedKey, ident, items, seen, gen, epoch, rev, lineCache,
             locations, 0, groups, slots, familyKeys, heritageShare
         );
+        scan.wave = wave ?? relationIndex().waveNow();
         const paused = await this.continueMergeWindow(scan, budget, tClassify, t0);
         return paused;
     }
@@ -4307,6 +4903,7 @@ export class CallRelationModel {
             gen,
             epoch,
             rev,
+            wave: 0,
             ident,
             subject: item,
             items,
@@ -4347,6 +4944,7 @@ export class CallRelationModel {
             this.incomingOrder.set(key, order);
         }
         costLog('incoming partial', 0, `${itemLabel(scan.subject)} n=${ordered.length} phase=${scan.phase}`);
+        await this.storePartialIncoming(scan, keys, ordered);
     }
 
     private closeIncomingScan(keys: string[]): void {
@@ -4363,7 +4961,8 @@ export class CallRelationModel {
         ident: string,
         gen: number,
         epoch: number,
-        rev: number
+        rev: number,
+        wave = relationIndex().waveNow()
     ): CenterIncomingScan {
         return {
             key,
@@ -4371,6 +4970,7 @@ export class CallRelationModel {
             gen,
             epoch,
             rev,
+            wave,
             ident,
             subject,
             items: [],
@@ -4402,6 +5002,7 @@ export class CallRelationModel {
         if (!this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, scan.subject.uri)) {
             return;
         }
+        const wave = relationIndex().waveNow();
         const ordered = this.incomingOrder.has(scan.key)
             ? this.freezeIncomingOrder(scan.key, scan.items)
             : scan.items;
@@ -4413,6 +5014,10 @@ export class CallRelationModel {
         this.commitSides(this.incoming, this.incomingAt, keys, ordered, scan.gen);
         this.aliasCallSites(scan.key, scan.resolvedKey);
         this.closeIncomingScan(keys);
+        if (!this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, scan.subject.uri)) {
+            return;
+        }
+        await this.storeSide(-1, keys, scan.subject, ordered, this.scanDepUris(scan), wave);
     }
 
     private async pumpIncomingCalls(scan: CenterIncomingScan, budget: IncomingBudget | undefined): Promise<boolean> {
@@ -4490,7 +5095,9 @@ export class CallRelationModel {
                 budget,
                 scan.epoch,
                 scan.gen,
-                scan.rev
+                scan.rev,
+                undefined,
+                scan.wave
             );
             if (!paused) {
                 await this.commitFinishedScan(scan);
@@ -4595,6 +5202,84 @@ export class CallRelationModel {
         }
     }
 
+    private async rehydrateIncomingScan(item: vscode.CallHierarchyItem): Promise<CenterIncomingScan | undefined> {
+        const keys = this.cacheKeysFor(item);
+        let meta = keys.map(key => this.partialMeta.get(key)).find((row): row is NonNullable<typeof row> => !!row);
+        if (!meta) {
+            for (const key of keys) {
+                const hit = await relationIndex().take<SerPartial>(`part\0-1\0${key}`);
+                if (!hit?.side) {
+                    continue;
+                }
+                meta = { phase: hit.phase, locIndex: hit.locIndex, callIndex: hit.callIndex };
+                break;
+            }
+        }
+        if (!meta || meta.phase === 'refs') {
+            return undefined;
+        }
+        const subject = await this.resolveForHierarchy(item);
+        if (!subject) {
+            return undefined;
+        }
+        const key = itemKey(item);
+        const resolvedKey = itemKey(subject);
+        const ident = identFromToken(subject.name);
+        const scan = this.blankIncomingScan(
+            subject,
+            key,
+            resolvedKey,
+            ident,
+            this.workspaceGen,
+            this.cacheEpoch,
+            this.fileRev(subject.uri)
+        );
+        scan.phase = meta.phase;
+        scan.locIndex = meta.locIndex;
+        scan.callIndex = meta.callIndex;
+        const items = this.incoming.get(resolvedKey) || this.incoming.get(key) || [];
+        scan.items = items.slice();
+        scan.seen = new Set(items.map(child => itemKey(child)));
+        if (meta.phase === 'calls' || meta.phase === 'merge-setup') {
+            const calls = await this.execLspHeld<vscode.CallHierarchyIncomingCall[]>(
+                'vscode.provideIncomingCalls',
+                subject
+            );
+            scan.calls = calls || [];
+        }
+        if (meta.phase === 'merge' || meta.phase === 'merge-setup') {
+            const family = await this.selfAndAncestorTypes(subject);
+            scan.familyKeys = new Map(family.map(type => [typeRefKey(type.uri, type.symbol), type.depth]));
+            const ancestors = family.filter(type => type.depth > 0);
+            scan.slots = (await this.collectVirtualSlots(ancestors, ident))
+                .filter(slot => !isLibPath(slot.uri.fsPath));
+            const locSeen = new Set<string>();
+            const locations: vscode.Location[] = [];
+            for (const slot of scan.slots) {
+                for (const loc of await this.referencesForSlot(slot)) {
+                    const mark = `${loc.uri.toString()}\0${loc.range.start.line}\0${loc.range.start.character}`;
+                    if (locSeen.has(mark)) {
+                        continue;
+                    }
+                    locSeen.add(mark);
+                    locations.push(loc);
+                }
+            }
+            scan.locations = locations;
+            if (meta.phase === 'merge-setup') {
+                scan.phase = 'merge';
+                scan.locIndex = 0;
+            }
+        }
+        this.incomingScan.set(key, scan);
+        if (resolvedKey !== key) {
+            this.incomingScan.set(resolvedKey, scan);
+        }
+        this.incomingOpen.add(key);
+        this.incomingOpen.add(resolvedKey);
+        return scan;
+    }
+
     private async resumeIncomingScan(
         scan: CenterIncomingScan,
         seq: number,
@@ -4697,17 +5382,49 @@ export class CallRelationModel {
         const cacheKey = `${uri.toString()}\0${line}\0${receiver.expr}`;
         let pending = scan.receiverReach.get(cacheKey);
         if (!pending) {
-            pending = this.resolveReceiverReach(
+            pending = this.cachedReceiverReach(
                 uri,
                 line,
                 receiver.queries,
                 receiver.index,
                 familyKeys,
-                scan.typeReach
+                scan.typeReach,
+                cacheKey
             );
             scan.receiverReach.set(cacheKey, pending);
         }
         return pending;
+    }
+
+    private async cachedReceiverReach(
+        uri: vscode.Uri,
+        line: number,
+        columns: number[],
+        index: number | undefined,
+        familyKeys: Map<string, number>,
+        typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>,
+        cacheKey: string
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        const id = `recv\0${cacheKey}\0${familyStamp(familyKeys)}`;
+        const hit = await relationIndex().take<ReachBody>(id);
+        if (hit?.v === 'yes' || hit?.v === 'no') {
+            return hit.v;
+        }
+        const deps = new Set<string>([uri.toString()]);
+        const wave = relationIndex().waveNow();
+        const verdict = await indexDeps.run(deps, () => this.resolveReceiverReach(
+            uri,
+            line,
+            columns,
+            index,
+            familyKeys,
+            typeReach
+        ));
+        if (verdict === 'yes' || verdict === 'no') {
+            const uris = [...deps];
+            await relationIndex().put(id, { v: verdict, uris } satisfies ReachBody, uris, wave);
+        }
+        return verdict;
     }
 
     private async resolveReceiverReach(
@@ -4783,6 +5500,7 @@ export class CallRelationModel {
         }
         let anyUnknown = false;
         for (const type of types) {
+            noteIndexDep(type.uri);
             if (type.symbol.name === 'any' || type.symbol.name === 'unknown') {
                 anyUnknown = true;
                 continue;
@@ -4901,10 +5619,41 @@ export class CallRelationModel {
         const key = typeRefKey(type.uri, type.symbol);
         let pending = typeReach.get(key);
         if (!pending) {
-            pending = this.resolveTypeReach(type, familyKeys);
+            pending = this.cachedTypeReach(type, key, familyKeys);
             typeReach.set(key, pending);
         }
         return pending;
+    }
+
+    private async cachedTypeReach(
+        type: { uri: vscode.Uri; symbol: FlatSymbol },
+        key: string,
+        familyKeys: Map<string, number>
+    ): Promise<'yes' | 'no' | 'unknown'> {
+        const outer = indexDeps.getStore();
+        const id = `reach\0${key}\0${familyStamp(familyKeys)}`;
+        const hit = await relationIndex().take<ReachBody>(id);
+        if (hit?.v === 'yes' || hit?.v === 'no') {
+            if (outer) {
+                for (const uri of hit.uris || []) {
+                    outer.add(uri);
+                }
+            }
+            return hit.v;
+        }
+        const deps = new Set<string>([type.uri.toString()]);
+        const wave = relationIndex().waveNow();
+        const verdict = await indexDeps.run(deps, () => this.resolveTypeReach(type, familyKeys));
+        if (outer) {
+            for (const uri of deps) {
+                outer.add(uri);
+            }
+        }
+        if (verdict === 'yes' || verdict === 'no') {
+            const uris = [...deps];
+            await relationIndex().put(id, { v: verdict, uris } satisfies ReachBody, uris, wave);
+        }
+        return verdict;
     }
 
     private async resolveTypeReach(
@@ -5056,17 +5805,43 @@ export class CallRelationModel {
         const key = typeRefKey(start.uri, start.symbol);
         let pending = this.ancestorCache.get(key);
         if (!pending) {
-            pending = this.walkAncestorTypesFrom({ uri: start.uri, symbol: start.symbol, depth: 0 }).catch(err => {
+            pending = this.cachedAncestors(start, key).catch(err => {
                 this.ancestorCache.delete(key);
                 throw err;
             });
             this.ancestorCache.set(key, pending);
         }
         const bases = await pending;
+        for (const type of bases) {
+            noteIndexDep(type.uri);
+        }
+        noteIndexDep(start.uri);
         if (!start.depth) {
             return bases;
         }
         return bases.map(type => ({ uri: type.uri, symbol: type.symbol, depth: type.depth + start.depth }));
+    }
+
+    private async cachedAncestors(start: TypeRef, key: string): Promise<TypeRef[]> {
+        const index = relationIndex();
+        const id = `anc\0${key}`;
+        const hit = await index.take<SerType[]>(id);
+        if (hit) {
+            return hit.map(raw => ({
+                uri: vscode.Uri.parse(raw.uri),
+                symbol: symbolFromSer(raw),
+                depth: raw.depth || 0
+            }));
+        }
+        const wave = index.waveNow();
+        const walked = await this.walkAncestorTypesFrom({ uri: start.uri, symbol: start.symbol, depth: 0 });
+        await index.put(
+            id,
+            walked.map(type => serSymbol(type.uri, type.symbol, type.depth)),
+            [start.uri.toString(), ...walked.map(type => type.uri.toString())],
+            wave
+        );
+        return walked;
     }
 
     private async walkAncestorTypesFrom(start: TypeRef): Promise<TypeRef[]> {
@@ -5217,13 +5992,34 @@ export class CallRelationModel {
         const key = typeRefKey(type.uri, type.symbol);
         let pending = this.baseTypesCache.get(key);
         if (!pending) {
-            pending = this.lookupDirectBaseTypes(type).catch(err => {
+            pending = this.cachedDirectBases(type, key).catch(err => {
                 this.baseTypesCache.delete(key);
                 throw err;
             });
             this.baseTypesCache.set(key, pending);
         }
         return pending;
+    }
+
+    private async cachedDirectBases(
+        type: TypeRef,
+        key: string
+    ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
+        const index = relationIndex();
+        const id = `base\0${key}`;
+        const hit = await index.take<SerType[]>(id);
+        if (hit) {
+            return hit.map(raw => ({ uri: vscode.Uri.parse(raw.uri), symbol: symbolFromSer(raw) }));
+        }
+        const wave = index.waveNow();
+        const found = await this.lookupDirectBaseTypes(type);
+        await index.put(
+            id,
+            found.map(base => serSymbol(base.uri, base.symbol, 0)),
+            [type.uri.toString(), ...found.map(base => base.uri.toString())],
+            wave
+        );
+        return found;
     }
 
     private async lookupDirectBaseTypes(type: TypeRef): Promise<{ uri: vscode.Uri; symbol: FlatSymbol }[]> {
@@ -5438,18 +6234,44 @@ export class CallRelationModel {
         return undefined;
     }
 
-    private async containingTypeAt(
-        uri: vscode.Uri,
-        position: vscode.Position
-    ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol } | undefined> {
+    private documentSymbols(uri: vscode.Uri): Promise<FlatSymbol[] | undefined> {
+        const key = uri.toString();
+        const pending = documentSymbolInflight.get(key);
+        if (pending) {
+            return pending;
+        }
+        const job = this.queryDocumentSymbols(uri).finally(() => {
+            if (documentSymbolInflight.get(key) === job) {
+                documentSymbolInflight.delete(key);
+            }
+        });
+        documentSymbolInflight.set(key, job);
+        return job;
+    }
+
+    private async queryDocumentSymbols(uri: vscode.Uri): Promise<FlatSymbol[] | undefined> {
         let symbols: unknown;
         try {
             symbols = await vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', uri);
         } catch {
             return undefined;
         }
+        if (!Array.isArray(symbols)) {
+            return undefined;
+        }
         const flat: FlatSymbol[] = [];
         flattenSymbols(symbols, flat);
+        return flat;
+    }
+
+    private async containingTypeAt(
+        uri: vscode.Uri,
+        position: vscode.Position
+    ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol } | undefined> {
+        const flat = await this.documentSymbols(uri);
+        if (!flat) {
+            return undefined;
+        }
         const symbol = pickContainingType(flat, position);
         return symbol ? { uri, symbol } : undefined;
     }
@@ -5540,6 +6362,7 @@ export class CallRelationModel {
         const epoch = this.cacheEpoch;
         const rev = this.fileRev(item.uri);
         const gen = this.workspaceGen;
+        const wave = relationIndex().waveNow();
         const tResolve = Date.now();
         const subject = await this.resolveForHierarchy(item);
         costLog('incoming resolve', Date.now() - tResolve, itemLabel(item));
@@ -5548,6 +6371,17 @@ export class CallRelationModel {
             return;
         }
         const resolvedKey = itemKey(subject);
+        if (await this.restoreSide([key, resolvedKey], -1, gen, epoch)) {
+            const n = this.incoming.get(resolvedKey)?.length ?? this.incoming.get(key)?.length ?? 0;
+            costLog('incoming index', Date.now() - t0, `${itemLabel(subject)} n=${n} ${relationIndex().status()}`);
+            return;
+        }
+        const paging = !this.incomingListAll && (this.isCenterItem(subject) || this.isCenterItem(item));
+        if (paging && await this.restorePartialIncoming([key, resolvedKey], gen, epoch)) {
+            const n = this.incoming.get(resolvedKey)?.length ?? this.incoming.get(key)?.length ?? 0;
+            costLog('incoming partial index', Date.now() - t0, `${itemLabel(subject)} n=${n} ${relationIndex().status()}`);
+            return;
+        }
         const tLsp = Date.now();
         const calls = await this.execLspHeld<vscode.CallHierarchyIncomingCall[]>(
             'vscode.provideIncomingCalls',
@@ -5565,7 +6399,7 @@ export class CallRelationModel {
             && (this.isCenterItem(subject) || this.isCenterItem(item))
             ? { seq: _seq, deadline: t0 + INCOMING_BUDGET_MS, goal: CALL_PAGE, baseline: 0 }
             : undefined;
-        const callScan = this.blankIncomingScan(subject, key, resolvedKey, ident, gen, epoch, rev);
+        const callScan = this.blankIncomingScan(subject, key, resolvedKey, ident, gen, epoch, rev, wave);
         callScan.items = items;
         callScan.seen = seen;
         callScan.calls = calls || [];
@@ -5585,8 +6419,9 @@ export class CallRelationModel {
             }
             return;
         }
+        const touch = new Set<string>([subject.uri.toString()]);
         const mergePaused = await this.mergeOverrideIncoming(
-            subject, key, resolvedKey, items, seen, ident, centerBudget, epoch, gen, rev
+            subject, key, resolvedKey, items, seen, ident, centerBudget, epoch, gen, rev, touch, wave
         );
         if (mergePaused) {
             return;
@@ -5604,6 +6439,7 @@ export class CallRelationModel {
         this.finishCompleteIncoming([key, resolvedKey]);
         this.commitSides(this.incoming, this.incomingAt, [key, resolvedKey], items, gen);
         this.aliasCallSites(key, resolvedKey);
+        await this.storeSide(-1, [key, resolvedKey], subject, items, [...touch], wave);
         costLog('incoming total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);
     }
 
@@ -5612,6 +6448,7 @@ export class CallRelationModel {
         const epoch = this.cacheEpoch;
         const rev = this.fileRev(item.uri);
         const gen = this.workspaceGen;
+        const wave = relationIndex().waveNow();
         const tResolve = Date.now();
         const subject = await this.resolveForHierarchy(item);
         costLog('outgoing resolve', Date.now() - tResolve, itemLabel(item));
@@ -5620,6 +6457,11 @@ export class CallRelationModel {
             return;
         }
         const resolvedKey = itemKey(subject);
+        if (await this.restoreSide([key, resolvedKey], 1, gen, epoch)) {
+            const n = this.outgoing.get(resolvedKey)?.length ?? this.outgoing.get(key)?.length ?? 0;
+            costLog('outgoing index', Date.now() - t0, `${itemLabel(subject)} n=${n} ${relationIndex().status()}`);
+            return;
+        }
         const tLsp = Date.now();
         const calls = await this.execLspHeld<vscode.CallHierarchyOutgoingCall[]>(
             'vscode.provideOutgoingCalls',
@@ -5633,6 +6475,7 @@ export class CallRelationModel {
         if (!calls?.length) {
             this.commitSides(this.outgoing, this.outgoingAt, [key, resolvedKey], [], gen);
             this.aliasCallSites(key, resolvedKey);
+            await this.storeSide(1, [key, resolvedKey], subject, [], [subject.uri.toString()], wave);
             costLog('outgoing total', Date.now() - t0, `${itemLabel(item)} n=0`);
             return;
         }
@@ -5684,6 +6527,14 @@ export class CallRelationModel {
         }
         this.commitSides(this.outgoing, this.outgoingAt, [key, resolvedKey], items, gen);
         this.aliasCallSites(key, resolvedKey);
+        await this.storeSide(
+            1,
+            [key, resolvedKey],
+            subject,
+            items,
+            chain.map(type => type.uri.toString()),
+            wave
+        );
         costLog('outgoing total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);
     }
 

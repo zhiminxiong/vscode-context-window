@@ -306,6 +306,12 @@
           "default": [],
           "markdownDescription": "Extra MCP config files to offer in \"Context View: Configure MCP Server Entry\", for clients it does not know about. Each entry is a path to a `.json` file: absolute, starting with `~` for your home directory, or relative to the workspace. The surrounding key is taken from the file itself, defaulting to `mcpServers`."
         },
+        "contextView.callRelation.indexMemoryMB": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "description": "Memory cap, in megabytes, for the relation index. Callers, callees, reference groups, type chains, and receiver checks that have already been resolved are kept so the next lookup can skip the language server. When the index grows past this size, the least recently used entries are dropped. Closing the relation panel does not clear the index."
+        },
         "contextView.editor.lineBlame": {
           "type": "boolean",
           "default": true,
