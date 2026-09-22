@@ -426,6 +426,54 @@ function isParentOrDeclIncomingLine(text: string, ident: string): boolean {
     return isIdentDeclLine(text, ident) || isSuperDispatchLine(text, ident);
 }
 
+/**
+ * Classify the ident nearest `column`. A line can hold both `this.foo()` and
+ * `recv.foo()`; the whole line must not decide for every range on it.
+ * Bare `foo(` stays a this-dispatch, matching the previous line heuristic.
+ */
+function incomingUseAt(text: string, ident: string, column: number): 'drop' | 'this' | 'external' {
+    if (!ident) {
+        return 'drop';
+    }
+    const re = new RegExp(`\\b${escapeRegExp(ident)}\\b`, 'g');
+    let match: RegExpExecArray | null;
+    let at: number | undefined;
+    while ((match = re.exec(text))) {
+        const start = match.index;
+        const end = start + match[0].length;
+        if (column >= start && column <= end) {
+            at = start;
+            break;
+        }
+        if (at === undefined || Math.abs(start - column) < Math.abs(at - column)) {
+            at = start;
+        }
+    }
+    if (at === undefined) {
+        if (isParentOrDeclIncomingLine(text, ident) || !new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`).test(text)) {
+            return 'drop';
+        }
+        return isThisDispatchLine(text, ident) ? 'this' : 'external';
+    }
+    const before = text.slice(0, at);
+    if (/(?:\bsuper|\bbase)\s*\.\s*$/.test(before) || /::\s*$/.test(before)) {
+        return 'drop';
+    }
+    if (/\bthis\s*(?:\.|->)\s*$/.test(before)) {
+        return 'this';
+    }
+    if (/(?:\.|->)\s*$/.test(before)) {
+        return 'external';
+    }
+    if (isIdentDeclLine(text, ident)) {
+        const first = new RegExp(`\\b${escapeRegExp(ident)}\\b`).exec(text);
+        if (first && first.index === at) {
+            return 'drop';
+        }
+    }
+    return 'this';
+}
+
 function keepNonParentIncomingRanges(
     lines: string[] | undefined,
     ranges: vscode.Range[] | undefined,
@@ -839,6 +887,13 @@ export class CallRelationModel {
     private cts = new vscode.CancellationTokenSource();
     private readonly inflightIn = new Map<string, Promise<void>>();
     private readonly inflightOut = new Map<string, Promise<void>>();
+    /** workspaceGen captured when an inflight side fetch started. */
+    private readonly inflightInGen = new Map<string, number>();
+    private readonly inflightOutGen = new Map<string, number>();
+    /** Bumped on any file edit. Side caches stay visible but are stale until this matches. */
+    private workspaceGen = 0;
+    private readonly incomingAt = new Map<string, number>();
+    private readonly outgoingAt = new Map<string, number>();
     /** Neighbor prefetch is async; the extension host is still one thread. */
     private prefetchBusy = false;
     /** Direct bases by type identity; dropped on any file change. */
@@ -927,6 +982,11 @@ export class CallRelationModel {
         this.fileGen.clear();
         this.inflightIn.clear();
         this.inflightOut.clear();
+        this.inflightInGen.clear();
+        this.inflightOutGen.clear();
+        this.incomingAt.clear();
+        this.outgoingAt.clear();
+        this.workspaceGen++;
         this.baseTypesCache.clear();
         this.ancestorCache.clear();
         this.heritageFileTail.clear();
@@ -1029,11 +1089,22 @@ export class CallRelationModel {
     private sideList(item: vscode.CallHierarchyItem, dir: -1 | 1): vscode.CallHierarchyItem[] | undefined {
         const keys = this.cacheKeysFor(item);
         const cache = dir < 0 ? this.incoming : this.outgoing;
+        const stamps = dir < 0 ? this.incomingAt : this.outgoingAt;
+        const gen = this.workspaceGen;
         let raw: vscode.CallHierarchyItem[] | undefined;
+        let rawFresh = false;
         for (const key of keys) {
             const list = cache.get(key);
-            if (list && (!raw || list.length > raw.length)) {
+            if (!list) {
+                continue;
+            }
+            const isFresh = stamps.get(key) === gen;
+            if (rawFresh && !isFresh) {
+                continue;
+            }
+            if ((isFresh && !rawFresh) || !raw || list.length > raw.length) {
                 raw = list;
+                rawFresh = isFresh;
             }
         }
         let extra: vscode.CallHierarchyItem[] | undefined;
@@ -1232,31 +1303,20 @@ export class CallRelationModel {
     invalidateUri(uri: vscode.Uri): void {
         const u = uri.toString();
         this.fileGen.set(u, (this.fileGen.get(u) ?? 0) + 1);
-        for (const [key, item] of [...this.items]) {
+        // Any edit can add or remove a caller. Keep the lists on screen, but
+        // stamp them stale so the next show / focus / + refetches instead of
+        // filtering callers out and then treating the short list as final.
+        this.workspaceGen++;
+        for (const [key, item] of this.items) {
             if (item.uri.toString() !== u) {
                 continue;
             }
-            this.items.delete(key);
-            this.incoming.delete(key);
-            this.outgoing.delete(key);
+            this.preparedKeys.delete(key);
             this.ownerKeyByItem.delete(key);
-        }
-        for (const [key, list] of [...this.incoming]) {
-            this.incoming.set(key, list.filter(item => item.uri.toString() !== u));
-        }
-        for (const [key, list] of [...this.outgoing]) {
-            this.outgoing.set(key, list.filter(item => item.uri.toString() !== u));
-        }
-        for (const [key, list] of [...this.superOutgoing]) {
-            this.superOutgoing.set(key, list.filter(item => item.uri.toString() !== u));
-        }
-        for (const key of [...this.callSites.keys()]) {
-            if (key.includes(u)) {
-                this.callSites.delete(key);
-            }
         }
         this.baseTypesCache.clear();
         this.ancestorCache.clear();
+        this.semanticLegendCache.delete(u);
         this.centerSnaps.clear();
     }
 
@@ -1351,6 +1411,11 @@ export class CallRelationModel {
         const dst = cache.get(toKey);
         if (!dst || dst.length < src.length) {
             cache.set(toKey, src);
+            const stamps = cache === this.incoming ? this.incomingAt : this.outgoingAt;
+            const stamp = stamps.get(fromKey);
+            if (stamp !== undefined) {
+                stamps.set(toKey, stamp);
+            }
         }
         this.aliasCallSites(fromKey, toKey);
     }
@@ -1391,17 +1456,29 @@ export class CallRelationModel {
         return [...keys];
     }
 
-    private cacheSides(
+    /** Authoritative side write. A newer generation is left in place. */
+    private commitSides(
         cache: Map<string, vscode.CallHierarchyItem[]>,
+        stamps: Map<string, number>,
         keys: readonly string[],
-        items: vscode.CallHierarchyItem[]
+        items: vscode.CallHierarchyItem[],
+        stamp: number
     ): void {
         for (const k of keys) {
-            const cur = cache.get(k);
-            if (!cur || cur.length < items.length) {
-                cache.set(k, items);
+            const cur = stamps.get(k);
+            if (cur !== undefined && cur > stamp && cache.has(k)) {
+                continue;
             }
+            cache.set(k, items);
+            stamps.set(k, stamp);
         }
+    }
+
+    private sideFresh(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {
+        const cache = dir < 0 ? this.incoming : this.outgoing;
+        const stamps = dir < 0 ? this.incomingAt : this.outgoingAt;
+        const gen = this.workspaceGen;
+        return this.cacheKeysFor(item).some(key => cache.has(key) && stamps.get(key) === gen);
     }
 
     private aliasCallSites(fromKey: string, toKey: string): void {
@@ -1429,16 +1506,21 @@ export class CallRelationModel {
 
     /** Drop cached sides so a class References visit cannot starve constructor Call. */
     private forgetSides(item: vscode.CallHierarchyItem): void {
-        const key = itemKey(item);
-        this.incoming.delete(key);
-        this.outgoing.delete(key);
-        this.inflightIn.delete(key);
-        this.inflightOut.delete(key);
-        this.preparedKeys.delete(key);
-        const prefix = `${key}\0`;
-        for (const siteKey of [...this.callSites.keys()]) {
-            if (siteKey.startsWith(prefix)) {
-                this.callSites.delete(siteKey);
+        for (const key of this.cacheKeysFor(item)) {
+            this.incoming.delete(key);
+            this.outgoing.delete(key);
+            this.incomingAt.delete(key);
+            this.outgoingAt.delete(key);
+            this.inflightIn.delete(key);
+            this.inflightOut.delete(key);
+            this.inflightInGen.delete(key);
+            this.inflightOutGen.delete(key);
+            this.preparedKeys.delete(key);
+            const prefix = `${key}\0`;
+            for (const siteKey of [...this.callSites.keys()]) {
+                if (siteKey.startsWith(prefix)) {
+                    this.callSites.delete(siteKey);
+                }
             }
         }
     }
@@ -1652,6 +1734,7 @@ export class CallRelationModel {
             }
             this.paintCenterNow(early || this.stubCenterItem(uri, position, name), seq, 'reference');
         }
+        const refGen = this.workspaceGen;
         const refs = await this.execLsp<vscode.Location[]>(
             seq,
             'vscode.executeReferenceProvider',
@@ -1666,7 +1749,7 @@ export class CallRelationModel {
             return undefined;
         }
         if (this.root && this.relationMode === 'reference' && itemKey(this.root) === itemKey(root)
-            && this.incoming.has(itemKey(root))) {
+            && this.incomingAt.get(itemKey(root)) === this.workspaceGen) {
             this.prevRoot = undefined;
             this.incomingHint = undefined;
             return { graph: this.buildGraph(), seq };
@@ -1705,6 +1788,7 @@ export class CallRelationModel {
             if (!this.isCurrent(seq)) {
                 return undefined;
             }
+            const found: { item: vscode.CallHierarchyItem; range: vscode.Range }[] = [];
             await Promise.all(locations.slice(i, i + chunk).map(async loc => {
                 if (isLibPath(loc.uri.fsPath)) {
                     return;
@@ -1727,14 +1811,17 @@ export class CallRelationModel {
                         new vscode.Range(0, 0, 0, 0),
                         new vscode.Range(0, 0, 0, 0)
                     );
-                const key = itemKey(caller);
+                found.push({ item: caller, range: loc.range });
+            }));
+            for (const row of found) {
+                const key = itemKey(row.item);
                 const group = groups.get(key);
                 if (group) {
-                    group.sites.push(loc.range);
-                    return;
+                    group.sites.push(row.range);
+                    continue;
                 }
-                groups.set(key, { item: caller, sites: [loc.range] });
-            }));
+                groups.set(key, { item: row.item, sites: [row.range] });
+            }
         }
         const callers: vscode.CallHierarchyItem[] = [];
         for (const group of groups.values()) {
@@ -1742,7 +1829,7 @@ export class CallRelationModel {
             callers.push(this.items.get(key)!);
             this.rememberCallSite(rootKey, -1, group.item, group.item.uri, group.sites, root.name);
         }
-        this.incoming.set(rootKey, callers);
+        this.commitSides(this.incoming, this.incomingAt, [rootKey], callers, refGen);
         const graph = opts?.lean
             ? this.buildGraph()
             : await this.buildVisible(seq);
@@ -1989,10 +2076,10 @@ export class CallRelationModel {
         if (this.root && itemKey(this.root) === itemKey(next) && this.relationMode === 'call') {
             this.prevRoot = undefined;
             this.incomingHint = undefined;
-            if (this.openedFromCallSite(uri, position, next) && this.sideEmpty(next, -1)) {
+            if (this.openedFromCallSite(uri, position, next) && this.sideFresh(next, -1) && this.sideEmpty(next, -1)) {
                 return this.recenterViaCallerOutgoing(uri, position, seqPrepare, t0, next, next.name);
             }
-            if (this.incoming.has(itemKey(next)) && this.outgoing.has(itemKey(next))) {
+            if (this.sideFresh(next, -1) && this.sideFresh(next, 1)) {
                 costLog('loadRoot same', Date.now() - t0, itemLabel(next));
                 return { graph: this.buildGraph(), seq: seqPrepare };
             }
@@ -2173,13 +2260,24 @@ export class CallRelationModel {
         this.hopBusy.add(nodeId);
         this.collapseLock.delete(nodeId);
         try {
-            await this.awaitPeekedSide(item, node.itemKey, node.hop < 0 ? -1 : node.hop > 0 ? 1 : 0, seq);
+            const dir: -1 | 1 | 0 = node.hop < 0 ? -1 : node.hop > 0 ? 1 : 0;
+            await this.awaitPeekedSide(item, node.itemKey, dir, seq);
             if (!this.isCurrent(seq)) {
                 costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
                 return undefined;
             }
             if (this.collapseLock.has(nodeId)) {
                 costLog('expandHop collapsed', Date.now() - t0, `${node.name} hop=${node.hop}`);
+                return undefined;
+            }
+            if (dir <= 0 && !this.sideFresh(item, -1)) {
+                await this.ensureIncoming(item, seq);
+            }
+            if (dir >= 0 && !this.sideFresh(item, 1)) {
+                await this.ensureOutgoing(item, seq);
+            }
+            if (!this.isCurrent(seq) || this.collapseLock.has(nodeId)) {
+                costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
                 return undefined;
             }
             this.expanded.add(nodeId);
@@ -3040,14 +3138,15 @@ export class CallRelationModel {
             childNode.cyclic = cyclic;
             childNode.expanded = opened;
             childNode.hopCapped = Math.abs(hop) >= CALL_MAX_HOP;
+            const sideCache = dir < 0 ? this.incoming : this.outgoing;
+            const sideCached = this.cacheKeysFor(child).some(k => sideCache.has(k));
             childNode.expandable = !cyclic && !childNode.hopCapped && this.canExpand(child, dir);
             childNode.prefetching = !opened
                 && !cyclic
-                && !childNode.expandable
+                && !childNode.hopCapped
                 && this.prefetchActive
-                && Math.abs(hop) < CALL_MAX_HOP
-                && !isLibPath(child.uri.fsPath)
-                && !this.cacheKeysFor(child).some(k => (dir < 0 ? this.incoming : this.outgoing).has(k));
+                && !sideCached
+                && !isLibPath(child.uri.fsPath);
             childNode.compact = compact;
             nodes.push(childNode);
             if (dir < 0) {
@@ -3196,7 +3295,7 @@ export class CallRelationModel {
         }
     }
 
-    /** + only waits for an in-flight peek; it does not prepare or fetch again. */
+    /** + waits for an in-flight peek, then fetches when that side is missing or stale. */
     private async awaitPeekedSide(
         item: vscode.CallHierarchyItem,
         graphKey: string,
@@ -3234,9 +3333,15 @@ export class CallRelationModel {
     }
 
     private async ensureIncoming(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
-        await this.ensureCached(this.incoming, this.inflightIn, item, seq, (key, fetchSeq) => (
-            this.fetchIncoming(item, key, fetchSeq)
-        ));
+        await this.ensureCached(
+            this.incoming,
+            this.inflightIn,
+            this.inflightInGen,
+            item,
+            seq,
+            (key, fetchSeq) => this.fetchIncoming(item, key, fetchSeq),
+            key => this.incomingAt.get(key) === this.workspaceGen
+        );
         if (!this.isCurrent(seq)) {
             return;
         }
@@ -3255,33 +3360,45 @@ export class CallRelationModel {
     }
 
     private async ensureOutgoing(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
-        return this.ensureCached(this.outgoing, this.inflightOut, item, seq, (key, fetchSeq) => (
-            this.fetchOutgoing(item, key, fetchSeq)
-        ));
+        return this.ensureCached(
+            this.outgoing,
+            this.inflightOut,
+            this.inflightOutGen,
+            item,
+            seq,
+            (key, fetchSeq) => this.fetchOutgoing(item, key, fetchSeq),
+            key => this.outgoingAt.get(key) === this.workspaceGen
+        );
     }
 
     private async ensureCached(
         cache: Map<string, vscode.CallHierarchyItem[]>,
         inflight: Map<string, Promise<void>>,
+        inflightGen: Map<string, number>,
         item: vscode.CallHierarchyItem,
         seq: number,
-        fetch: (key: string, fetchSeq: number) => Promise<void>
+        fetch: (key: string, fetchSeq: number) => Promise<void>,
+        fresh: (key: string) => boolean,
+        attempt = 0
     ): Promise<void> {
         if (!this.isCurrent(seq)) {
             return;
         }
         const key = this.remember(item);
-        if (cache.has(key)) {
+        if (cache.has(key) && fresh(key)) {
             return;
         }
+        const gen = this.workspaceGen;
         let pending = inflight.get(key);
-        if (!pending) {
+        if (!pending || inflightGen.get(key) !== gen) {
             pending = fetch(key, seq).finally(() => {
                 if (inflight.get(key) === pending) {
                     inflight.delete(key);
+                    inflightGen.delete(key);
                 }
             });
             inflight.set(key, pending);
+            inflightGen.set(key, gen);
         }
         let sub: vscode.Disposable | undefined;
         const cancelled = new Promise<void>(resolve => {
@@ -3296,10 +3413,12 @@ export class CallRelationModel {
         } finally {
             sub?.dispose();
         }
-        if (cache.has(key) || !this.isCurrent(seq)) {
+        if (!this.isCurrent(seq) || (cache.has(key) && fresh(key))) {
             return;
         }
-        return this.ensureCached(cache, inflight, item, seq, fetch);
+        if (!cache.has(key) && attempt < 1 && this.workspaceGen === gen) {
+            return this.ensureCached(cache, inflight, inflightGen, item, seq, fetch, fresh, attempt + 1);
+        }
     }
 
     private fileRev(uri: vscode.Uri): number {
@@ -3462,7 +3581,14 @@ export class CallRelationModel {
         let extFast = 0;
         const tClassify = Date.now();
         const chunk = 12;
+        type MergeHit = {
+            caller: vscode.CallHierarchyItem;
+            range: vscode.Range;
+            depth: number;
+            external: boolean;
+        };
         for (let i = 0; i < locations.length; i += chunk) {
+            const hits: MergeHit[] = [];
             await Promise.all(locations.slice(i, i + chunk).map(async loc => {
                 if (isLibPath(loc.uri.fsPath) || this.isDeclSite(item, loc)) {
                     return;
@@ -3498,7 +3624,11 @@ export class CallRelationModel {
                     return;
                 }
                 const lineText = lines[Math.min(loc.range.start.line, lines.length - 1)] || '';
-                if (isParentOrDeclIncomingLine(lineText, ident) || !identCall.test(lineText)) {
+                if (!identCall.test(lineText)) {
+                    return;
+                }
+                const use = incomingUseAt(lineText, ident, loc.range.start.character);
+                if (use === 'drop') {
                     return;
                 }
                 lineHits++;
@@ -3506,7 +3636,7 @@ export class CallRelationModel {
                 if (!enc) {
                     return;
                 }
-                const thisDispatch = isThisDispatchLine(lineText, ident);
+                const thisDispatch = use === 'this';
                 const kind = thisDispatch
                     ? await this.classifyOverrideCaller(
                         enc,
@@ -3531,18 +3661,33 @@ export class CallRelationModel {
                 if (fromKey === key || identFromToken(caller.name) === ident) {
                     return;
                 }
-                const group = groups.get(fromKey);
-                if (group) {
-                    group.sites.push(loc.range);
-                    return;
-                }
-                groups.set(fromKey, {
-                    item: caller,
-                    sites: [loc.range],
+                hits.push({
+                    caller,
+                    range: loc.range,
                     depth: kind.depth,
                     external: kind.kind === 'external'
                 });
             }));
+            for (const hit of hits) {
+                const fromKey = itemKey(hit.caller);
+                const group = groups.get(fromKey);
+                if (group) {
+                    group.sites.push(hit.range);
+                    if (!hit.external) {
+                        group.external = false;
+                        if (hit.depth < group.depth) {
+                            group.depth = hit.depth;
+                        }
+                    }
+                    continue;
+                }
+                groups.set(fromKey, {
+                    item: hit.caller,
+                    sites: [hit.range],
+                    depth: hit.depth,
+                    external: hit.external
+                });
+            }
         }
         if (!groups.size || this.cacheEpoch !== epoch) {
             costLog(
@@ -3589,7 +3734,11 @@ export class CallRelationModel {
         if (/\bstatic\b/.test(lines[idx] || '')) {
             return true;
         }
-        return idx > 0 && /\bstatic\b/.test(lines[idx - 1] || '');
+        if (idx <= 0) {
+            return false;
+        }
+        const prev = lines[idx - 1] || '';
+        return /\bstatic\b/.test(prev) && !/[;{}]\s*(?:\/\/.*)?$/.test(prev);
     }
 
     private async nameTokenIsStatic(item: vscode.CallHierarchyItem): Promise<boolean> {
@@ -3800,7 +3949,8 @@ export class CallRelationModel {
                 const start = Math.min(Math.max(0, range.start.line), doc.lineCount - 1);
                 const end = Math.min(Math.max(start, range.end.line), doc.lineCount - 1);
                 for (let line = start; line <= end; line++) {
-                    if (isThisDispatchLine(doc.lineAt(line).text, ident)) {
+                    const column = line === range.start.line ? range.start.character : 0;
+                    if (incomingUseAt(doc.lineAt(line).text, ident, column) === 'this') {
                         return true;
                     }
                 }
@@ -4098,7 +4248,8 @@ export class CallRelationModel {
             uri,
             enc.selectionRange.start
         );
-        const caller = prepared?.[0];
+        const pos = enc.selectionRange.start;
+        const caller = (prepared || []).find(it => rangeContains(it.range, pos)) || prepared?.[0];
         if (!caller || isArrowLikeName(caller.name)) {
             return undefined;
         }
@@ -4127,6 +4278,7 @@ export class CallRelationModel {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
         const rev = this.fileRev(item.uri);
+        const gen = this.workspaceGen;
         const tResolve = Date.now();
         const subject = await this.resolveForHierarchy(item);
         costLog('incoming resolve', Date.now() - tResolve, itemLabel(item));
@@ -4141,7 +4293,7 @@ export class CallRelationModel {
             subject
         );
         costLog('incoming lsp', Date.now() - tLsp, `${itemLabel(item)} n=${calls?.length ?? 0}`);
-        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
+        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev || this.workspaceGen !== gen) {
             costLog('incoming dropped', Date.now() - t0, itemLabel(item));
             return;
         }
@@ -4187,17 +4339,17 @@ export class CallRelationModel {
         }
         costLog('incoming sites', Date.now() - tSites, `${itemLabel(item)} n=${items.length} files=${lineCache.size}`);
         await this.mergeOverrideIncoming(subject, key, items, seen, ident);
-        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
+        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev || this.workspaceGen !== gen) {
             costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after merge`);
             return;
         }
         await this.rememberOwner(subject);
         await this.rememberOwners(items);
-        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
+        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev || this.workspaceGen !== gen) {
             costLog('incoming dropped', Date.now() - t0, `${itemLabel(item)} after owners`);
             return;
         }
-        this.cacheSides(this.incoming, [key, resolvedKey], items);
+        this.commitSides(this.incoming, this.incomingAt, [key, resolvedKey], items, gen);
         this.aliasCallSites(key, resolvedKey);
         costLog('incoming total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);
     }
@@ -4206,6 +4358,7 @@ export class CallRelationModel {
         const t0 = Date.now();
         const epoch = this.cacheEpoch;
         const rev = this.fileRev(item.uri);
+        const gen = this.workspaceGen;
         const tResolve = Date.now();
         const subject = await this.resolveForHierarchy(item);
         costLog('outgoing resolve', Date.now() - tResolve, itemLabel(item));
@@ -4220,12 +4373,12 @@ export class CallRelationModel {
             subject
         );
         costLog('outgoing lsp', Date.now() - tLsp, `${itemLabel(item)} n=${calls?.length ?? 0}`);
-        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
+        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev || this.workspaceGen !== gen) {
             costLog('outgoing dropped', Date.now() - t0, itemLabel(item));
             return;
         }
         if (!calls?.length) {
-            this.cacheSides(this.outgoing, [key, resolvedKey], []);
+            this.commitSides(this.outgoing, this.outgoingAt, [key, resolvedKey], [], gen);
             this.aliasCallSites(key, resolvedKey);
             costLog('outgoing total', Date.now() - t0, `${itemLabel(item)} n=0`);
             return;
@@ -4272,11 +4425,11 @@ export class CallRelationModel {
             this.rememberCallSite(key, 1, target, subject.uri, sites, target.name);
         }
         costLog('outgoing sites', Date.now() - tSites, `${itemLabel(item)} n=${items.length} derived=${derivedByIdent.size}`);
-        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev) {
+        if (this.cacheEpoch !== epoch || this.fileRev(item.uri) !== rev || this.workspaceGen !== gen) {
             costLog('outgoing dropped', Date.now() - t0, `${itemLabel(item)} after rewrite`);
             return;
         }
-        this.cacheSides(this.outgoing, [key, resolvedKey], items);
+        this.commitSides(this.outgoing, this.outgoingAt, [key, resolvedKey], items, gen);
         this.aliasCallSites(key, resolvedKey);
         costLog('outgoing total', Date.now() - t0, `${itemLabel(item)} n=${items.length}`);
     }
@@ -4285,14 +4438,17 @@ export class CallRelationModel {
         return this.sideList(item, dir)?.length ?? 0;
     }
 
-    /** +/- only after a peek: missing cache means no button, not an optimistic +. */
+    /** Missing or stale cache still shows +, so a click can fetch. A fresh empty side does not. */
     private canExpand(item: vscode.CallHierarchyItem, dir: -1 | 1): boolean {
         if (this.relationMode === 'reference' && this.root && itemKey(item) === itemKey(this.root) && dir > 0) {
             return false;
         }
-        const cache = dir < 0 ? this.incoming : this.outgoing;
-        if (!this.cacheKeysFor(item).some(k => cache.has(k))) {
+        if (isLibPath(item.uri.fsPath)) {
             return false;
+        }
+        const cache = dir < 0 ? this.incoming : this.outgoing;
+        if (!this.cacheKeysFor(item).some(k => cache.has(k)) || !this.sideFresh(item, dir)) {
+            return true;
         }
         return this.sideCount(item, dir) > 0;
     }
