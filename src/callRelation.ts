@@ -1,7 +1,11 @@
 import { AsyncLocalStorage } from 'async_hooks';
+import { createHash } from 'crypto';
+import * as fs from 'fs';
 import * as path from 'path';
+import type * as TS from 'typescript';
 import * as vscode from 'vscode';
 import { enclosingCallable, isAnonymousSymbolName, isCallablePropertyKind, isReferenceRelationKind, isUsableEnclosingName, symbolAtPosition } from './enclosingSymbol';
+import { onlySameNamedEnclosing, parseLocalSource } from './localSyntax';
 import { relationIndex } from './relationIndex';
 
 export type ChildSort = 'name' | 'order';
@@ -239,6 +243,17 @@ async function resolveValueType(
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sortLocations(locations: vscode.Location[]): void {
+    locations.sort((a, b) => {
+        const ua = a.uri.toString();
+        const ub = b.uri.toString();
+        if (ua !== ub) {
+            return ua < ub ? -1 : 1;
+        }
+        return a.range.start.line - b.range.start.line || a.range.start.character - b.range.start.character;
+    });
 }
 
 /** Split call-hierarchy fromRanges into super/base sites vs other uses of ident. */
@@ -960,6 +975,19 @@ interface ReachBody {
     uris: string[];
 }
 
+interface SerMergeHit {
+    c: SerItem;
+    r: SerRange;
+    d: number;
+    x: boolean;
+}
+
+/** One file's merge verdicts for one slot family. `0` = the location is not a kept caller. */
+interface MergeFileBody {
+    hits: Record<string, SerMergeHit | 0>;
+    uris: string[];
+}
+
 function serRange(range: vscode.Range | undefined, fallback?: vscode.Range): SerRange {
     const source = range ?? fallback;
     if (!source) {
@@ -1123,9 +1151,9 @@ function resultCount(value: unknown): number {
 /** One document-symbol query per file while several callers resolve together. */
 const documentSymbolInflight = new Map<string, Promise<FlatSymbol[] | undefined>>();
 
-const RELATION_COST = false;
+const RELATION_COST = true;
 /** Peek vs focus cache log. Output: Context View Relation. */
-const RELATION_PEEK = false;
+const RELATION_PEEK = true;
 let relationCost = RELATION_COST;
 let relationPeek = RELATION_PEEK;
 let relationCostChannel: vscode.OutputChannel | undefined;
@@ -1305,6 +1333,26 @@ type CenterIncomingScan = {
     /** typeRefKey, or `name\0TypeName`, → same verdict. */
     typeReach: Map<string, Promise<'yes' | 'no' | 'unknown'>>;
     rootName: string;
+};
+
+type MergeHit = {
+    caller: vscode.CallHierarchyItem;
+    range: vscode.Range;
+    depth: number;
+    external: boolean;
+};
+
+type MergeStats = {
+    files: number;
+    cached: number;
+    lineHits: number;
+    thisHits: number;
+    extFast: number;
+    extDrop: number;
+    /** Summed file-read time; batches run in parallel, so this can exceed wall time. */
+    readMs: number;
+    /** `super.ident()` inside the same-named override, settled by a local parse. */
+    superLocal: number;
 };
 
 export class CallRelationModel {
@@ -4560,48 +4608,23 @@ export class CallRelationModel {
             return false;
         }
         costLog('incoming merge slots', Date.now() - tSlots, `${itemLabel(item)} n=${slots.length}`);
-        const locSeen = new Set<string>();
-        const locations: vscode.Location[] = [];
-        const tRefs = Date.now();
-        for (const slot of slots) {
-            if (!this.sideGenerationLive(epoch, gen, rev, item.uri)) {
-                return false;
-            }
-            if (touch) {
+        if (touch) {
+            for (const slot of slots) {
                 touch.add(slot.uri.toString());
             }
-            const refs = await this.referencesForSlot(slot);
-            for (const loc of refs) {
-                if (touch) {
-                    touch.add(loc.uri.toString());
-                }
-                const k = `${loc.uri.toString()}\0${loc.range.start.line}\0${loc.range.start.character}`;
-                if (locSeen.has(k)) {
-                    continue;
-                }
-                locSeen.add(k);
-                locations.push(loc);
-            }
+        }
+        const locations = await this.familyCallLocations(item, slots, touch);
+        if (!this.sideGenerationLive(epoch, gen, rev, item.uri)) {
+            return false;
         }
         if (!locations.length) {
             costLog('incoming merge skip', Date.now() - t0, `${itemLabel(item)} no refs`);
             return false;
         }
-        costLog('incoming merge refs', Date.now() - tRefs, `${itemLabel(item)} locs=${locations.length} slots=${slots.length}`);
         const familyKeys = new Map(family.map(a => [typeRefKey(a.uri, a.symbol), a.depth]));
         const heritageShare = new Map<string, 'subtype' | 'sibling' | 'unrelated'>();
-        const groups = new Map<string, {
-            item: vscode.CallHierarchyItem;
-            sites: vscode.Range[];
-            depth: number;
-            external: boolean;
-        }>();
-        const identCall = new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`);
+        const groups = new Map<string, MergeGroup>();
         const lineCache = new Map<string, Promise<string[] | undefined>>();
-        const fileSeen = new Set<string>();
-        let lineHits = 0;
-        let thisHits = 0;
-        let extFast = 0;
         const tClassify = Date.now();
         const scan = this.mergeScan(
             item, key, resolvedKey, ident, items, seen, gen, epoch, rev, lineCache,
@@ -4618,31 +4641,36 @@ export class CallRelationModel {
         tClassify: number,
         t0: number
     ): Promise<boolean> {
-        const chunk = 12;
-        const ident = scan.ident;
-        const identCall = new RegExp(`\\b${escapeRegExp(ident)}\\s*\\(`);
+        const fileBatch = 32;
         const item = scan.subject;
         const key = scan.key;
         const locations = scan.locations;
         const groups = scan.groups;
         const items = scan.items;
         const seen = scan.seen;
-        const slots = scan.slots;
-        const familyKeys = scan.familyKeys;
-        const heritageShare = scan.heritageShare;
-        const lineCache = scan.lineCache;
-        const fileSeen = new Set<string>();
-        let lineHits = 0;
-        let thisHits = 0;
-        let extFast = 0;
-        let extDrop = 0;
-        type MergeHit = {
-            caller: vscode.CallHierarchyItem;
-            range: vscode.Range;
-            depth: number;
-            external: boolean;
+        const stamp = this.mergeFamilyStamp(scan);
+        const stats: MergeStats = {
+            files: 0,
+            cached: 0,
+            lineHits: 0,
+            thisHits: 0,
+            extFast: 0,
+            extDrop: 0,
+            readMs: 0,
+            superLocal: 0
         };
-        for (let i = scan.locIndex; i < locations.length; i += chunk) {
+        const statLine = () => `files=${stats.files} cached=${stats.cached} lineHits=${stats.lineHits} this=${stats.thisHits}`
+            + ` extFast=${stats.extFast} extDrop=${stats.extDrop} superLocal=${stats.superLocal} readMs=${stats.readMs}`;
+        let lastProgress = Date.now();
+        for (let i = scan.locIndex; i < locations.length;) {
+            if (Date.now() - lastProgress >= 5_000) {
+                lastProgress = Date.now();
+                costLog(
+                    'incoming merge progress',
+                    Date.now() - tClassify,
+                    `${itemLabel(item)} at=${i}/${locations.length} groups=${groups.size} ${statLine()}`
+                );
+            }
             if (!budget && !this.sideGenerationLive(scan.epoch, scan.gen, scan.rev, item.uri)) {
                 return false;
             }
@@ -4657,136 +4685,24 @@ export class CallRelationModel {
                 }
                 return true;
             }
-            const hits: MergeHit[] = [];
-            await Promise.all(locations.slice(i, i + chunk).map(async loc => {
-                if (isLibPath(loc.uri.fsPath) || this.isDeclSite(item, loc)) {
-                    return;
+            const batch: { uri: vscode.Uri; locs: vscode.Location[] }[] = [];
+            let next = i;
+            while (next < locations.length && batch.length < fileBatch) {
+                const uk = locations[next].uri.toString();
+                const locs: vscode.Location[] = [];
+                while (next < locations.length && locations[next].uri.toString() === uk) {
+                    locs.push(locations[next]);
+                    next++;
                 }
-                if (slots.some(slot => this.isDeclSite(
-                    new vscode.CallHierarchyItem(
-                        slot.method.kind,
-                        slot.method.name,
-                        '',
-                        slot.uri,
-                        slot.method.range,
-                        slot.method.selectionRange
-                    ),
-                    loc
-                ))) {
-                    return;
-                }
-                if (items.some(existing => (
-                    existing.uri.toString() === loc.uri.toString()
-                    && rangeContains(existing.range, loc.range.start)
-                ))) {
-                    return;
-                }
-                const uk = loc.uri.toString();
-                fileSeen.add(uk);
-                let pendingLines = lineCache.get(uk);
-                if (!pendingLines) {
-                    pendingLines = this.fileLines(loc.uri);
-                    lineCache.set(uk, pendingLines);
-                }
-                const lines = await pendingLines;
-                if (!lines?.length) {
-                    return;
-                }
-                const lineText = lines[Math.min(loc.range.start.line, lines.length - 1)] || '';
-                if (!identCall.test(lineText)) {
-                    return;
-                }
-                const use = incomingUseAt(lineText, ident, loc.range.start.character);
-                if (use === 'drop') {
-                    return;
-                }
-                const superCall = use === 'super' || isPrototypeSuperCall(lineText, ident, loc.range.start.character);
-                if (superCall) {
-                    const enc = await enclosingCallable(loc.uri, loc.range.start.line, ident);
-                    if (!enc) {
-                        return;
-                    }
-                    const owner = await this.containingTypeAt(enc.uri ?? loc.uri, enc.selectionRange.start);
-                    if (!owner) {
-                        extDrop++;
-                        return;
-                    }
-                    const reach = await this.typeReachesFamily(owner, familyKeys, scan.typeReach);
-                    if (reach !== 'yes') {
-                        extDrop++;
-                        return;
-                    }
-                    lineHits++;
-                    const caller = await this.prepareFromEnclosing(enc, loc.uri);
-                    if (!caller) {
-                        return;
-                    }
-                    const fromKey = itemKey(caller);
-                    if (fromKey === key || identFromToken(caller.name) === ident) {
-                        return;
-                    }
-                    hits.push({
-                        caller,
-                        range: loc.range,
-                        depth: 0,
-                        external: true
-                    });
-                    return;
-                }
-                if (use === 'external') {
-                    const reach = await this.receiverReachesFamily(
-                        scan,
-                        loc.uri,
-                        loc.range.start.line,
-                        lineText,
-                        loc.range.start.character,
-                        familyKeys
-                    );
-                    if (reach === 'no') {
-                        extDrop++;
-                        return;
-                    }
-                }
-                lineHits++;
-                const enc = await enclosingCallable(loc.uri, loc.range.start.line, ident);
-                if (!enc) {
-                    return;
-                }
-                const thisDispatch = use === 'this';
-                const kind = thisDispatch
-                    ? await this.classifyOverrideCaller(
-                        enc,
-                        loc.uri,
-                        familyKeys,
-                        heritageShare
-                    )
-                    : { kind: 'external' as const, depth: 0 };
-                if (thisDispatch) {
-                    thisHits++;
-                } else {
-                    extFast++;
-                }
-                if (kind === 'sibling' || kind === 'unrelated') {
-                    extDrop++;
-                    return;
-                }
-                const caller = await this.prepareFromEnclosing(enc, loc.uri);
-                if (!caller) {
-                    return;
-                }
-                const fromKey = itemKey(caller);
-                if (fromKey === key || identFromToken(caller.name) === ident) {
-                    return;
-                }
-                hits.push({
-                    caller,
-                    range: loc.range,
-                    depth: kind.depth,
-                    external: kind.kind === 'external' || kind.kind === 'subtype'
-                });
-            }));
+                batch.push({ uri: locs[0].uri, locs });
+            }
+            const perFile = await Promise.all(batch.map(file => this.classifyMergeFile(scan, stamp, file.uri, file.locs, stats)));
+            const hits = perFile.flat();
             for (const hit of hits) {
                 const fromKey = itemKey(hit.caller);
+                if (fromKey === key) {
+                    continue;
+                }
                 const group = groups.get(fromKey);
                 if (group) {
                     group.sites.push(hit.range);
@@ -4805,7 +4721,7 @@ export class CallRelationModel {
                     external: hit.external
                 });
             }
-            const next = i + chunk;
+            i = next;
             const more = next < locations.length;
             const have = items.length + this.acceptableMergeAdds(groups, seen);
             const stop = !!budget && (!this.isCurrent(budget.seq) || this.incomingShouldPause(have, budget, more));
@@ -4823,7 +4739,7 @@ export class CallRelationModel {
             costLog(
                 'incoming merge classify',
                 Date.now() - tClassify,
-                `${itemLabel(item)} groups=${groups.size} dropped locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast} extDrop=${extDrop}`
+                `${itemLabel(item)} groups=${groups.size} dropped locs=${locations.length} ${statLine()}`
             );
             return false;
         }
@@ -4831,10 +4747,228 @@ export class CallRelationModel {
         costLog(
             'incoming merge classify',
             Date.now() - tClassify,
-            `${itemLabel(item)} groups=${groups.size} locs=${locations.length} files=${fileSeen.size} lineHits=${lineHits} this=${thisHits} extFast=${extFast} extDrop=${extDrop}`
+            `${itemLabel(item)} groups=${groups.size} locs=${locations.length} ${statLine()}`
         );
         costLog('incoming merge total', Date.now() - t0, `${itemLabel(item)} added=${items.length} groups=${groups.size}`);
         return false;
+    }
+
+    /** Same verdicts need the same slots, family, and location source. */
+    private mergeFamilyStamp(scan: CenterIncomingScan): string {
+        const slots = scan.slots
+            .map(slot => {
+                const sel = slot.method.selectionRange?.start ?? slot.method.range.start;
+                return `${slot.uri.toString()}\0${sel.line}\0${sel.character}`;
+            })
+            .sort();
+        const raw = [scan.ident, ...slots, familyStamp(scan.familyKeys)].join('\n');
+        return createHash('sha1').update(raw).digest('hex').slice(0, 20);
+    }
+
+    /**
+     * Verdicts are stored per file. A file edit re-judges that file only; other
+     * files keep their stored callers. Filters that depend on the current
+     * subject or its call-hierarchy callers run outside the stored verdicts.
+     */
+    private async classifyMergeFile(
+        scan: CenterIncomingScan,
+        stamp: string,
+        uri: vscode.Uri,
+        locs: vscode.Location[],
+        stats: MergeStats
+    ): Promise<MergeHit[]> {
+        const item = scan.subject;
+        const slotItems = scan.slots.map(slot => new vscode.CallHierarchyItem(
+            slot.method.kind,
+            slot.method.name,
+            '',
+            slot.uri,
+            slot.method.range,
+            slot.method.selectionRange
+        ));
+        const uk = uri.toString();
+        const todo = locs.filter(loc => (
+            !isLibPath(loc.uri.fsPath)
+            && !this.isDeclSite(item, loc)
+            && !slotItems.some(slot => this.isDeclSite(slot, loc))
+            && !scan.items.some(existing => (
+                existing.uri.toString() === uk
+                && rangeContains(existing.range, loc.range.start)
+            ))
+        ));
+        if (!todo.length) {
+            return [];
+        }
+        stats.files++;
+        const locKey = (loc: vscode.Location) => `${loc.range.start.line}:${loc.range.start.character}`;
+        const index = relationIndex();
+        const id = `mfile\0${stamp}\0${uk}`;
+        const stored = await index.take<MergeFileBody>(id);
+        const table: Record<string, SerMergeHit | 0> = stored?.hits ? { ...stored.hits } : {};
+        const missing = todo.filter(loc => !(locKey(loc) in table));
+        if (!missing.length) {
+            stats.cached++;
+        } else {
+            const deps = new Set<string>([uk, ...(stored?.uris ?? [])]);
+            const wave = index.waveNow();
+            const identCall = new RegExp(`\\b${escapeRegExp(scan.ident)}\\s*\\(`);
+            const judged = await indexDeps.run(deps, async () => {
+                const tRead = Date.now();
+                const lines = await this.fileLines(uri);
+                stats.readMs += Date.now() - tRead;
+                if (!lines?.length) {
+                    return false;
+                }
+                let parsed: TS.SourceFile | undefined | null = null;
+                const local = (): TS.SourceFile | undefined => {
+                    if (parsed === null) {
+                        try {
+                            parsed = parseLocalSource(uri.fsPath, lines);
+                        } catch {
+                            parsed = undefined;
+                        }
+                    }
+                    return parsed;
+                };
+                for (const loc of missing) {
+                    const hit = await this.classifyMergeLoc(scan, loc, lines, identCall, stats, local);
+                    table[locKey(loc)] = hit
+                        ? { c: serItem(hit.caller), r: serRange(hit.range), d: hit.depth, x: hit.external }
+                        : 0;
+                }
+                return true;
+            });
+            if (!judged) {
+                return [];
+            }
+            const uris = [...deps];
+            await index.put(id, { hits: table, uris } satisfies MergeFileBody, uris, wave);
+        }
+        const out: MergeHit[] = [];
+        for (const loc of todo) {
+            const raw = table[locKey(loc)];
+            if (!raw) {
+                continue;
+            }
+            out.push({ caller: this.itemFromSer(raw.c), range: deRange(raw.r), depth: raw.d, external: raw.x });
+        }
+        return out;
+    }
+
+    private async classifyMergeLoc(
+        scan: CenterIncomingScan,
+        loc: vscode.Location,
+        lines: string[],
+        identCall: RegExp,
+        stats: MergeStats,
+        local: () => TS.SourceFile | undefined
+    ): Promise<MergeHit | undefined> {
+        const ident = scan.ident;
+        const familyKeys = scan.familyKeys;
+        const lineText = lines[Math.min(loc.range.start.line, lines.length - 1)] || '';
+        if (!identCall.test(lineText)) {
+            return undefined;
+        }
+        const use = incomingUseAt(lineText, ident, loc.range.start.character);
+        if (use === 'drop') {
+            return undefined;
+        }
+        const superCall = use === 'super' || isPrototypeSuperCall(lineText, ident, loc.range.start.character);
+        if (superCall) {
+            // Each override's `super.ident()` would otherwise cost one serialized document-symbol request.
+            const sf = local();
+            if (sf && onlySameNamedEnclosing(sf, loc.range.start.line, ident)) {
+                stats.superLocal++;
+                return undefined;
+            }
+            const enc = await enclosingCallable(loc.uri, loc.range.start.line, ident);
+            if (!enc) {
+                return undefined;
+            }
+            const owner = await this.containingTypeAt(enc.uri ?? loc.uri, enc.selectionRange.start);
+            if (!owner) {
+                stats.extDrop++;
+                return undefined;
+            }
+            const reach = await this.typeReachesFamily(owner, familyKeys, scan.typeReach);
+            if (reach !== 'yes') {
+                stats.extDrop++;
+                return undefined;
+            }
+            stats.lineHits++;
+            const caller = await this.prepareFromEnclosing(enc, loc.uri);
+            if (!caller || identFromToken(caller.name) === ident) {
+                return undefined;
+            }
+            return { caller, range: loc.range, depth: 0, external: true };
+        }
+        if (use === 'external') {
+            const reach = await this.receiverReachesFamily(
+                scan,
+                loc.uri,
+                loc.range.start.line,
+                lineText,
+                loc.range.start.character,
+                familyKeys
+            );
+            if (reach === 'no') {
+                stats.extDrop++;
+                return undefined;
+            }
+        }
+        stats.lineHits++;
+        const enc = await enclosingCallable(loc.uri, loc.range.start.line, ident);
+        if (!enc) {
+            return undefined;
+        }
+        const thisDispatch = use === 'this';
+        const kind = thisDispatch
+            ? await this.classifyOverrideCaller(enc, loc.uri, familyKeys, scan.heritageShare)
+            : { kind: 'external' as const, depth: 0 };
+        if (thisDispatch) {
+            stats.thisHits++;
+        } else {
+            stats.extFast++;
+        }
+        if (kind === 'sibling' || kind === 'unrelated') {
+            stats.extDrop++;
+            return undefined;
+        }
+        const caller = await this.prepareFromEnclosing(enc, loc.uri);
+        if (!caller || identFromToken(caller.name) === ident) {
+            return undefined;
+        }
+        return {
+            caller,
+            range: loc.range,
+            depth: kind.depth,
+            external: kind.kind === 'external' || kind.kind === 'subtype'
+        };
+    }
+
+    /** References of each slot, deduplicated and grouped by file so verdicts can be stored per file. */
+    private async familyCallLocations(
+        item: vscode.CallHierarchyItem,
+        slots: { uri: vscode.Uri; method: FlatSymbol }[],
+        touch?: Set<string>
+    ): Promise<vscode.Location[]> {
+        const t0 = Date.now();
+        const locSeen = new Set<string>();
+        const locations: vscode.Location[] = [];
+        for (const slot of slots) {
+            for (const loc of await this.referencesForSlot(slot)) {
+                touch?.add(loc.uri.toString());
+                const mark = `${loc.uri.toString()}\0${loc.range.start.line}\0${loc.range.start.character}`;
+                if (locSeen.has(mark)) {
+                    continue;
+                }
+                locSeen.add(mark);
+                locations.push(loc);
+            }
+        }
+        sortLocations(locations);
+        costLog('incoming merge refs', Date.now() - t0, `${itemLabel(item)} locs=${locations.length} slots=${slots.length}`);
+        return locations;
     }
 
     private sideGenerationLive(epoch: number, gen: number, rev: number, uri?: vscode.Uri): boolean {
@@ -5304,19 +5438,7 @@ export class CallRelationModel {
             const ancestors = family.filter(type => type.depth > 0);
             scan.slots = (await this.collectVirtualSlots(ancestors, ident))
                 .filter(slot => !isLibPath(slot.uri.fsPath));
-            const locSeen = new Set<string>();
-            const locations: vscode.Location[] = [];
-            for (const slot of scan.slots) {
-                for (const loc of await this.referencesForSlot(slot)) {
-                    const mark = `${loc.uri.toString()}\0${loc.range.start.line}\0${loc.range.start.character}`;
-                    if (locSeen.has(mark)) {
-                        continue;
-                    }
-                    locSeen.add(mark);
-                    locations.push(loc);
-                }
-            }
-            scan.locations = locations;
+            scan.locations = await this.familyCallLocations(subject, scan.slots);
             if (meta.phase === 'merge-setup') {
                 scan.phase = 'merge';
                 scan.locIndex = 0;
@@ -5403,6 +5525,14 @@ export class CallRelationModel {
             }
             return lines;
         }
+        // workspace.fs round-trips through the editor process; thousands of reference files make that the whole cost.
+        if (uri.scheme === 'file') {
+            try {
+                return (await fs.promises.readFile(uri.fsPath, 'utf8')).split(/\r\n|\n|\r/);
+            } catch {
+                // fall through to workspace.fs
+            }
+        }
         try {
             const bytes = await vscode.workspace.fs.readFile(uri);
             return new TextDecoder('utf8').decode(bytes).split(/\r\n|\n|\r/);
@@ -5457,8 +5587,14 @@ export class CallRelationModel {
         cacheKey: string
     ): Promise<'yes' | 'no' | 'unknown'> {
         const id = `recv\0${cacheKey}\0${familyStamp(familyKeys)}`;
+        const outer = indexDeps.getStore();
         const hit = await relationIndex().take<ReachBody>(id);
         if (hit?.v === 'yes' || hit?.v === 'no') {
+            if (outer) {
+                for (const dep of hit.uris || []) {
+                    outer.add(dep);
+                }
+            }
             return hit.v;
         }
         const deps = new Set<string>([uri.toString()]);
@@ -5471,6 +5607,11 @@ export class CallRelationModel {
             familyKeys,
             typeReach
         ));
+        if (outer) {
+            for (const dep of deps) {
+                outer.add(dep);
+            }
+        }
         if (verdict === 'yes' || verdict === 'no') {
             const uris = [...deps];
             await relationIndex().put(id, { v: verdict, uris } satisfies ReachBody, uris, wave);
@@ -6319,6 +6460,7 @@ export class CallRelationModel {
         uri: vscode.Uri,
         position: vscode.Position
     ): Promise<{ uri: vscode.Uri; symbol: FlatSymbol } | undefined> {
+        noteIndexDep(uri);
         const flat = await this.documentSymbols(uri);
         if (!flat) {
             return undefined;

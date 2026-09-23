@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 
 const SETTING = 'contextView.callRelation.indexMemoryMB';
@@ -63,8 +64,15 @@ export async function contentRev(uri: string): Promise<string> {
         return cached.rev;
     }
     try {
-        const stat = await vscode.workspace.fs.stat(parsed);
-        const rev = `fs:${stat.mtime}:${stat.size}`;
+        let rev: string;
+        if (parsed.scheme === 'file') {
+            // Local stat; workspace.fs.stat round-trips through the editor process per file.
+            const stat = await fs.promises.stat(parsed.fsPath);
+            rev = `fs:${Math.trunc(stat.mtimeMs)}:${stat.size}`;
+        } else {
+            const stat = await vscode.workspace.fs.stat(parsed);
+            rev = `fs:${stat.mtime}:${stat.size}`;
+        }
         diskRevCache.set(uri, { rev, at: now });
         return rev;
     } catch {
