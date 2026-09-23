@@ -3143,13 +3143,22 @@ function openCallSite(edge, index) {
 }
 
 const SITE_MENU_MIN = 300;
-const SITE_MENU_MAX = SITE_MENU_MIN * 2;
+const SITE_MENU_MAX = 1024;
+
+function textBlockWidth(el) {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const width = range.getBoundingClientRect().width;
+    range.detach();
+    return width;
+}
 
 function fitSiteMenu(menu) {
-    menu.style.width = SITE_MENU_MIN + 'px';
+    const sr = (stage || document.body).getBoundingClientRect();
+    const cap = Math.max(SITE_MENU_MIN, Math.min(SITE_MENU_MAX, Math.floor(sr.width - 16)));
     let content = 0;
     menu.querySelectorAll('.cr-site-loc, .cr-site-snippet').forEach(el => {
-        content = Math.max(content, el.scrollWidth);
+        content = Math.max(content, textBlockWidth(el));
     });
     const item = menu.querySelector('.cr-site-item');
     const itemStyle = item ? getComputedStyle(item) : null;
@@ -3159,7 +3168,8 @@ function fitSiteMenu(menu) {
         : 0;
     const menuPad = (parseFloat(menuStyle.paddingLeft) || 0) + (parseFloat(menuStyle.paddingRight) || 0);
     const border = menu.offsetWidth - menu.clientWidth;
-    const width = Math.max(SITE_MENU_MIN, Math.min(SITE_MENU_MAX, Math.ceil(content + itemPad + menuPad + border)));
+    const width = Math.max(SITE_MENU_MIN, Math.min(cap, Math.ceil(content + itemPad + menuPad + border)));
+    menu.style.maxWidth = cap + 'px';
     menu.style.width = width + 'px';
 }
 
