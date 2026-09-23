@@ -1151,9 +1151,9 @@ function resultCount(value: unknown): number {
 /** One document-symbol query per file while several callers resolve together. */
 const documentSymbolInflight = new Map<string, Promise<FlatSymbol[] | undefined>>();
 
-const RELATION_COST = true;
+const RELATION_COST = false;
 /** Peek vs focus cache log. Output: Context View Relation. */
-const RELATION_PEEK = true;
+const RELATION_PEEK = false;
 let relationCost = RELATION_COST;
 let relationPeek = RELATION_PEEK;
 let relationCostChannel: vscode.OutputChannel | undefined;
