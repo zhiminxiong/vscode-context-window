@@ -499,15 +499,13 @@ body.vscode-high-contrast {
     background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
 }
 
-.cr-centers-item.is-current {
+.cr-centers-item.is-current,
+.cr-centers-item.is-current:hover {
     cursor: default;
     flex-shrink: 0;
     overflow: visible;
     color: var(--vscode-breadcrumb-focusForeground, var(--vscode-foreground));
-}
-
-.cr-centers-item.is-current:hover {
-    background: transparent;
+    background: color-mix(in srgb, var(--vscode-foreground) 10%, var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)));
 }
 
 .cr-centers-overflow {

@@ -88,12 +88,11 @@ body.has-jump-trail #container {
     color: var(--vscode-breadcrumb-focusForeground, var(--vscode-foreground));
     background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
 }
-.jump-trail-current {
+.jump-trail-current,
+.jump-trail-current:hover {
     cursor: default;
     color: var(--vscode-breadcrumb-focusForeground, var(--vscode-foreground));
-}
-.jump-trail-current:hover {
-    background: transparent;
+    background: color-mix(in srgb, var(--vscode-foreground) 10%, var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)));
 }
 .jump-trail-overflow {
     letter-spacing: 1px;
