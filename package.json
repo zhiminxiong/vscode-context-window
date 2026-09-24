@@ -368,7 +368,7 @@
         "contextView.contextWindow.useDefaultTokenizer": {
           "type": "boolean",
           "default": false,
-          "description": "Using the default tokenizer of Monaco Editor.\nTake effect when VSCode starts."
+          "description": "Deprecated. Off by default.\nContext Window now uses the same TextMate and semantic tokenization as VS Code. Enabling this falls back to Monaco Editor's default tokenizer.\nTakes effect when VS Code starts."
         },
         "contextView.contextWindow.fixToken": {
           "type": "boolean",
