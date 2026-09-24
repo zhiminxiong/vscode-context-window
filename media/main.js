@@ -585,10 +585,22 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
                     // data 异步到达：写入 data（并以其权威 legend 为准）后通知 Monaco 重取。
                     // legend 已在内容阶段就位、styling 正确，故这里只需 fire。
+                    // Monaco 只在首次用到 provider 时读一次 legend。那一刻语言服务可能还没就绪、legend 为空，
+                    // 之后 data 带着完整 legend 到来也不会被采用；此时要换一个新 provider 让它重读。
+                    let seenLegendKey = null;
+                    let rebindSemanticProvider = null;
+                    const legendKey = (legend) => legend
+                        ? JSON.stringify([legend.tokenTypes || [], legend.tokenModifiers || []])
+                        : '';
+
                     function applySemanticTokens(semantic) {
                         if (semantic && Array.isArray(semantic.data) && semantic.legend && Array.isArray(semantic.legend.tokenTypes)) {
                             semanticState.legend = semantic.legend;
                             semanticState.data = semantic.data;
+                            if (rebindSemanticProvider && seenLegendKey !== null && seenLegendKey !== legendKey(semantic.legend)) {
+                                rebindSemanticProvider();
+                                return;
+                            }
                         } else {
                             // 无语义 data（未装语言扩展 / 不支持 / 文档未纳入分析）：清空 data，回退到基础着色
                             semanticState.data = null;
@@ -606,23 +618,29 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             'javascript', 'typescript', 'cpp', 'c', 'csharp', 'go'
                         ];
 
-                        const semanticProvider = {
-                            onDidChange: semanticTokensEmitter.event,
-                            getLegend() {
-                                return semanticState.legend || { tokenTypes: [], tokenModifiers: [] };
-                            },
-                            provideDocumentSemanticTokens() {
-                                if (!semanticState.data || !semanticState.legend) {
-                                    return null;
-                                }
-                                return { data: new Uint32Array(semanticState.data), resultId: undefined };
-                            },
-                            releaseDocumentSemanticTokens() {}
+                        let semanticRegistrations = [];
+                        rebindSemanticProvider = () => {
+                            semanticRegistrations.forEach(d => d.dispose());
+                            seenLegendKey = null;
+                            const semanticProvider = {
+                                onDidChange: semanticTokensEmitter.event,
+                                getLegend() {
+                                    const legend = semanticState.legend || { tokenTypes: [], tokenModifiers: [] };
+                                    seenLegendKey = legendKey(semanticState.legend);
+                                    return legend;
+                                },
+                                provideDocumentSemanticTokens() {
+                                    if (!semanticState.data || !semanticState.legend) {
+                                        return null;
+                                    }
+                                    return { data: new Uint32Array(semanticState.data), resultId: undefined };
+                                },
+                                releaseDocumentSemanticTokens() {}
+                            };
+                            semanticRegistrations = semanticLanguages.map(lang =>
+                                monaco.languages.registerDocumentSemanticTokensProvider(lang, semanticProvider));
                         };
-
-                        semanticLanguages.forEach(lang => {
-                            monaco.languages.registerDocumentSemanticTokensProvider(lang, semanticProvider);
-                        });
+                        rebindSemanticProvider();
                     }
 
                     // 注册注释/字符串感知的同词高亮 provider（occurrencesHighlight）。
