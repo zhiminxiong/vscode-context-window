@@ -5,6 +5,7 @@ import * as path from 'path';
 import type * as TS from 'typescript';
 import * as vscode from 'vscode';
 import { enclosingCallable, isAnonymousSymbolName, isCallablePropertyKind, isReferenceRelationKind, isUsableEnclosingName, symbolAtPosition } from './enclosingSymbol';
+import { debugLog } from './log';
 import { onlySameNamedEnclosing, parseLocalSource } from './localSyntax';
 import { relationIndex } from './relationIndex';
 
@@ -1151,33 +1152,12 @@ function resultCount(value: unknown): number {
 /** One document-symbol query per file while several callers resolve together. */
 const documentSymbolInflight = new Map<string, Promise<FlatSymbol[] | undefined>>();
 
-const RELATION_COST = false;
-/** Peek vs focus cache log. Output: Context View Relation. */
-const RELATION_PEEK = false;
-let relationCost = RELATION_COST;
-let relationPeek = RELATION_PEEK;
-let relationCostChannel: vscode.OutputChannel | undefined;
-
 function costLog(layer: string, ms: number, detail = ''): void {
-    if (!relationCost) {
-        return;
-    }
-    const line = `[relation cost] ${layer} ${ms}ms${detail ? ` ${detail}` : ''}`;
-    console.log(line);
-    relationCostChannel ??= vscode.window.createOutputChannel('Context View Relation');
-    relationCostChannel.appendLine(line);
-    relationCostChannel.show(true);
+    debugLog('relation', `cost ${layer} ${ms}ms${detail ? ` ${detail}` : ''}`);
 }
 
 function peekLog(layer: string, detail: string): void {
-    if (!relationPeek) {
-        return;
-    }
-    const line = `[relation peek] ${layer} ${detail}`;
-    console.log(line);
-    relationCostChannel ??= vscode.window.createOutputChannel('Context View Relation');
-    relationCostChannel.appendLine(line);
-    relationCostChannel.show(true);
+    debugLog('relation', `peek ${layer} ${detail}`);
 }
 
 function isLibPath(fsPath: string): boolean {

@@ -82,15 +82,20 @@
     },
     "commands": [
       {
+        "command": "contextView.toggleLogging",
+        "title": "Toggle Debug Log",
+        "category": "Context View"
+      },
+      {
         "command": "contextView.contextWindow.pin",
         "title": "Pin Current Context",
-        "icon": "$(pin)",
+        "icon": "media/pin.svg",
         "category": "Context View"
       },
       {
         "command": "contextView.contextWindow.unpin",
         "title": "Unpin Current Context",
-        "icon": "$(pinned)",
+        "icon": "media/pinned.svg",
         "category": "Context View"
       },
       {
@@ -288,6 +293,11 @@
     "configuration": {
       "title": "Context View",
       "properties": {
+        "contextView.logging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Write Context View debug logs (relation timing, webview, MCP) to the Context View output channel. Off by default. Toggle with \"Context View: Toggle Debug Log\"."
+        },
         "contextView.independentWindowAlwaysOnTop": {
           "type": "boolean",
           "default": false,

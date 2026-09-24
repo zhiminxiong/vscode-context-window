@@ -207,6 +207,63 @@ export function createUpdateEditorContent(ctx) {
         }
     }
 
+    function logBracketPaint() {
+        const cfg = window.vsCodeEditorConfiguration?.contextEditorCfg;
+        if (!cfg || !cfg.logging || !window.vscode || !editor) {
+            return;
+        }
+        setTimeout(() => {
+            const root = editor.getDomNode();
+            if (!root) {
+                return;
+            }
+            const cs = getComputedStyle(document.documentElement);
+            const colors = [];
+            for (let i = 1; i <= 6; i++) {
+                colors.push(i + '=' + cs.getPropertyValue('--vscode-editorBracketHighlight-foreground' + i).trim());
+            }
+            const lines = [
+                'enabled=' + (cfg.bracketPairColorization !== false)
+                    + ' independentPool=' + (cfg.independentColorPoolPerBracketType === true)
+                    + ' language=' + (editor.getModel()?.getLanguageId() || ''),
+                'background=' + cs.getPropertyValue('--vscode-editor-background').trim()
+                    + ' brackets=' + colors.join(' ')
+                    + ' unexpected=' + cs.getPropertyValue('--vscode-editorBracketHighlight-unexpectedBracket-foreground').trim()
+            ];
+            const want = { '[': 0, ']': 0, '(': 0, ')': 0, '{': 0, '}': 0 };
+            const spans = root.querySelectorAll('.view-line span');
+            for (let s = 0; s < spans.length; s++) {
+                const span = spans[s];
+                const text = span.textContent || '';
+                for (let c = 0; c < text.length; c++) {
+                    const ch = text[c];
+                    if (!(ch in want) || want[ch] >= 2) {
+                        continue;
+                    }
+                    want[ch]++;
+                    const style = getComputedStyle(span);
+                    let background = style.backgroundColor;
+                    let node = span;
+                    while (node && (!background || background === 'transparent' || background === 'rgba(0, 0, 0, 0)')) {
+                        node = node.parentElement;
+                        background = node ? getComputedStyle(node).backgroundColor : '';
+                    }
+                    lines.push(ch
+                        + ' class=' + span.className
+                        + ' color=' + style.color
+                        + ' background=' + background
+                        + ' opacity=' + style.opacity
+                        + ' fontSize=' + style.fontSize);
+                }
+            }
+            const missing = Object.keys(want).filter(ch => want[ch] === 0);
+            if (missing.length) {
+                lines.push('not in view: ' + missing.join(''));
+            }
+            window.vscode.postMessage({ type: 'debugLog', module: 'bracket', lines });
+        }, 10000);
+    }
+
     const updateEditorContent = function updateEditorContent(newContent, options) {
         //console.log('[definition] Updating editor content with options:', options);
         const {
@@ -295,6 +352,7 @@ export function createUpdateEditorContent(ctx) {
                 // 强制刷新 sticky scroll（跨渲染帧 disable→enable），更新顶部粘附行显示
                 refreshStickyScroll();
                 editor.layout();
+                logBracketPaint();
             }
 
             // const existingDecorations = editor.getDecorationsInRange(new monaco.Range(

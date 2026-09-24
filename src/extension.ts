@@ -7,6 +7,7 @@ import { isSingleFullLineSelection, registerLineNumberSymbolSelection } from './
 import { registerMcpToolPreview } from './mcp/preview';
 import { registerMcpHost } from './mcp/host';
 import { registerEditorLineBlame } from './editorLineBlame';
+import { disposeLogChannel, loggingEnabled, showLogChannel } from './log';
 
 function parseRelationLoc(arg?: { uri?: string; line?: number; character?: number }):
     { uri?: vscode.Uri; position?: vscode.Position } | undefined {
@@ -279,6 +280,21 @@ export function activate(context: vscode.ExtensionContext) {
     registerEditorLineBlame(context);
     registerMcpToolPreview(context);
     registerMcpHost(context);
+    context.subscriptions.push(
+        vscode.commands.registerCommand('contextView.toggleLogging', async () => {
+            const cfg = vscode.workspace.getConfiguration('contextView');
+            const next = !loggingEnabled();
+            await cfg.update('logging', next, vscode.ConfigurationTarget.Global);
+            if (next) {
+                showLogChannel();
+            }
+            vscode.window.setStatusBarMessage(
+                next ? 'Context View debug log: ON' : 'Context View debug log: OFF',
+                2000
+            );
+        }),
+        { dispose: disposeLogChannel }
+    );
 }
 
 /**

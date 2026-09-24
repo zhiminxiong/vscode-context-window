@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { debugLog } from '../log';
 
 /** One place to look for both the endpoint's status and what a model was sent. */
 
@@ -11,7 +12,7 @@ export function mcpChannel(): vscode.OutputChannel {
 
 export function mcpLog(message: string): void {
     const stamp = new Date().toISOString().slice(11, 19);
-    mcpChannel().appendLine(`[${stamp}] ${message}`);
+    debugLog('mcp', `${stamp} ${message}`);
 }
 
 export function disposeMcpChannel(): void {

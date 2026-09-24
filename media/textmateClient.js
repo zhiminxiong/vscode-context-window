@@ -46,9 +46,9 @@ export function setOnGrammarRegistered(cb) {
 }
 
 // 统一调试日志开关：默认关闭，排查问题（如 wasm/语法加载、provider 注册时序）时置为 true 即可恢复全部输出。
-const DEBUG = false;
 function log(...args) {
-    if (DEBUG) { console.log('[context-window]', ...args); }
+    const cfg = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
+    if (cfg && cfg.logging) { console.log('[context-view] [textmate]', ...args); }
 }
 
 // ===== 主题 scope 集合：用于挑选「主题能着色的最深 scope」=====

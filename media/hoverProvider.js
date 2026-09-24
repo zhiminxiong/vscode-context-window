@@ -16,11 +16,10 @@
 //   4) 调试日志：构造 reqId、收到回包、超时三处都打日志，便于定位链路问题。
 
 const HOVER_TIMEOUT_MS = 1500;
-const DEBUG = false; // 关闭调试日志（排障时改为 true 即可恢复）
-
 function dlog(...args) {
-    if (DEBUG) {
-        try { console.log('[hover]', ...args); } catch (_) { /* noop */ }
+    const cfg = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
+    if (cfg && cfg.logging) {
+        try { console.log('[context-view] [hover]', ...args); } catch (_) { /* noop */ }
     }
 }
 

@@ -45,10 +45,10 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
 
     // 统一调试日志开关：默认关闭，排查问题时置为 true 即可恢复所有调试输出，
     // 避免历史遗留的 [definition] 前缀散落各处且无法集中控制。
-    const DEBUG = false;
     function log(...args) {
-        if (DEBUG) {
-            console.log('[context-window]', ...args);
+        const cfg = window.vsCodeEditorConfiguration && window.vsCodeEditorConfiguration.contextEditorCfg;
+        if (cfg && cfg.logging) {
+            console.log('[context-view] [context]', ...args);
         }
     }
 

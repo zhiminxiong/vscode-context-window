@@ -4,6 +4,7 @@ import { Renderer, FileContentInfo, statFile, stampsEqual } from './renderer';
 import { resolveSemanticRules, resolveRawTokenColors } from './themeColorResolver';
 import { getGrammarMaps, getGrammarContent, getLanguageConfiguration } from './grammarRegistry';
 import { blameLine, blameLineDiff, openBlameDiff } from './lineBlame';
+import { debugLog, loggingEnabled } from './log';
 import { enclosingSymbolRange, relocateSymbolsByName } from './enclosingSymbol';
 import { collectCallerLocationsAt } from './findRelation';
 import { CacheKey, cacheKeyEquals, cacheKeyNone, createCacheKey } from './wordCacheKey';
@@ -170,6 +171,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                         customThemeRules: updatedConfig.customThemeRules
                     });
                 }
+            }
+            if (e.affectsConfiguration('contextView.logging')) {
+                const updated = this._getVSCodeEditorConfiguration();
+                this.postMessageToWebview({
+                    type: 'updateContextEditorCfg',
+                    contextEditorCfg: updated.contextEditorCfg,
+                    customThemeRules: updated.customThemeRules
+                });
             }
             if (e.affectsConfiguration('contextView.contextWindow')) {
                 if (this._behaviorOnlySettingChanged(e)) {
@@ -807,6 +816,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 lineBlame: contextWindowConfig.get('lineBlame', true),
                 // 勾选：指针移到行尾摘要即出浮窗。不勾选（默认）：按住 Alt 才出。lineBlame 关或没有摘要时仍不出现。
                 lineBlameHover: contextWindowConfig.get('lineBlameHover', false),
+                logging: loggingEnabled(),
                 // 点击符号时走哪一种 LSP 跳转。默认 Definition；底栏上拉列表可改。
                 jumpMode: normalizeJumpMode(contextWindowConfig.get('jumpMode', 'definition')),
                 updateMode: String(contextWindowConfig.get('updateMode') || 'live') === 'sticky' ? 'sticky' : 'live',
@@ -1232,6 +1242,15 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     await vscode.commands.executeCommand('contextView.callRelation.findRelationInContext', loc);
                     break;
                 }
+                case 'debugLog':
+                    if (message.module === 'bracket' && Array.isArray(message.lines)) {
+                        for (const line of message.lines) {
+                            if (typeof line === 'string') {
+                                debugLog('bracket', line);
+                            }
+                        }
+                    }
+                    break;
                 case 'copyToClipboard':
                     // 粘附行(sticky scroll)区域的选中内容不占用 Monaco 的 model 选区，
                     // 故 Monaco 自带的复制命令拿不到它；而 webview 内的 navigator.clipboard
