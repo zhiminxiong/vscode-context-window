@@ -25,6 +25,11 @@ interface PersistedRelationSession {
     root?: { uri: string; line: number; character: number };
 }
 
+/** Local disk and Remote-SSH. The extension stays on the UI host; these documents are read through workspace.fs. */
+function isRelationSource(uri: vscode.Uri): boolean {
+    return uri.scheme === 'file' || uri.scheme === 'vscode-remote';
+}
+
 function nonce(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let out = '';
@@ -90,7 +95,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                 }
             }),
             vscode.workspace.onDidChangeTextDocument(e => {
-                if (e.document.uri.scheme !== 'file' || !e.contentChanges.length) {
+                if (!isRelationSource(e.document.uri) || !e.contentChanges.length) {
                     return;
                 }
                 const rootUri = this.model.rootUri();
@@ -112,7 +117,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                 if (Date.now() < this.restoreQuietUntil) {
                     return;
                 }
-                if (e.textEditor.document.uri.scheme !== 'file') {
+                if (!isRelationSource(e.textEditor.document.uri)) {
                     return;
                 }
                 if (!e.selections[0].isEmpty) {
@@ -552,7 +557,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         if (!this.panel) {
             return;
         }
-        if (uri.scheme !== 'file') {
+        if (!isRelationSource(uri)) {
             await this.reloadFromEditor(undefined, { force: true });
             return;
         }
@@ -571,7 +576,7 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         if (!this.panel) {
             return;
         }
-        if (!editor || editor.document.uri.scheme !== 'file') {
+        if (!editor || !isRelationSource(editor.document.uri)) {
             if (this.updateMode === 'sticky' && this.graph.rootId) {
                 return;
             }

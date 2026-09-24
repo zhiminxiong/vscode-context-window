@@ -217,7 +217,8 @@ class RelationIndex {
             }
         });
         vscode.workspace.onDidChangeTextDocument(event => {
-            if (event.document.uri.scheme !== 'file' || !event.contentChanges.length) {
+            const scheme = event.document.uri.scheme;
+            if ((scheme !== 'file' && scheme !== 'vscode-remote') || !event.contentChanges.length) {
                 return;
             }
             this.invalidateUri(event.document.uri.toString());

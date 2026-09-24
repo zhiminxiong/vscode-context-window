@@ -159,7 +159,7 @@ async function searchSymbols(query: string, hits: Hit[], seen: Set<string>): Pro
 function searchOpenDocuments(query: string, hits: Hit[], seen: Set<string>): void {
     const needle = query.toLowerCase();
     for (const doc of vscode.workspace.textDocuments) {
-        if (doc.uri.scheme !== 'file' && doc.uri.scheme !== 'untitled') {
+        if (doc.uri.scheme !== 'file' && doc.uri.scheme !== 'vscode-remote' && doc.uri.scheme !== 'untitled') {
             continue;
         }
         const lineCount = Math.min(doc.lineCount, 4000);
