@@ -1625,7 +1625,6 @@ button.cr-cycle {
 .cr-site-snippet {
     display: block;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--vscode-editor-font-family, Consolas, monospace);
     font-size: 12px;

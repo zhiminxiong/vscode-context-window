@@ -3122,7 +3122,97 @@ function snippetHtml(site) {
     if (idx < 0) {
         return `<span class="cr-site-snippet">${escapeHtml(raw)}</span>`;
     }
-    return `<span class="cr-site-snippet">${escapeHtml(raw.slice(0, idx))}<em>${escapeHtml(ident)}</em>${escapeHtml(raw.slice(idx + ident.length))}</span>`;
+    return `<span class="cr-site-snippet"><span class="cr-site-pre">${escapeHtml(raw.slice(0, idx))}</span><em>${escapeHtml(ident)}</em><span class="cr-site-post">${escapeHtml(raw.slice(idx + ident.length))}</span></span>`;
+}
+
+/** Width of text in the snippet font. `bold` matches the callee `<em>`. */
+function measureSnippetText(styleEl, text, bold) {
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;left:0;top:0;';
+    const cs = getComputedStyle(styleEl);
+    probe.style.font = cs.font;
+    if (bold) {
+        probe.style.fontWeight = '600';
+    }
+    probe.textContent = text;
+    document.body.appendChild(probe);
+    const width = probe.getBoundingClientRect().width;
+    probe.remove();
+    return width;
+}
+
+/**
+ * Keep the callee fully visible. Prefer the start of the line; if that would
+ * clip the name, ellipsize the left. The name is never left to CSS ellipsis.
+ */
+function fitCalleeSnippet(el) {
+    const pre = el.querySelector('.cr-site-pre');
+    const em = el.querySelector('em');
+    const post = el.querySelector('.cr-site-post');
+    if (!pre || !em) {
+        return;
+    }
+    const avail = el.clientWidth - 1;
+    if (avail <= 0) {
+        return;
+    }
+    const preText = pre.textContent || '';
+    const postText = post ? (post.textContent || '') : '';
+    const name = em.textContent || '';
+    if (el.scrollWidth <= el.clientWidth + 1) {
+        return;
+    }
+    const nameW = measureSnippetText(em, name, true);
+    const tail = postText.slice(0, 1);
+    const rest = postText.slice(tail.length);
+    const tailW = tail ? measureSnippetText(el, tail, false) : 0;
+    const keepW = nameW + tailW;
+    const ell = '…';
+    const ellW = measureSnippetText(el, ell, false);
+    let preShown = preText;
+    let leftEll = false;
+    if (measureSnippetText(el, preText, false) + keepW > avail) {
+        leftEll = true;
+        let lo = 0;
+        let hi = preText.length;
+        let start = preText.length;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            const w = ellW + measureSnippetText(el, preText.slice(mid), false) + keepW;
+            if (w <= avail) {
+                start = mid;
+                hi = mid - 1;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        preShown = preText.slice(start);
+    }
+    const preW = (leftEll ? ellW : 0) + measureSnippetText(el, preShown, false);
+    const room = avail - preW - keepW;
+    let postShown = postText;
+    if (room <= 0) {
+        postShown = tail;
+    } else if (measureSnippetText(el, rest, false) > room) {
+        let lo = 0;
+        let hi = postText.length;
+        let best = 0;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            const w = measureSnippetText(el, rest.slice(0, mid) + ell, false);
+            if (w <= room) {
+                best = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        postShown = tail + rest.slice(0, best) + ell;
+    }
+    pre.textContent = (leftEll ? ell : '') + preShown;
+    if (post) {
+        post.textContent = postShown;
+    }
 }
 
 function eventOnCanvas(ev, canvas) {
@@ -3171,6 +3261,7 @@ function fitSiteMenu(menu) {
     const width = Math.max(SITE_MENU_MIN, Math.min(cap, Math.ceil(content + itemPad + menuPad + border)));
     menu.style.maxWidth = cap + 'px';
     menu.style.width = width + 'px';
+    menu.querySelectorAll('.cr-site-snippet').forEach(fitCalleeSnippet);
 }
 
 function showSitePicker(canvas, x, y, edge) {
