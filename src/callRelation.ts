@@ -1358,6 +1358,8 @@ export class CallRelationModel {
     private readonly centerSnaps = new Map<string, CenterSnapshot>();
     /** Shown on the left until root incoming lands (focus from a callee). */
     private incomingHint: vscode.CallHierarchyItem | undefined;
+    /** Suppress graph paints while a caller is only a temporary lookup root. */
+    private holdPaint = false;
     /** Variables use Find All References on the left; functions use call hierarchy. */
     private relationMode: 'call' | 'reference' = 'call';
     /** Type shown on the References center tip. */
@@ -2865,44 +2867,49 @@ export class CallRelationModel {
         if (opened && itemKey(caller) === itemKey(opened)) {
             return this.lspEmptyGraph(seq);
         }
-        const callerGraph = await this.adoptPreparedRoot(caller, seq, t0);
-        if (!callerGraph || !this.isCurrent(seq)) {
-            return undefined;
-        }
-        if (!this.sideHas(caller, 1) && !this.sideHas(caller, -1)) {
-            costLog('caller hierarchy empty', Date.now() - t0, itemLabel(caller));
-            return this.lspEmptyGraph(seq);
-        }
-        const want = identFromToken(openedName || opened?.name || '');
-        const kids = want
-            ? (this.outgoing.get(itemKey(caller)) || []).filter(item => identFromToken(item.name) === want)
-            : [];
-        if (!kids.length) {
-            costLog('callee not in caller outgoing', Date.now() - t0, openedName || opened?.name || '');
-            callerGraph.notice = want
-                ? `No call hierarchy for “${want}”. It was not found among the callees of ${caller.name}.`
-                : 'No call hierarchy at this position.';
-            return { graph: callerGraph, seq };
-        }
-        let best = kids[0];
-        let bestN = -1;
-        for (const kid of kids) {
-            await this.ensureIncoming(kid, seq);
-            if (!this.isCurrent(seq)) {
+        this.holdPaint = true;
+        try {
+            const callerGraph = await this.adoptPreparedRoot(caller, seq, t0);
+            if (!callerGraph || !this.isCurrent(seq)) {
                 return undefined;
             }
-            const n = this.incoming.get(itemKey(kid))?.length ?? 0;
-            if (n > bestN) {
-                best = kid;
-                bestN = n;
+            if (!this.sideHas(caller, 1) && !this.sideHas(caller, -1)) {
+                costLog('caller hierarchy empty', Date.now() - t0, itemLabel(caller));
+                return this.lspEmptyGraph(seq);
             }
+            const want = identFromToken(openedName || opened?.name || '');
+            const kids = want
+                ? (this.outgoing.get(itemKey(caller)) || []).filter(item => identFromToken(item.name) === want)
+                : [];
+            if (!kids.length) {
+                costLog('callee not in caller outgoing', Date.now() - t0, openedName || opened?.name || '');
+                callerGraph.notice = want
+                    ? `No call hierarchy for “${want}”. It was not found among the callees of ${caller.name}.`
+                    : 'No call hierarchy at this position.';
+                return { graph: callerGraph, seq };
+            }
+            let best = kids[0];
+            let bestN = -1;
+            for (const kid of kids) {
+                await this.ensureIncoming(kid, seq);
+                if (!this.isCurrent(seq)) {
+                    return undefined;
+                }
+                const n = this.incoming.get(itemKey(kid))?.length ?? 0;
+                if (n > bestN) {
+                    best = kid;
+                    bestN = n;
+                }
+            }
+            const graph = await this.recenterToOutgoingCallee(caller, best, seq, t0);
+            if (!graph || !this.isCurrent(seq)) {
+                return undefined;
+            }
+            costLog('center callee via caller', Date.now() - t0, `${itemLabel(best)} via ${itemLabel(caller)}`);
+            return { graph, seq };
+        } finally {
+            this.holdPaint = false;
         }
-        const graph = await this.recenterToOutgoingCallee(caller, best, seq, t0);
-        if (!graph || !this.isCurrent(seq)) {
-            return undefined;
-        }
-        costLog('center callee via caller', Date.now() - t0, `${itemLabel(best)} via ${itemLabel(caller)}`);
-        return { graph, seq };
     }
 
     /** Same as focusing an outgoing child after the caller was the center. */
@@ -2933,7 +2940,13 @@ export class CallRelationModel {
             return undefined;
         }
         if (this.sideEmpty(this.root, -1)) {
-            this.incoming.set(itemKey(this.root), [caller]);
+            const calleeKey = itemKey(this.root);
+            const callerKey = itemKey(caller);
+            this.incoming.set(calleeKey, [caller]);
+            const sites = this.callSites.get(`${callerKey}\0${1}\0${calleeKey}`);
+            if (sites?.length) {
+                this.callSites.set(`${calleeKey}\0-1\0${callerKey}`, sites);
+            }
             this.incomingHint = undefined;
             return this.buildVisible(seq);
         }
@@ -3650,10 +3663,17 @@ export class CallRelationModel {
     }
 
     private paintNow(seq: number): void {
-        if (!this.isCurrent(seq) || !this.root) {
+        if (this.holdPaint || !this.isCurrent(seq) || !this.root) {
             return;
         }
         this.graphListener?.(this.buildGraph(), seq);
+    }
+
+    private emitGraph(graph: RelationGraph, seq: number): void {
+        if (this.holdPaint || !this.isCurrent(seq)) {
+            return;
+        }
+        this.graphListener?.(graph, seq);
     }
 
     /** Show the cursor symbol before prepare / references return. */
@@ -3764,7 +3784,7 @@ export class CallRelationModel {
         if (!this.incoming.has(rootKey)) {
             const early = await this.buildVisible(seq);
             if (early && this.isCurrent(seq)) {
-                this.graphListener?.(early, seq);
+                this.emitGraph(early, seq);
             }
             costLog('incoming deferred', Date.now() - t0, label);
             await this.ensureIncoming(this.root, seq);
@@ -3823,7 +3843,7 @@ export class CallRelationModel {
                 return;
             }
             this.prefetchActive = false;
-            this.graphListener?.(this.buildGraph(), seq);
+            this.emitGraph(this.buildGraph(), seq);
         });
     }
 
@@ -3936,7 +3956,7 @@ export class CallRelationModel {
                 `${batch} size=${chunk.length} in=${inChunk} out=${chunk.length - inChunk}`
             );
             if (this.isCurrent(seq)) {
-                this.graphListener?.(this.buildGraph(), seq);
+                this.emitGraph(this.buildGraph(), seq);
             }
             const hot = chunk.some(job => (
                 job.dir < 0 && (this.incoming.get(itemKey(job.item))?.length ?? 0) >= CALL_HOT_PREFETCH

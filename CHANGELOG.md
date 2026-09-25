@@ -4,6 +4,12 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [unReleased]
+
+#### Fixed
+
+- Show Relation on a library call such as `add_Completed` still looks up the enclosing caller, but the canvas stays on the opened symbol until that lookup finishes. The line back to the caller stays clickable.
+
 ## [1.1.4] 2026.09.25
 
 #### Changed
