@@ -4,6 +4,24 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.1.4] 2026.09.25
+
+#### Changed
+
+- Relation remembers each center’s pan, zoom, and node layout. Switching back opens that last view; leaving again stores the latest one.
+- Context Window jump trail and Relation center trail: the current hop uses the hover text color, with a slightly stronger background.
+- Relation call-site preview keeps the callee name and the next character fully visible. A line that does not fit is ellipsized on the left.
+- A node at the hop limit shows a red × instead of + / −. Its tip says to double-click to recenter and keep walking.
+- Neighbor peek stays one-sided (left incoming, right outgoing) and uses the same `prepareCallHierarchy` pick as double-click recenter.
+- Find Relation follows the same incoming rules as Relation. The word under the cursor is shared by Context Window and Relation through one cache key.
+- Relation keeps an index cache of lookup results (callers, reachability, partial scans), shared by the panel, Find Relation, and MCP. A file edit drops entries that depend on it. Memory cap is `contextView.callRelation.indexMemoryMB` (default 100MB).
+- TypeScript and JavaScript skip Type Hierarchy. That language server has none, so those calls were empty round-trips.
+
+#### Fixed
+
+- Semantic token colors recover when the language server’s legend was still empty the first time Monaco asked for it.
+- Relation reads files over Remote SSH (`vscode-remote`), not only local disk (#12).
+
 ## [1.1.3] 2026.09.19
 
 #### Added
