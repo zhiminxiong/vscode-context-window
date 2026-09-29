@@ -1048,6 +1048,9 @@ async function storedFromParsed(
             date: formatAbsoluteDate(time),
             summary: 'Uncommitted changes',
             textSubject: 'Uncommitted changes',
+            // blame 对未提交行写的是 not.committed.yet，没有可哈希的邮箱。
+            // 用 git user.email，和这个人已提交行的 Gravatar 同一张。
+            avatarUrl: gravatarUrl(parsed.email.includes('@') ? parsed.email : user.email),
             sha: head || 'working-tree',
             shortSha: head ? shortSha(head) : 'Working Tree',
             workingTree: true
