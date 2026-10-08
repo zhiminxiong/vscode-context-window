@@ -67,6 +67,20 @@ export interface RelationNode {
     prevCenter?: boolean;
     cyclic?: boolean;
     typeName?: string;
+    /** Outgoing child shown in place of the static callee (center dispatch or a user pick). */
+    dispatchFrom?: { itemKey: string; name: string; file: string; line: number };
+}
+
+/** One entry of a node's implementation menu. */
+export interface RelationImplementation {
+    itemKey: string;
+    name: string;
+    typeName: string;
+    file: string;
+    line: number;
+    current: boolean;
+    /** The callee the language server resolved for the call. */
+    declared: boolean;
 }
 
 export interface RelationEdge {
@@ -886,6 +900,11 @@ function itemKey(item: vscode.CallHierarchyItem): string {
     return `${item.uri.toString()}\0${sel.line}\0${sel.character}\0${item.name}`;
 }
 
+function declPosKey(item: vscode.CallHierarchyItem): string {
+    const sel = item.selectionRange?.start ?? item.range.start;
+    return `${item.uri.toString()}\0${sel.line}\0${sel.character}`;
+}
+
 /** Files read while resolving a type or receiver. Nested lookups merge into the outer set. */
 const indexDeps = new AsyncLocalStorage<Set<string>>();
 
@@ -1375,6 +1394,10 @@ export class CallRelationModel {
     private readonly centerDispatchRun = new Map<string, Promise<boolean>>();
     /** center key + owner type key + ident → override item key, '' when the center chain has none. */
     private readonly centerOverride = new Map<string, Promise<string>>();
+    /** parent key → static callee key → implementation picked from the node menu. Wins over center dispatch. */
+    private readonly userPick = new Map<string, Map<string, string>>();
+    /** top-most declaration of a method slot → its implementations, base first. */
+    private readonly implFamily = new Map<string, Promise<vscode.CallHierarchyItem[]>>();
     /** When true, keep only compactKinds from incoming and outgoing. */
     private compactFilter = false;
     private compactKinds = kindsFromIds(DEFAULT_SLIM_KIND_IDS);
@@ -1490,6 +1513,7 @@ export class CallRelationModel {
         this.centerFamilyRootKey = '';
         this.ownerKeyByItem.clear();
         this.clearCenterDispatch();
+        this.userPick.clear();
         this.cacheEpoch++;
         this.fileGen.clear();
         this.inflightIn.clear();
@@ -1643,28 +1667,53 @@ export class CallRelationModel {
                     list.push(child);
                 }
             }
-            return this.applyCenterDispatch(keys, list);
+            return this.applyOutgoingSwaps(keys, list);
         }
         return this.constrainIncomingToCenter(item, list);
     }
 
-    /** Swaps settled by settleCenterDispatch for the current center. The side cache keeps the static callee. */
-    private applyCenterDispatch(
+    /** static callee key → shown callee key: user picks over center dispatch. A pick of the static callee drops the swap. */
+    private outgoingSwaps(parentKeys: readonly string[]): Map<string, string> | undefined {
+        let center: Map<string, string> | undefined;
+        if (this.relationMode === 'call' && this.root && this.centerDispatch.size) {
+            const rootKey = itemKey(this.root);
+            for (const key of parentKeys) {
+                center = this.centerDispatch.get(`${rootKey}\0${key}`);
+                if (center) {
+                    break;
+                }
+            }
+        }
+        let picks: Map<string, string> | undefined;
+        if (this.userPick.size) {
+            for (const key of parentKeys) {
+                picks = this.userPick.get(key);
+                if (picks) {
+                    break;
+                }
+            }
+        }
+        if (!picks?.size) {
+            return center?.size ? center : undefined;
+        }
+        const out = new Map(center || []);
+        for (const [from, to] of picks) {
+            if (from === to) {
+                out.delete(from);
+            } else {
+                out.set(from, to);
+            }
+        }
+        return out.size ? out : undefined;
+    }
+
+    /** The side cache keeps the static callee; swaps apply on read. */
+    private applyOutgoingSwaps(
         parentKeys: readonly string[],
         kids: vscode.CallHierarchyItem[]
     ): vscode.CallHierarchyItem[] {
-        if (this.relationMode !== 'call' || !this.root || !this.centerDispatch.size) {
-            return kids;
-        }
-        const rootKey = itemKey(this.root);
-        let swap: Map<string, string> | undefined;
-        for (const key of parentKeys) {
-            swap = this.centerDispatch.get(`${rootKey}\0${key}`);
-            if (swap) {
-                break;
-            }
-        }
-        if (!swap?.size) {
+        const swap = this.outgoingSwaps(parentKeys);
+        if (!swap) {
             return kids;
         }
         const out: vscode.CallHierarchyItem[] = [];
@@ -1686,6 +1735,7 @@ export class CallRelationModel {
         this.centerDispatch.clear();
         this.centerDispatchRun.clear();
         this.centerOverride.clear();
+        this.implFamily.clear();
     }
 
     /**
@@ -3821,6 +3871,213 @@ export class CallRelationModel {
         return built ? { graph: built, seq } : undefined;
     }
 
+    /** Center and outgoing nodes only; fewer than two entries means nothing to switch. */
+    async listImplementations(nodeId: string, nodes: RelationNode[]): Promise<RelationImplementation[]> {
+        const node = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
+        if (!node || node.hop < 0 || this.relationMode !== 'call') {
+            return [];
+        }
+        const declaredKey = node.dispatchFrom?.itemKey ?? node.itemKey;
+        const declared = this.items.get(declaredKey) ?? this.items.get(node.itemKey);
+        if (!declared) {
+            return [];
+        }
+        const family = await this.implementationFamily(declared);
+        if (family.length < 2) {
+            return [];
+        }
+        const shown = this.items.get(node.itemKey);
+        const currentPos = shown ? declPosKey(shown) : '';
+        const declaredPos = declPosKey(declared);
+        const out: RelationImplementation[] = [];
+        for (const item of family) {
+            const sel = item.selectionRange?.start ?? item.range.start;
+            const owner = await this.containingTypeAt(item.uri, sel);
+            const pos = declPosKey(item);
+            out.push({
+                itemKey: itemKey(item),
+                name: identFromToken(item.name) || item.name,
+                typeName: owner ? (identFromToken(owner.symbol.name) || owner.symbol.name) : '',
+                file: fileLabel(item.uri),
+                line: sel.line + 1,
+                current: pos === currentPos,
+                declared: pos === declaredPos
+            });
+        }
+        return out;
+    }
+
+    /**
+     * Center: recenter on the pick. Outgoing: show the pick in place of the
+     * static callee under this parent; the new child starts collapsed.
+     */
+    async pickImplementation(nodeId: string, pickKey: string, graph: RelationGraph): Promise<RelationLoad | undefined> {
+        const nodes = graph.nodes;
+        const node = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
+        const picked = this.items.get(pickKey);
+        if (!node || !picked || node.hop < 0 || itemKey(picked) === node.itemKey) {
+            return undefined;
+        }
+        if (node.hop === 0) {
+            return this.switchCenter(picked, graph);
+        }
+        const parent = node.parentId ? nodes.find(n => n.id === node.parentId) : undefined;
+        const parentItem = parent ? this.items.get(parent.itemKey) : undefined;
+        if (!parent || !parentItem) {
+            return undefined;
+        }
+        const toKey = itemKey(picked);
+        const staticKey = node.dispatchFrom?.itemKey ?? node.itemKey;
+        const parentKeys = [...new Set([parent.itemKey, ...this.cacheKeysFor(parentItem)])];
+        let picks: Map<string, string> | undefined;
+        for (const key of parentKeys) {
+            picks = this.userPick.get(key);
+            if (picks) {
+                break;
+            }
+        }
+        picks = picks ?? new Map<string, string>();
+        picks.set(staticKey, toKey);
+        for (const key of parentKeys) {
+            this.userPick.set(key, picks);
+        }
+        let sites: RelationOpenTarget[] | undefined;
+        for (const key of parentKeys) {
+            sites = this.callSites.get(`${key}\0${1}\0${node.itemKey}`)
+                || this.callSites.get(`${key}\0${1}\0${staticKey}`);
+            if (sites?.length) {
+                break;
+            }
+        }
+        if (sites?.length) {
+            for (const key of parentKeys) {
+                const siteKey = `${key}\0${1}\0${toKey}`;
+                if (!this.callSites.has(siteKey)) {
+                    this.callSites.set(siteKey, sites);
+                }
+            }
+        }
+        for (const key of parentKeys) {
+            this.keepExpand.delete(branchKeepKey(key, 1, node.itemKey));
+            this.keepExpand.delete(branchKeepKey(key, 1, toKey));
+        }
+        this.expanded.delete(node.id);
+        debugLog('relation', `pick implementation ${itemLabel(parentItem)} ${node.name} → ${itemLabel(picked)}`);
+        const seq = this.seq;
+        const built = await this.buildVisible(seq);
+        return built ? { graph: built, seq } : undefined;
+    }
+
+    private async switchCenter(item: vscode.CallHierarchyItem, graph: RelationGraph): Promise<RelationLoad | undefined> {
+        this.cancel();
+        const seq = this.seq;
+        const t0 = Date.now();
+        this.stashCenter(graph);
+        const cached = this.restoreCenter(itemKey(item));
+        if (cached && this.root) {
+            this.recordCenter(this.root);
+            this.syncPrevFromTrail();
+            return { graph: this.attachCenterTrail(cached), seq };
+        }
+        this.keepExpand.clear();
+        this.keepGroups.clear();
+        this.expanded.clear();
+        this.collapseLock.clear();
+        this.relationMode = 'call';
+        this.adoptRoot(item);
+        this.recordCenter(item);
+        this.syncPrevFromTrail();
+        this.shown.clear();
+        this.incomingHint = undefined;
+        await this.ensureOutgoing(item, seq);
+        if (!this.isCurrent(seq)) {
+            return undefined;
+        }
+        const built = await this.completeRootSides(seq, t0, itemLabel(item));
+        costLog('switchCenter', Date.now() - t0, itemLabel(item));
+        return built ? { graph: built, seq } : undefined;
+    }
+
+    /**
+     * Same-named slots up the heritage chain, then go-to-implementation at the
+     * top-most one: at a base declaration it lists the base and every override.
+     * Order: base first, the item's own chain downward, then the other overrides.
+     */
+    private implementationFamily(item: vscode.CallHierarchyItem): Promise<vscode.CallHierarchyItem[]> {
+        const ident = identFromToken(item.name);
+        if (!ident || /^constructor$/i.test(ident) || isLibPath(item.uri.fsPath)) {
+            return Promise.resolve([item]);
+        }
+        const load = async (): Promise<{ key: string; run: () => Promise<vscode.CallHierarchyItem[]> }> => {
+            const family = await this.selfAndAncestorTypes(item);
+            const slots = (await this.collectVirtualSlots(family.filter(t => t.depth > 0), ident))
+                .filter(slot => !isLibPath(slot.uri.fsPath));
+            const top = slots[slots.length - 1];
+            const anchorUri = top ? top.uri : item.uri;
+            const anchorPos = top ? top.method.selectionRange.start : (item.selectionRange?.start ?? item.range.start);
+            return {
+                key: `${anchorUri.toString()}\0${anchorPos.line}\0${anchorPos.character}`,
+                run: async () => {
+                    const out: vscode.CallHierarchyItem[] = [];
+                    const seen = new Set<string>();
+                    const add = (hit: vscode.CallHierarchyItem | undefined) => {
+                        if (!hit || isLibPath(hit.uri.fsPath) || identFromToken(hit.name) !== ident) {
+                            return;
+                        }
+                        const key = declPosKey(hit);
+                        if (!seen.has(key)) {
+                            seen.add(key);
+                            out.push(hit);
+                        }
+                    };
+                    const prepareAt = async (uri: vscode.Uri, at: vscode.Position) => {
+                        const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
+                            'vscode.prepareCallHierarchy',
+                            uri,
+                            at
+                        );
+                        const hit = prepared?.find(p => rangeContains(p.range, at)) || prepared?.[0];
+                        if (hit) {
+                            this.markPrepared(hit);
+                        }
+                        return hit;
+                    };
+                    for (const slot of [...slots].reverse()) {
+                        add(await prepareAt(slot.uri, slot.method.selectionRange.start));
+                    }
+                    add(item);
+                    const raw = await this.execLspHeld<unknown[]>(
+                        'vscode.executeImplementationProvider',
+                        anchorUri,
+                        anchorPos
+                    );
+                    const locs = (Array.isArray(raw) ? raw : [])
+                        .map(r => this.asLocation(r))
+                        .filter((loc): loc is vscode.Location => !!loc && !isLibPath(loc.uri.fsPath))
+                        .sort((a, b) => a.uri.fsPath.localeCompare(b.uri.fsPath) || a.range.start.line - b.range.start.line);
+                    for (const loc of locs) {
+                        add(await prepareAt(loc.uri, loc.range.start));
+                    }
+                    costLog('implementation family', 0, `${itemLabel(item)} n=${out.length}`);
+                    return out;
+                }
+            };
+        };
+        return load().then(({ key, run }) => {
+            let pending = this.implFamily.get(key);
+            if (!pending) {
+                pending = run().catch(() => [item]);
+                this.implFamily.set(key, pending);
+            }
+            const own = declPosKey(item);
+            return pending.then(list => (
+                list.some(x => declPosKey(x) === own)
+                    ? list.map(x => declPosKey(x) === own ? item : x)
+                    : [item, ...list]
+            ));
+        }, () => [item]);
+    }
+
     async focusTrail(index: number, graph: RelationGraph): Promise<RelationLoad | undefined> {
         const seq = this.seq;
         if (index < 0 || index >= this.centerTrail.length) {
@@ -4385,12 +4642,30 @@ export class CallRelationModel {
                 sites: this.callSites.get(`${parent.itemKey}\0${dir}\0${childKey}`)
             });
         };
+        const swappedFrom = new Map<string, string>();
+        if (dir > 0) {
+            for (const [from, to] of this.outgoingSwaps(this.cacheKeysFor(item)) || []) {
+                const shown = this.items.get(to);
+                swappedFrom.set(shown ? itemKey(shown) : to, from);
+            }
+        }
         const emitChild = (child: vscode.CallHierarchyItem) => {
             const childKey = itemKey(child);
             const cyclic = ancestorHasItemKey(nodes, parent.id, childKey);
             const childNode = toSymbolNode(child, hop, parent.id, false);
             if (nodes.some(n => n.id === childNode.id)) {
                 return;
+            }
+            const fromKey = swappedFrom.get(childKey);
+            const fromItem = fromKey ? this.items.get(fromKey) : undefined;
+            if (fromItem) {
+                const sel = fromItem.selectionRange?.start ?? fromItem.range.start;
+                childNode.dispatchFrom = {
+                    itemKey: itemKey(fromItem),
+                    name: identFromToken(fromItem.name) || fromItem.name,
+                    file: fileLabel(fromItem.uri),
+                    line: sel.line + 1
+                };
             }
             const opened = !directOnly
                 && !cyclic

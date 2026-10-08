@@ -431,6 +431,27 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
                 }
                 break;
             }
+            case 'listImplementations': {
+                const nodeId = String(message.nodeId || '');
+                const items = await this.model.listImplementations(nodeId, this.graph.nodes).catch(() => []);
+                this.panel?.webview.postMessage({ type: 'implementations', reqId: message.reqId, nodeId, items });
+                break;
+            }
+            case 'pickImplementation': {
+                const nodeId = String(message.nodeId || '');
+                const pickKey = String(message.itemKey || '');
+                const center = this.graph.nodes.find(n => n.id === nodeId)?.hop === 0;
+                await this.withProgress(async () => {
+                    const loaded = await this.model.pickImplementation(nodeId, pickKey, this.graph);
+                    if (loaded) {
+                        this.applyGraph(loaded.graph, loaded.seq);
+                    }
+                });
+                if (center) {
+                    this.invalidateFollowCacheKey();
+                }
+                break;
+            }
             case 'focusTrail': {
                 const index = Number(message.index);
                 if (!Number.isInteger(index)) {

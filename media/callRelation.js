@@ -1892,7 +1892,11 @@ function exportMenuItems() {
     ];
 }
 
-function showCtxMenu(e, items) {
+/**
+ * items: { label, run, detail?, checked?, disabled?, title? } | { separator: true } | { heading: label }.
+ * owner tags the menu so a late async reply only rebuilds the menu it belongs to.
+ */
+function showCtxMenu(e, items, owner) {
     hideCtxMenu();
     hideCenterOverflow();
     hideSiteMenu();
@@ -1903,6 +1907,7 @@ function showCtxMenu(e, items) {
     const menu = document.createElement('div');
     menu.id = 'cr-ctx-menu';
     menu.className = 'cr-ctx-menu';
+    menu.dataset.owner = owner || '';
     menu.style.visibility = 'hidden';
     menu.addEventListener('mousedown', ev => ev.stopPropagation());
     for (const entry of items) {
@@ -1913,12 +1918,38 @@ function showCtxMenu(e, items) {
             menu.appendChild(sep);
             continue;
         }
+        if (entry.heading) {
+            const head = document.createElement('div');
+            head.className = 'cr-ctx-menu-heading';
+            head.textContent = entry.heading;
+            menu.appendChild(head);
+            continue;
+        }
         const item = document.createElement('div');
         item.className = 'cr-ctx-menu-item';
-        item.textContent = entry.label;
+        item.classList.toggle('is-checked', !!entry.checked);
+        item.classList.toggle('is-disabled', !!entry.disabled);
+        if (entry.title) {
+            item.title = entry.title;
+        }
+        const label = document.createElement('span');
+        label.className = 'cr-ctx-menu-label';
+        label.textContent = entry.label;
+        item.appendChild(label);
+        if (entry.detail) {
+            const detail = document.createElement('span');
+            detail.className = 'cr-ctx-menu-detail';
+            detail.textContent = entry.detail;
+            item.appendChild(detail);
+        }
         item.addEventListener('click', () => {
+            if (entry.disabled) {
+                return;
+            }
             hideCtxMenu();
-            entry.run();
+            if (entry.run) {
+                entry.run();
+            }
         });
         menu.appendChild(item);
     }
@@ -1936,6 +1967,69 @@ function showCtxMenu(e, items) {
     menu.style.left = Math.max(pad, left) + 'px';
     menu.style.top = Math.max(pad, top) + 'px';
     menu.style.visibility = 'visible';
+}
+
+let implReqSeq = 0;
+/** @type {{ reqId: number, nodeId: string, at: { clientX: number, clientY: number }, base: any[] } | null} */
+let implPending = null;
+
+function nodeMenuBase(node) {
+    const items = [{
+        label: 'Center in View',
+        run: () => {
+            selectNode(node, false);
+            scrollToNode(node.id);
+        }
+    }];
+    items.push({
+        label: 'Copy Name',
+        run: () => vscode.postMessage({ type: 'copyToClipboard', text: node.name || '', notify: 'Name copied' })
+    });
+    return items;
+}
+
+/** Implementation switching is for the center and the outgoing side only. */
+function showNodeMenu(e, node) {
+    const at = { clientX: e.clientX, clientY: e.clientY };
+    const base = nodeMenuBase(node);
+    if (node.hop < 0) {
+        implPending = null;
+        showCtxMenu(at, base);
+        return;
+    }
+    const reqId = ++implReqSeq;
+    implPending = { reqId, nodeId: node.id, at, base };
+    showCtxMenu(at, [...base, { separator: true }, { label: 'Loading implementations…', disabled: true }], `impl:${reqId}`);
+    vscode.postMessage({ type: 'listImplementations', nodeId: node.id, reqId });
+}
+
+function onImplementations(msg) {
+    const pending = implPending;
+    if (!pending || msg.reqId !== pending.reqId) {
+        return;
+    }
+    implPending = null;
+    const menu = document.getElementById('cr-ctx-menu');
+    if (!menu || menu.dataset.owner !== `impl:${pending.reqId}`) {
+        return;
+    }
+    const list = Array.isArray(msg.items) ? msg.items : [];
+    const items = pending.base.slice();
+    if (list.length >= 2) {
+        items.push({ separator: true }, { heading: 'Implementations' });
+        for (const impl of list) {
+            items.push({
+                label: impl.typeName ? `${impl.typeName}.${impl.name}` : impl.name,
+                detail: `${impl.file}:${impl.line}${impl.declared ? ' · declared' : ''}`,
+                checked: !!impl.current,
+                title: impl.declared ? 'The callee the language server resolved for this call' : '',
+                run: impl.current
+                    ? undefined
+                    : () => vscode.postMessage({ type: 'pickImplementation', nodeId: pending.nodeId, itemKey: impl.itemKey })
+            });
+        }
+    }
+    showCtxMenu(pending.at, items);
 }
 
 function showCallChainMenu(e) {
@@ -2877,6 +2971,13 @@ function fillNodeTip(tip, node) {
         detail.className = 'cr-node-tip-detail';
         detail.textContent = node.detail;
         tip.appendChild(detail);
+    }
+    if (node.dispatchFrom) {
+        const via = document.createElement('div');
+        via.className = 'cr-node-tip-detail';
+        const from = node.dispatchFrom;
+        via.textContent = `Declared call: ${from.name} (${from.file}:${from.line}). Right-click to switch.`;
+        tip.appendChild(via);
     }
     if (node.hopCapped) {
         const cap = document.createElement('div');
@@ -4743,6 +4844,8 @@ window.addEventListener('message', ev => {
         } else {
             openFind();
         }
+    } else if (msg.type === 'implementations') {
+        onImplementations(msg);
     } else if (msg.type === 'beginProgress') {
         setProgress(true);
     } else if (msg.type === 'endProgress') {
@@ -4815,6 +4918,13 @@ document.addEventListener('contextmenu', e => {
     e.stopPropagation();
     const t = e.target;
     if (t && t.closest && t.closest('#cr-stage')) {
+        const nodeEl = t.closest('.cr-node');
+        const node = nodeEl ? graphNode(elNodeId(nodeEl)) : undefined;
+        if (node && node.kind === 'symbol') {
+            hideNodeTip();
+            showNodeMenu(e, node);
+            return;
+        }
         showCanvasMenu(e);
         return;
     }

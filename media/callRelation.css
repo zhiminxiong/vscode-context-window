@@ -602,6 +602,47 @@ body.vscode-high-contrast {
     color: #ffffff;
 }
 
+.cr-ctx-menu-item {
+    position: relative;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.cr-ctx-menu-item.is-checked::before {
+    content: "\2713";
+    position: absolute;
+    left: 4px;
+}
+
+.cr-ctx-menu-item.is-disabled {
+    color: #8a8a8a;
+    cursor: default;
+}
+
+.cr-ctx-menu-item.is-disabled:hover {
+    background: transparent;
+    color: #8a8a8a;
+}
+
+.cr-ctx-menu-detail {
+    margin-left: auto;
+    color: #6a6a6a;
+    font-size: 12px;
+}
+
+.cr-ctx-menu-item:hover .cr-ctx-menu-detail {
+    color: #e8f5e4;
+}
+
+.cr-ctx-menu-heading {
+    padding: 2px 16px;
+    color: #6a6a6a;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
 .cr-ctx-menu-sep {
     height: 0;
     margin: 4px 0;
