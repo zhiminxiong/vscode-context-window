@@ -71,9 +71,20 @@ export interface RelationNode {
     dispatchFrom?: { itemKey: string; name: string; file: string; line: number };
 }
 
+/** Where one implementation-menu request currently is; read by the slow-request watchdog. */
+interface ImplTrace {
+    tag: string;
+    stage: string;
+    t0: number;
+}
+
 /** One entry of a node's implementation menu. */
 export interface RelationImplementation {
+    /** Empty until the entry is picked; the pick is prepared from uri/line0/character. */
     itemKey: string;
+    uri: string;
+    line0: number;
+    character: number;
     name: string;
     typeName: string;
     file: string;
@@ -82,6 +93,38 @@ export interface RelationImplementation {
     /** The callee the language server resolved for the call. */
     declared: boolean;
 }
+
+export interface RelationImplementationList {
+    items: RelationImplementation[];
+    /** Overrides are still being searched; a final list follows. */
+    pending: boolean;
+    timedOut: boolean;
+    /** Entries left out of the menu. */
+    more: number;
+}
+
+export interface RelationImplementationPick {
+    itemKey?: string;
+    uri: string;
+    line: number;
+    character: number;
+}
+
+interface ImplEntry {
+    uri: vscode.Uri;
+    pos: vscode.Position;
+    name: string;
+    typeName: string;
+    itemKey: string;
+}
+
+function entryPosKey(entry: ImplEntry): string {
+    return `${entry.uri.toString()}\0${entry.pos.line}\0${entry.pos.character}`;
+}
+
+const IMPL_MENU_MAX = 50;
+const IMPL_SEARCH_TIMEOUT_MS = 15000;
+const IMPL_LABEL_CONCURRENCY = 8;
 
 export interface RelationEdge {
     from: string;
@@ -428,6 +471,36 @@ function methodInTypeSymbols(flat: FlatSymbol[], owner: FlatSymbol, ident: strin
     return matches.find(sym =>
         sym.kind === vscode.SymbolKind.Method || sym.kind === vscode.SymbolKind.Constructor
     ) || matches[0];
+}
+
+/** Innermost method/function symbol at a go-to-implementation location. */
+function methodSymbolAt(flat: FlatSymbol[], position: vscode.Position): FlatSymbol | undefined {
+    let best: FlatSymbol | undefined;
+    for (const sym of flat) {
+        if (!CALL_ITEM_KINDS.has(sym.kind) || !rangeContains(sym.range, position)) {
+            continue;
+        }
+        if (rangeContains(sym.selectionRange, position)) {
+            return sym;
+        }
+        if (!best || rangeContains(best.range, sym.range.start)) {
+            best = sym;
+        }
+    }
+    return best;
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+    const out: R[] = new Array(items.length);
+    let next = 0;
+    const worker = async () => {
+        while (next < items.length) {
+            const i = next++;
+            out[i] = await fn(items[i]);
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return out;
 }
 
 function isSuperDispatchLine(text: string, ident: string): boolean {
@@ -1397,7 +1470,12 @@ export class CallRelationModel {
     /** parent key → static callee key → implementation picked from the node menu. Wins over center dispatch. */
     private readonly userPick = new Map<string, Map<string, string>>();
     /** top-most declaration of a method slot → its implementations, base first. */
-    private readonly implFamily = new Map<string, Promise<vscode.CallHierarchyItem[]>>();
+    private readonly implFamily = new Map<string, Promise<ImplEntry[]>>();
+    private readonly implFamilySettled = new Set<string>();
+    /** LSP commands sent and not yet answered, foreground and background together. */
+    private lspInflight = 0;
+    /** Heritage jobs queued or running per file (runHeritageForFile). */
+    private readonly heritagePending = new Map<string, number>();
     /** When true, keep only compactKinds from incoming and outgoing. */
     private compactFilter = false;
     private compactKinds = kindsFromIds(DEFAULT_SLIM_KIND_IDS);
@@ -1736,6 +1814,7 @@ export class CallRelationModel {
         this.centerDispatchRun.clear();
         this.centerOverride.clear();
         this.implFamily.clear();
+        this.implFamilySettled.clear();
     }
 
     /**
@@ -3871,51 +3950,218 @@ export class CallRelationModel {
         return built ? { graph: built, seq } : undefined;
     }
 
-    /** Center and outgoing nodes only; fewer than two entries means nothing to switch. */
-    async listImplementations(nodeId: string, nodes: RelationNode[]): Promise<RelationImplementation[]> {
+    /**
+     * Center and outgoing nodes only. The declared callee and its overrides
+     * (go-to-implementation on the callee itself); a call that reaches the
+     * callee can only dispatch further down, never to an ancestor.
+     * The callee itself is reported through onPartial before the search.
+     */
+    async listImplementations(
+        nodeId: string,
+        nodes: RelationNode[],
+        reqId = 0,
+        onPartial?: (list: RelationImplementationList) => void
+    ): Promise<RelationImplementationList> {
+        const empty: RelationImplementationList = { items: [], pending: false, timedOut: false, more: 0 };
         const node = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
+        const trace: ImplTrace = { tag: `#${reqId} ${node?.name || '?'}`, stage: 'start', t0: Date.now() };
+        const log = (msg: string) => debugLog('relation', `impl ${trace.tag} ${msg}`);
         if (!node || node.hop < 0 || this.relationMode !== 'call') {
-            return [];
+            log(`skip node=${node ? `hop=${node.hop}` : 'missing'} mode=${this.relationMode}`);
+            return empty;
         }
         const declaredKey = node.dispatchFrom?.itemKey ?? node.itemKey;
         const declared = this.items.get(declaredKey) ?? this.items.get(node.itemKey);
-        if (!declared) {
-            return [];
+        const ident = declared ? identFromToken(declared.name) : '';
+        if (!declared || !ident || /^constructor$/i.test(ident) || isLibPath(declared.uri.fsPath)) {
+            log(`skip ${declared ? `ident=${ident || '?'} lib=${isLibPath(declared.uri.fsPath)}` : 'item missing'}`);
+            return empty;
         }
-        const family = await this.implementationFamily(declared);
-        if (family.length < 2) {
-            return [];
-        }
-        const shown = this.items.get(node.itemKey);
-        const currentPos = shown ? declPosKey(shown) : '';
+        const shown = this.items.get(node.itemKey) ?? declared;
+        const currentPos = declPosKey(shown);
         const declaredPos = declPosKey(declared);
-        const out: RelationImplementation[] = [];
-        for (const item of family) {
-            const sel = item.selectionRange?.start ?? item.range.start;
-            const owner = await this.containingTypeAt(item.uri, sel);
-            const pos = declPosKey(item);
-            out.push({
-                itemKey: itemKey(item),
-                name: identFromToken(item.name) || item.name,
-                typeName: owner ? (identFromToken(owner.symbol.name) || owner.symbol.name) : '',
-                file: fileLabel(item.uri),
-                line: sel.line + 1,
-                current: pos === currentPos,
-                declared: pos === declaredPos
+        const toList = (entries: ImplEntry[], pending: boolean, timedOut: boolean): RelationImplementationList => {
+            const seen = new Set<string>();
+            const unique: ImplEntry[] = [];
+            for (const entry of entries) {
+                const pos = entryPosKey(entry);
+                if (!seen.has(pos)) {
+                    seen.add(pos);
+                    unique.push(entry);
+                }
+            }
+            let kept = unique.slice(0, IMPL_MENU_MAX);
+            for (const must of unique.slice(IMPL_MENU_MAX)) {
+                const pos = entryPosKey(must);
+                if (pos === currentPos || pos === declaredPos) {
+                    kept = [...kept, must];
+                }
+            }
+            return {
+                items: kept.map(entry => {
+                    const pos = entryPosKey(entry);
+                    return {
+                        itemKey: entry.itemKey,
+                        uri: entry.uri.toString(),
+                        line0: entry.pos.line,
+                        character: entry.pos.character,
+                        name: entry.name,
+                        typeName: entry.typeName,
+                        file: fileLabel(entry.uri),
+                        line: entry.pos.line + 1,
+                        current: pos === currentPos,
+                        declared: pos === declaredPos
+                    };
+                }),
+                pending,
+                timedOut,
+                more: unique.length - kept.length
+            };
+        };
+        log(`start hop=${node.hop} declared=${itemLabel(declared)}${node.dispatchFrom ? ' (swapped)' : ''} ${this.implContext(declared.uri)}`);
+        const watch = setInterval(() => {
+            log(`waiting stage=${trace.stage} ${Date.now() - trace.t0}ms ${this.implContext(declared.uri)}`);
+        }, 5000);
+        try {
+            trace.stage = 'self';
+            const head = [await this.implEntryForItem(declared)];
+            if (currentPos !== declaredPos) {
+                head.push(await this.implEntryForItem(shown));
+            }
+            onPartial?.(toList(head, true, false));
+
+            trace.stage = 'overrides';
+            const tDown = Date.now();
+            const search = this.implementationOverrides(declared, ident, trace);
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const timeout = new Promise<undefined>(resolve => {
+                timer = setTimeout(() => resolve(undefined), IMPL_SEARCH_TIMEOUT_MS);
             });
+            const downward = await Promise.race([search, timeout]);
+            if (timer) {
+                clearTimeout(timer);
+            }
+            const timedOut = downward === undefined;
+            log(timedOut
+                ? `overrides timed out after ${Date.now() - tDown}ms (search keeps running; next open uses its result)`
+                : `overrides ${Date.now() - tDown}ms n=${downward.length}`);
+            const list = toList([...head, ...(downward || [])], false, timedOut);
+            log(`done n=${list.items.length} more=${list.more} total=${Date.now() - trace.t0}ms`);
+            return list;
+        } catch (err) {
+            log(`failed stage=${trace.stage} ${Date.now() - trace.t0}ms ${String(err)}`);
+            return empty;
+        } finally {
+            clearInterval(watch);
         }
-        return out;
+    }
+
+    private async implEntryForItem(item: vscode.CallHierarchyItem): Promise<ImplEntry> {
+        const pos = item.selectionRange?.start ?? item.range.start;
+        const owner = await this.containingTypeAt(item.uri, pos);
+        return {
+            uri: item.uri,
+            pos,
+            name: identFromToken(item.name) || item.name,
+            typeName: owner ? (identFromToken(owner.symbol.name) || owner.symbol.name) : '',
+            itemKey: itemKey(item)
+        };
+    }
+
+    /**
+     * Overrides of the declared callee. Cached per declaration; a search that
+     * outlives the menu timeout keeps running and fills the cache.
+     */
+    private implementationOverrides(declared: vscode.CallHierarchyItem, ident: string, trace: ImplTrace): Promise<ImplEntry[]> {
+        const log = (msg: string) => debugLog('relation', `impl ${trace.tag} ${msg}`);
+        const key = declPosKey(declared);
+        const cached = this.implFamily.get(key);
+        if (cached) {
+            log(`overrides cache ${this.implFamilySettled.has(key) ? 'hit' : 'join in-flight search'}`);
+            return cached;
+        }
+        const run = async (): Promise<ImplEntry[]> => {
+            const anchor = declared.selectionRange?.start ?? declared.range.start;
+            const tImpl = Date.now();
+            log(`implementationProvider send ${itemLabel(declared)} ${this.implContext()}`);
+            const raw = await this.execLspHeld<unknown[]>('vscode.executeImplementationProvider', declared.uri, anchor);
+            const locs = (Array.isArray(raw) ? raw : [])
+                .map(r => this.asLocation(r))
+                .filter((loc): loc is vscode.Location => !!loc && !isLibPath(loc.uri.fsPath));
+            const byFile = new Map<string, vscode.Location[]>();
+            for (const loc of locs) {
+                const list = byFile.get(loc.uri.toString()) || [];
+                list.push(loc);
+                byFile.set(loc.uri.toString(), list);
+            }
+            log(`implementationProvider ${Date.now() - tImpl}ms n=${locs.length} files=${byFile.size}`);
+            const tLabels = Date.now();
+            const groups = [...byFile.values()];
+            const perFile = await mapLimit(groups, IMPL_LABEL_CONCURRENCY, async group => {
+                const uri = group[0].uri;
+                const flat = await this.documentSymbols(uri);
+                return group.map((loc): ImplEntry => {
+                    const pos = loc.range.start;
+                    const method = flat ? methodSymbolAt(flat, pos) : undefined;
+                    const owner = flat ? pickContainingType(flat, pos) : undefined;
+                    return {
+                        uri,
+                        pos: method ? method.selectionRange.start : pos,
+                        name: method ? (identFromToken(method.name) || method.name) : ident,
+                        typeName: owner ? (identFromToken(owner.name) || owner.name) : '',
+                        itemKey: ''
+                    };
+                });
+            });
+            const entries = perFile.flat()
+                .sort((a, b) => a.uri.fsPath.localeCompare(b.uri.fsPath) || a.pos.line - b.pos.line);
+            log(`override labels ${Date.now() - tLabels}ms n=${entries.length} files=${groups.length}`);
+            return entries;
+        };
+        const pending = run().catch(err => {
+            log(`overrides failed ${String(err)}`);
+            this.implFamily.delete(key);
+            return [] as ImplEntry[];
+        });
+        void pending.then(() => this.implFamilySettled.add(key));
+        this.implFamily.set(key, pending);
+        return pending;
+    }
+
+    /** A menu entry not yet prepared as a call hierarchy item is prepared on pick. */
+    private async resolvePick(pick: RelationImplementationPick): Promise<vscode.CallHierarchyItem | undefined> {
+        const known = pick.itemKey ? this.items.get(pick.itemKey) : undefined;
+        if (known) {
+            return known;
+        }
+        if (!pick.uri) {
+            return undefined;
+        }
+        const uri = vscode.Uri.parse(pick.uri);
+        const at = new vscode.Position(pick.line, pick.character);
+        const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>('vscode.prepareCallHierarchy', uri, at);
+        const hit = prepared?.find(p => rangeContains(p.range, at)) || prepared?.[0];
+        return hit ? this.items.get(this.markPrepared(hit)) : undefined;
     }
 
     /**
      * Center: recenter on the pick. Outgoing: show the pick in place of the
      * static callee under this parent; the new child starts collapsed.
      */
-    async pickImplementation(nodeId: string, pickKey: string, graph: RelationGraph): Promise<RelationLoad | undefined> {
+    async pickImplementation(
+        nodeId: string,
+        pick: RelationImplementationPick,
+        graph: RelationGraph
+    ): Promise<RelationLoad | undefined> {
         const nodes = graph.nodes;
         const node = nodes.find(n => n.id === nodeId && n.kind === 'symbol');
-        const picked = this.items.get(pickKey);
-        if (!node || !picked || node.hop < 0 || itemKey(picked) === node.itemKey) {
+        if (!node || node.hop < 0) {
+            return undefined;
+        }
+        const picked = await this.resolvePick(pick);
+        const shownItem = this.items.get(node.itemKey);
+        if (!picked || (shownItem && declPosKey(picked) === declPosKey(shownItem))) {
+            debugLog('relation', `pick implementation skipped ${picked ? 'already shown' : 'prepare failed'} ${pick.uri}:${pick.line + 1}`);
             return undefined;
         }
         if (node.hop === 0) {
@@ -3926,8 +4172,9 @@ export class CallRelationModel {
         if (!parent || !parentItem) {
             return undefined;
         }
-        const toKey = itemKey(picked);
         const staticKey = node.dispatchFrom?.itemKey ?? node.itemKey;
+        const staticItem = this.items.get(staticKey);
+        const toKey = staticItem && declPosKey(staticItem) === declPosKey(picked) ? staticKey : itemKey(picked);
         const parentKeys = [...new Set([parent.itemKey, ...this.cacheKeysFor(parentItem)])];
         let picks: Map<string, string> | undefined;
         for (const key of parentKeys) {
@@ -3996,86 +4243,6 @@ export class CallRelationModel {
         const built = await this.completeRootSides(seq, t0, itemLabel(item));
         costLog('switchCenter', Date.now() - t0, itemLabel(item));
         return built ? { graph: built, seq } : undefined;
-    }
-
-    /**
-     * Same-named slots up the heritage chain, then go-to-implementation at the
-     * top-most one: at a base declaration it lists the base and every override.
-     * Order: base first, the item's own chain downward, then the other overrides.
-     */
-    private implementationFamily(item: vscode.CallHierarchyItem): Promise<vscode.CallHierarchyItem[]> {
-        const ident = identFromToken(item.name);
-        if (!ident || /^constructor$/i.test(ident) || isLibPath(item.uri.fsPath)) {
-            return Promise.resolve([item]);
-        }
-        const load = async (): Promise<{ key: string; run: () => Promise<vscode.CallHierarchyItem[]> }> => {
-            const family = await this.selfAndAncestorTypes(item);
-            const slots = (await this.collectVirtualSlots(family.filter(t => t.depth > 0), ident))
-                .filter(slot => !isLibPath(slot.uri.fsPath));
-            const top = slots[slots.length - 1];
-            const anchorUri = top ? top.uri : item.uri;
-            const anchorPos = top ? top.method.selectionRange.start : (item.selectionRange?.start ?? item.range.start);
-            return {
-                key: `${anchorUri.toString()}\0${anchorPos.line}\0${anchorPos.character}`,
-                run: async () => {
-                    const out: vscode.CallHierarchyItem[] = [];
-                    const seen = new Set<string>();
-                    const add = (hit: vscode.CallHierarchyItem | undefined) => {
-                        if (!hit || isLibPath(hit.uri.fsPath) || identFromToken(hit.name) !== ident) {
-                            return;
-                        }
-                        const key = declPosKey(hit);
-                        if (!seen.has(key)) {
-                            seen.add(key);
-                            out.push(hit);
-                        }
-                    };
-                    const prepareAt = async (uri: vscode.Uri, at: vscode.Position) => {
-                        const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
-                            'vscode.prepareCallHierarchy',
-                            uri,
-                            at
-                        );
-                        const hit = prepared?.find(p => rangeContains(p.range, at)) || prepared?.[0];
-                        if (hit) {
-                            this.markPrepared(hit);
-                        }
-                        return hit;
-                    };
-                    for (const slot of [...slots].reverse()) {
-                        add(await prepareAt(slot.uri, slot.method.selectionRange.start));
-                    }
-                    add(item);
-                    const raw = await this.execLspHeld<unknown[]>(
-                        'vscode.executeImplementationProvider',
-                        anchorUri,
-                        anchorPos
-                    );
-                    const locs = (Array.isArray(raw) ? raw : [])
-                        .map(r => this.asLocation(r))
-                        .filter((loc): loc is vscode.Location => !!loc && !isLibPath(loc.uri.fsPath))
-                        .sort((a, b) => a.uri.fsPath.localeCompare(b.uri.fsPath) || a.range.start.line - b.range.start.line);
-                    for (const loc of locs) {
-                        add(await prepareAt(loc.uri, loc.range.start));
-                    }
-                    costLog('implementation family', 0, `${itemLabel(item)} n=${out.length}`);
-                    return out;
-                }
-            };
-        };
-        return load().then(({ key, run }) => {
-            let pending = this.implFamily.get(key);
-            if (!pending) {
-                pending = run().catch(() => [item]);
-                this.implFamily.set(key, pending);
-            }
-            const own = declPosKey(item);
-            return pending.then(list => (
-                list.some(x => declPosKey(x) === own)
-                    ? list.map(x => declPosKey(x) === own ? item : x)
-                    : [item, ...list]
-            ));
-        }, () => [item]);
     }
 
     async focusTrail(index: number, graph: RelationGraph): Promise<RelationLoad | undefined> {
@@ -6620,9 +6787,25 @@ export class CallRelationModel {
     private runHeritageForFile<T>(uri: vscode.Uri, work: () => Promise<T>): Promise<T> {
         const key = uri.toString();
         const prev = this.heritageFileTail.get(key) ?? Promise.resolve();
+        this.heritagePending.set(key, (this.heritagePending.get(key) || 0) + 1);
         const current = prev.then(work, work);
-        this.heritageFileTail.set(key, current.then(() => undefined, () => undefined));
+        const settled = current.then(() => undefined, () => undefined);
+        void settled.then(() => {
+            const left = (this.heritagePending.get(key) || 1) - 1;
+            if (left > 0) {
+                this.heritagePending.set(key, left);
+            } else {
+                this.heritagePending.delete(key);
+            }
+        });
+        this.heritageFileTail.set(key, settled);
         return current;
+    }
+
+    /** Contention snapshot for implementation-menu logs. */
+    private implContext(uri?: vscode.Uri): string {
+        const queued = uri ? (this.heritagePending.get(uri.toString()) || 0) : 0;
+        return `lspInflight=${this.lspInflight} heritageQ=${queued} prefetch=${this.prefetchActive ? 'on' : 'off'}`;
     }
 
     private async methodDeclHasOverride(uri: vscode.Uri, method: FlatSymbol): Promise<boolean> {
@@ -7413,9 +7596,16 @@ export class CallRelationModel {
                 resolve(current ? value : undefined);
             };
             const sub = this.cts.token.onCancellationRequested(() => finish(undefined));
+            this.lspInflight++;
             vscode.commands.executeCommand<T>(command, ...args).then(
-                value => finish(value),
-                () => finish(undefined, true)
+                value => {
+                    this.lspInflight--;
+                    finish(value);
+                },
+                () => {
+                    this.lspInflight--;
+                    finish(undefined, true);
+                }
             );
         });
     }
@@ -7425,12 +7615,15 @@ export class CallRelationModel {
         const t0 = Date.now();
         const short = command.replace(/^vscode\./, '');
         const target = lspTarget(command, args);
+        this.lspInflight++;
         return Promise.resolve(vscode.commands.executeCommand<T>(command, ...args)).then(
             value => {
+                this.lspInflight--;
                 costLog(`lsp ${short}`, Date.now() - t0, `${target} n=${resultCount(value)}`);
                 return value;
             },
             () => {
+                this.lspInflight--;
                 costLog(`lsp ${short}`, Date.now() - t0, `${target} error`);
                 return undefined;
             }

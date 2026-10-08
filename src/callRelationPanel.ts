@@ -8,9 +8,12 @@ import {
     DEFAULT_SLIM_KIND_IDS,
     parseSlimKindIds,
     RelationGraph,
+    RelationImplementationList,
+    RelationImplementationPick,
     RelationPatch
 } from './callRelation';
 import { CacheKey, cacheKeyEquals, cacheKeyHasWord, cacheKeyNone, createCacheKey, createCacheKeyAt } from './wordCacheKey';
+import { debugLog } from './log';
 
 export const CALL_RELATION_VIEW_TYPE = 'contextView.callRelation';
 
@@ -433,16 +436,45 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
             }
             case 'listImplementations': {
                 const nodeId = String(message.nodeId || '');
-                const items = await this.model.listImplementations(nodeId, this.graph.nodes).catch(() => []);
-                this.panel?.webview.postMessage({ type: 'implementations', reqId: message.reqId, nodeId, items });
+                const reqId = Number(message.reqId) || 0;
+                const t0 = Date.now();
+                debugLog('relation', `impl #${reqId} panel received node=${nodeId.slice(-60)}`);
+                const post = (list: RelationImplementationList) => (this.panel
+                    ? this.panel.webview.postMessage({ type: 'implementations', reqId: message.reqId, nodeId, ...list })
+                    : Promise.resolve(false));
+                const list = await this.model.listImplementations(nodeId, this.graph.nodes, reqId, partial => {
+                    void post(partial).then(posted => debugLog(
+                        'relation',
+                        `impl #${reqId} panel partial n=${partial.items.length} ${Date.now() - t0}ms posted=${posted}`
+                    ));
+                });
+                const posted = await post(list);
+                debugLog(
+                    'relation',
+                    `impl #${reqId} panel replied n=${list.items.length} more=${list.more}`
+                    + ` timedOut=${list.timedOut} ${Date.now() - t0}ms posted=${posted}`
+                );
                 break;
             }
+            case 'implementationsShown':
+                debugLog(
+                    'relation',
+                    `impl #${Number(message.reqId) || 0} webview ${String(message.status || '?')}`
+                    + ` n=${Number(message.count) || 0} roundTrip=${Number(message.waitMs) || 0}ms`
+                );
+                break;
             case 'pickImplementation': {
                 const nodeId = String(message.nodeId || '');
-                const pickKey = String(message.itemKey || '');
+                const target = message.target || {};
+                const pick: RelationImplementationPick = {
+                    itemKey: String(message.itemKey || ''),
+                    uri: String(target.uri || ''),
+                    line: Math.max(0, Number(target.line) | 0),
+                    character: Math.max(0, Number(target.character) | 0)
+                };
                 const center = this.graph.nodes.find(n => n.id === nodeId)?.hop === 0;
                 await this.withProgress(async () => {
-                    const loaded = await this.model.pickImplementation(nodeId, pickKey, this.graph);
+                    const loaded = await this.model.pickImplementation(nodeId, pick, this.graph);
                     if (loaded) {
                         this.applyGraph(loaded.graph, loaded.seq);
                     }

@@ -1970,7 +1970,7 @@ function showCtxMenu(e, items, owner) {
 }
 
 let implReqSeq = 0;
-/** @type {{ reqId: number, nodeId: string, at: { clientX: number, clientY: number }, base: any[] } | null} */
+/** @type {{ reqId: number, nodeId: string, at: { clientX: number, clientY: number }, base: any[], sentAt: number } | null} */
 let implPending = null;
 
 function nodeMenuBase(node) {
@@ -1998,24 +1998,46 @@ function showNodeMenu(e, node) {
         return;
     }
     const reqId = ++implReqSeq;
-    implPending = { reqId, nodeId: node.id, at, base };
+    implPending = { reqId, nodeId: node.id, at, base, sentAt: Date.now() };
     showCtxMenu(at, [...base, { separator: true }, { label: 'Loading implementations…', disabled: true }], `impl:${reqId}`);
     vscode.postMessage({ type: 'listImplementations', nodeId: node.id, reqId });
+}
+
+function reportImplementations(msg, status, sentAt) {
+    vscode.postMessage({
+        type: 'implementationsShown',
+        reqId: msg.reqId,
+        status,
+        count: Array.isArray(msg.items) ? msg.items.length : 0,
+        waitMs: sentAt ? Date.now() - sentAt : 0
+    });
 }
 
 function onImplementations(msg) {
     const pending = implPending;
     if (!pending || msg.reqId !== pending.reqId) {
+        reportImplementations(msg, pending ? `stale (waiting for #${pending.reqId})` : 'stale (no pending request)', 0);
         return;
     }
-    implPending = null;
+    const partial = !!msg.pending;
+    const owner = `impl:${pending.reqId}`;
+    if (!partial) {
+        implPending = null;
+    }
     const menu = document.getElementById('cr-ctx-menu');
-    if (!menu || menu.dataset.owner !== `impl:${pending.reqId}`) {
+    if (!menu || menu.dataset.owner !== owner) {
+        if (partial) {
+            implPending = null;
+        }
+        reportImplementations(msg, menu ? `dropped (menu now ${menu.dataset.owner || 'canvas'})` : 'dropped (menu closed)', pending.sentAt);
         return;
     }
     const list = Array.isArray(msg.items) ? msg.items : [];
+    const more = Number(msg.more) || 0;
+    const showSection = list.length >= 2 || partial || !!msg.timedOut;
+    reportImplementations(msg, `${partial ? 'partial ' : ''}${showSection ? 'shown' : 'shown (no switch section)'}`, pending.sentAt);
     const items = pending.base.slice();
-    if (list.length >= 2) {
+    if (showSection) {
         items.push({ separator: true }, { heading: 'Implementations' });
         for (const impl of list) {
             items.push({
@@ -2025,11 +2047,28 @@ function onImplementations(msg) {
                 title: impl.declared ? 'The callee the language server resolved for this call' : '',
                 run: impl.current
                     ? undefined
-                    : () => vscode.postMessage({ type: 'pickImplementation', nodeId: pending.nodeId, itemKey: impl.itemKey })
+                    : () => vscode.postMessage({
+                        type: 'pickImplementation',
+                        nodeId: pending.nodeId,
+                        itemKey: impl.itemKey || '',
+                        target: { uri: impl.uri, line: impl.line0, character: impl.character }
+                    })
+            });
+        }
+        if (more > 0) {
+            items.push({ label: `+${more} more`, disabled: true, title: 'Only the first entries are listed' });
+        }
+        if (partial) {
+            items.push({ label: 'Searching overrides…', disabled: true });
+        } else if (msg.timedOut) {
+            items.push({
+                label: 'Override search timed out',
+                disabled: true,
+                title: 'The language server is still searching; reopen this menu later to see the result'
             });
         }
     }
-    showCtxMenu(pending.at, items);
+    showCtxMenu(pending.at, items, partial ? owner : undefined);
 }
 
 function showCallChainMenu(e) {
