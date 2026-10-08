@@ -1369,6 +1369,12 @@ export class CallRelationModel {
     private centerFamilyRootKey = '';
     /** itemKey → containing type, for incoming filter without touching the side cache. */
     private readonly ownerKeyByItem = new Map<string, SerOwner>();
+    /** center key + parent key → static callee key → center-chain override of a `this.x()` call. */
+    private readonly centerDispatch = new Map<string, Map<string, string>>();
+    /** center key + parent key → settle run; resolves true when it added swaps. */
+    private readonly centerDispatchRun = new Map<string, Promise<boolean>>();
+    /** center key + owner type key + ident → override item key, '' when the center chain has none. */
+    private readonly centerOverride = new Map<string, Promise<string>>();
     /** When true, keep only compactKinds from incoming and outgoing. */
     private compactFilter = false;
     private compactKinds = kindsFromIds(DEFAULT_SLIM_KIND_IDS);
@@ -1483,6 +1489,7 @@ export class CallRelationModel {
         this.centerFamily.clear();
         this.centerFamilyRootKey = '';
         this.ownerKeyByItem.clear();
+        this.clearCenterDispatch();
         this.cacheEpoch++;
         this.fileGen.clear();
         this.inflightIn.clear();
@@ -1636,9 +1643,226 @@ export class CallRelationModel {
                     list.push(child);
                 }
             }
-            return list;
+            return this.applyCenterDispatch(keys, list);
         }
         return this.constrainIncomingToCenter(item, list);
+    }
+
+    /** Swaps settled by settleCenterDispatch for the current center. The side cache keeps the static callee. */
+    private applyCenterDispatch(
+        parentKeys: readonly string[],
+        kids: vscode.CallHierarchyItem[]
+    ): vscode.CallHierarchyItem[] {
+        if (this.relationMode !== 'call' || !this.root || !this.centerDispatch.size) {
+            return kids;
+        }
+        const rootKey = itemKey(this.root);
+        let swap: Map<string, string> | undefined;
+        for (const key of parentKeys) {
+            swap = this.centerDispatch.get(`${rootKey}\0${key}`);
+            if (swap) {
+                break;
+            }
+        }
+        if (!swap?.size) {
+            return kids;
+        }
+        const out: vscode.CallHierarchyItem[] = [];
+        const seen = new Set<string>();
+        for (const child of kids) {
+            const to = swap.get(itemKey(child));
+            const next = (to && this.items.get(to)) || child;
+            const k = itemKey(next);
+            if (seen.has(k) || !this.keepCallItem(next)) {
+                continue;
+            }
+            seen.add(k);
+            out.push(next);
+        }
+        return out;
+    }
+
+    private clearCenterDispatch(): void {
+        this.centerDispatch.clear();
+        this.centerDispatchRun.clear();
+        this.centerOverride.clear();
+    }
+
+    /**
+     * `this.x()` inside a method of a center ancestor runs on a center instance,
+     * so it reaches the most derived `x` between the center type and that
+     * ancestor. The parent's own chain only looks upward and stops at the
+     * ancestor's `x`. Settled once per center; only parents in a center-chain
+     * file pay for owner lookup. True only for the call that ran the settle and
+     * added swaps.
+     */
+    private settleCenterDispatch(item: vscode.CallHierarchyItem, seq: number): Promise<boolean> {
+        if (this.relationMode !== 'call' || !this.root || !this.centerFamily.size || !this.isCurrent(seq)) {
+            return Promise.resolve(false);
+        }
+        if (isLibPath(item.uri.fsPath) || !this.inCenterChainFile(item.uri)) {
+            return Promise.resolve(false);
+        }
+        const root = this.root;
+        const runKey = `${itemKey(root)}\0${itemKey(item)}`;
+        const running = this.centerDispatchRun.get(runKey);
+        if (running) {
+            return running.then(() => false);
+        }
+        const run = this.runCenterDispatch(item, root, seq).then(result => {
+            if (result === undefined) {
+                this.centerDispatchRun.delete(runKey);
+                return false;
+            }
+            return result;
+        }, () => {
+            this.centerDispatchRun.delete(runKey);
+            return false;
+        });
+        this.centerDispatchRun.set(runKey, run);
+        return run;
+    }
+
+    private inCenterChainFile(uri: vscode.Uri): boolean {
+        const u = uri.toString();
+        for (const key of this.centerFamily.keys()) {
+            if (key.startsWith(`${u}\0`)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** undefined: not settled (side not cached yet, or the center moved), retry later. */
+    private async runCenterDispatch(
+        item: vscode.CallHierarchyItem,
+        root: vscode.CallHierarchyItem,
+        seq: number
+    ): Promise<boolean | undefined> {
+        let kids: vscode.CallHierarchyItem[] | undefined;
+        for (const key of this.cacheKeysFor(item)) {
+            const list = this.outgoing.get(key);
+            if (list && (!kids || list.length > kids.length)) {
+                kids = list;
+            }
+        }
+        if (!kids) {
+            return undefined;
+        }
+        if (!kids.length) {
+            return false;
+        }
+        const live = () => this.isCurrent(seq) && this.root === root;
+        await this.rememberOwner(item);
+        if (!live()) {
+            return undefined;
+        }
+        const owner = this.ownerKeyByItem.get(itemKey(item));
+        if (!owner || owner.none) {
+            return false;
+        }
+        const depth = this.chainDepth(owner);
+        if (depth === undefined || depth <= 0) {
+            return false;
+        }
+        const parentKeys = this.cacheKeysFor(item);
+        const rootKey = itemKey(root);
+        const swap = new Map<string, string>();
+        for (const child of kids) {
+            const ident = identFromToken(child.name);
+            if (!ident || /^constructor$/i.test(ident)) {
+                continue;
+            }
+            const childKey = itemKey(child);
+            let sites: RelationOpenTarget[] | undefined;
+            for (const key of parentKeys) {
+                sites = this.callSites.get(`${key}\0${1}\0${childKey}`);
+                if (sites?.length) {
+                    break;
+                }
+            }
+            if (!sites?.length || !sites[0].uri) {
+                continue;
+            }
+            const ranges = sites.map(site => new vscode.Range(site.line, site.character, site.line, site.character));
+            if (!await this.outgoingSitesAreThisDispatch(vscode.Uri.parse(sites[0].uri), ranges, ident)) {
+                continue;
+            }
+            const to = await this.centerOverrideFor(root, rootKey, owner, depth, ident);
+            if (!live()) {
+                return undefined;
+            }
+            if (!to || to === childKey || parentKeys.includes(to)) {
+                continue;
+            }
+            swap.set(childKey, to);
+            for (const key of parentKeys) {
+                const siteKey = `${key}\0${1}\0${to}`;
+                if (!this.callSites.has(siteKey)) {
+                    this.callSites.set(siteKey, sites);
+                }
+            }
+        }
+        costLog('outgoing center dispatch', 0, `${itemLabel(item)} depth=${depth} swaps=${swap.size}`);
+        if (!swap.size) {
+            return false;
+        }
+        for (const key of parentKeys) {
+            this.centerDispatch.set(`${rootKey}\0${key}`, swap);
+        }
+        return true;
+    }
+
+    private centerOverrideFor(
+        root: vscode.CallHierarchyItem,
+        rootKey: string,
+        owner: SerOwner,
+        depth: number,
+        ident: string
+    ): Promise<string> {
+        const key = `${rootKey}\0${owner.key}\0${ident}`;
+        let pending = this.centerOverride.get(key);
+        if (!pending) {
+            pending = this.findCenterOverride(root, owner, depth, ident).catch(() => '');
+            this.centerOverride.set(key, pending);
+        }
+        return pending;
+    }
+
+    /** Nearest center-chain type below `owner` (depth < owner's) that defines `ident` and extends `owner`. */
+    private async findCenterOverride(
+        root: vscode.CallHierarchyItem,
+        owner: SerOwner,
+        depth: number,
+        ident: string
+    ): Promise<string> {
+        const nearer = (await this.selfAndAncestorTypes(root))
+            .filter(type => type.depth < depth && !isLibPath(type.uri.fsPath))
+            .sort((a, b) => a.depth - b.depth);
+        for (const type of nearer) {
+            const flat = await this.documentSymbols(type.uri);
+            const method = flat ? methodInTypeSymbols(flat, type.symbol, ident) : undefined;
+            if (!method) {
+                continue;
+            }
+            const bases = await this.collectAncestorTypesFrom({ uri: type.uri, symbol: type.symbol, depth: 0 });
+            const extendsOwner = bases.some(base => (
+                typeRefKey(base.uri, base.symbol) === owner.key
+                || (base.uri.toString() === owner.uri && base.symbol.name === owner.name)
+            ));
+            if (!extendsOwner) {
+                continue;
+            }
+            const at = method.selectionRange.start;
+            const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
+                'vscode.prepareCallHierarchy',
+                type.uri,
+                at
+            );
+            const hit = prepared?.find(p => rangeContains(p.range, at)) || prepared?.[0];
+            return hit ? this.markPrepared(hit) : '';
+        }
+        return '';
     }
 
     /**
@@ -1866,6 +2090,7 @@ export class CallRelationModel {
         }
         this.baseTypesCache.clear();
         this.ancestorCache.clear();
+        this.clearCenterDispatch();
         this.semanticLegendCache.delete(u);
         this.centerSnaps.clear();
         this.incomingScan.clear();
@@ -3270,6 +3495,8 @@ export class CallRelationModel {
             }
             if (dir >= 0 && !this.sideFresh(item, 1)) {
                 await this.ensureOutgoing(item, seq);
+            } else if (dir > 0) {
+                await this.settleCenterDispatch(item, seq);
             }
             if (!this.isCurrent(seq) || this.collapseLock.has(nodeId)) {
                 costLog('expandHop cancelled', Date.now() - t0, `${node.name} hop=${node.hop}`);
@@ -3801,7 +4028,13 @@ export class CallRelationModel {
         if (!this.isCurrent(seq)) {
             return undefined;
         }
-        const graph = this.buildGraph();
+        let graph = this.buildGraph();
+        if (await this.settleShownDispatch(seq, graph.nodes)) {
+            if (!this.isCurrent(seq)) {
+                return undefined;
+            }
+            graph = this.buildGraph();
+        }
         await this.fillVisibleSnippets(seq, graph);
         if (!this.isCurrent(seq)) {
             return undefined;
@@ -3814,6 +4047,28 @@ export class CallRelationModel {
         this.prefetchActive = this.collectPrefetchJobs(latest.nodes).length > 0;
         this.prefetchInBackground(seq);
         return this.prefetchActive ? this.buildGraph() : latest;
+    }
+
+    /**
+     * Open callee branches kept across a recenter are drawn from cache and never
+     * pass through ensureOutgoing. A swap can open new branches, so repeat per hop.
+     */
+    private async settleShownDispatch(seq: number, nodes: RelationNode[]): Promise<boolean> {
+        let changed = false;
+        let current = nodes;
+        for (let round = 0; round < CALL_MAX_HOP; round++) {
+            const open = current.filter(n => n.kind === 'symbol' && n.hop > 0 && n.expanded && !n.cyclic);
+            const results = await Promise.all(open.map(n => {
+                const item = this.items.get(n.itemKey);
+                return item ? this.settleCenterDispatch(item, seq) : Promise.resolve(false);
+            }));
+            if (!this.isCurrent(seq) || !results.some(Boolean)) {
+                break;
+            }
+            changed = true;
+            current = this.buildGraph().nodes;
+        }
+        return changed;
     }
 
     /**
@@ -4381,7 +4636,7 @@ export class CallRelationModel {
     }
 
     private async ensureOutgoing(item: vscode.CallHierarchyItem, seq: number): Promise<void> {
-        return this.ensureCached(
+        await this.ensureCached(
             this.outgoing,
             this.inflightOut,
             this.inflightOutGen,
@@ -4390,6 +4645,7 @@ export class CallRelationModel {
             (key, fetchSeq) => this.fetchOutgoing(item, key, fetchSeq),
             key => this.outgoingAt.get(key) === this.workspaceGen
         );
+        await this.settleCenterDispatch(item, seq);
     }
 
     private async ensureCached(
