@@ -764,7 +764,7 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             { type: 'separator' },
                             { label: 'Loading implementations…', disabled: true }
                         ], `impl:${reqId}`);
-                        vscode.postMessage({ type: 'listContextImplementations', reqId });
+                        vscode.postMessage({ type: 'listContextImplementations', reqId, ...loc });
                     }
 
                     function onContextImplementations(msg) {

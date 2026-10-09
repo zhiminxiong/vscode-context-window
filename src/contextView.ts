@@ -2531,7 +2531,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         return await this.executeJumpProvider(JUMP_PROVIDER_COMMAND[mode], uri, position);
     }
 
-    /** 右键菜单：当前展示的函数及其子类重写。先回一版自己，子类随后补上。 */
+    /** 右键菜单：光标下的函数及其子类重写，不看当前定义。先回一版自己，子类随后补上。 */
     private async handleListContextImplementations(message: any): Promise<void> {
         const reqId = Number(message?.reqId) || 0;
         const empty: RelationImplementationList = { items: [], pending: false, timedOut: false, more: 0 };
@@ -2539,14 +2539,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this.postMessageToWebview({ type: 'contextImplementations', reqId: message?.reqId, ...list });
         };
         const shown = this._lastContent;
-        if (!shown?.jmpUri || !shown.range || !this._listImplementationsAt) {
+        if (!shown?.jmpUri || !this._listImplementationsAt || typeof message?.line !== 'number') {
             post(empty);
             return;
         }
         const uri = vscode.Uri.parse(shown.jmpUri);
         const position = new vscode.Position(
-            Math.max(0, shown.range.start.line | 0),
-            Math.max(0, shown.range.start.character | 0)
+            Math.max(0, message.line | 0),
+            Math.max(0, Number(message.character) | 0)
         );
         const list = await this._listImplementationsAt(uri, position, reqId, partial => post(partial));
         post(list);
