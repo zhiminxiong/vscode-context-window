@@ -3978,6 +3978,60 @@ export class CallRelationModel {
             return empty;
         }
         const shown = this.items.get(node.itemKey) ?? declared;
+        log(`start hop=${node.hop} declared=${itemLabel(declared)}${node.dispatchFrom ? ' (swapped)' : ''} ${this.implContext(declared.uri)}`);
+        return this.emitImplementationList(declared, shown, trace, onPartial);
+    }
+
+    /**
+     * The function at this position and its overrides. Ancestors are not
+     * listed: a call that has reached this function only dispatches further down.
+     */
+    async listImplementationsAt(
+        uri: vscode.Uri,
+        position: vscode.Position,
+        reqId = 0,
+        onPartial?: (list: RelationImplementationList) => void
+    ): Promise<RelationImplementationList> {
+        const empty: RelationImplementationList = { items: [], pending: false, timedOut: false, more: 0 };
+        const trace: ImplTrace = { tag: `#${reqId} ctx`, stage: 'prepare', t0: Date.now() };
+        const log = (msg: string) => debugLog('relation', `impl ${trace.tag} ${msg}`);
+        log(`at ${fileLabel(uri)}:${position.line + 1}:${position.character + 1}`);
+        let hit: vscode.CallHierarchyItem | undefined;
+        try {
+            const prepared = await this.execLspHeld<vscode.CallHierarchyItem[]>(
+                'vscode.prepareCallHierarchy',
+                uri,
+                position
+            );
+            hit = prepared?.find(p => rangeContains(p.range, position)) || prepared?.[0];
+        } catch (err) {
+            log(`prepare failed ${String(err)}`);
+            return empty;
+        }
+        if (!hit) {
+            log('skip prepare empty');
+            return empty;
+        }
+        this.markPrepared(hit);
+        const ident = identFromToken(hit.name);
+        const callable = hit.kind === vscode.SymbolKind.Method || hit.kind === vscode.SymbolKind.Function;
+        if (!callable || !ident || /^constructor$/i.test(ident) || isLibPath(hit.uri.fsPath)) {
+            log(`skip kind=${hit.kind} ident=${ident || '?'} ${itemLabel(hit)}`);
+            return empty;
+        }
+        log(`start ${itemLabel(hit)} ${this.implContext(hit.uri)}`);
+        return this.emitImplementationList(hit, hit, trace, onPartial);
+    }
+
+    private async emitImplementationList(
+        declared: vscode.CallHierarchyItem,
+        shown: vscode.CallHierarchyItem,
+        trace: ImplTrace,
+        onPartial?: (list: RelationImplementationList) => void
+    ): Promise<RelationImplementationList> {
+        const empty: RelationImplementationList = { items: [], pending: false, timedOut: false, more: 0 };
+        const log = (msg: string) => debugLog('relation', `impl ${trace.tag} ${msg}`);
+        const ident = identFromToken(declared.name);
         const currentPos = declPosKey(shown);
         const declaredPos = declPosKey(declared);
         const toList = (entries: ImplEntry[], pending: boolean, timedOut: boolean): RelationImplementationList => {
@@ -4018,7 +4072,6 @@ export class CallRelationModel {
                 more: unique.length - kept.length
             };
         };
-        log(`start hop=${node.hop} declared=${itemLabel(declared)}${node.dispatchFrom ? ' (swapped)' : ''} ${this.implContext(declared.uri)}`);
         const watch = setInterval(() => {
             log(`waiting stage=${trace.stage} ${Date.now() - trace.t0}ms ${this.implContext(declared.uri)}`);
         }, 5000);

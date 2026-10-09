@@ -30,6 +30,9 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(provider);
     const callRelation = new CallRelationPanel(context);
     context.subscriptions.push(callRelation);
+    provider.setImplementationLister((uri, position, reqId, onPartial) => (
+        callRelation.listImplementationsAt(uri, position, reqId, onPartial)
+    ));
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ContextWindowProvider.viewType, provider, {

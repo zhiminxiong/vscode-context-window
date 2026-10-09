@@ -718,13 +718,17 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         return { line: pos.lineNumber - 1, character: pos.column - 1 };
                     }
 
+                    let ctxImplSeq = 0;
+                    /** @type {{ reqId: number, at: { clientX: number, clientY: number }, base: any[] } | null} */
+                    let ctxImplPending = null;
+
                     function showEditorModMenu(e) {
                         if (typeof window.showCustomContextMenu !== 'function') {
                             return;
                         }
                         const text = copyFromEditor(e.clientX, e.clientY);
                         const loc = positionFromEvent(e.clientX, e.clientY);
-                        window.showCustomContextMenu(e, [
+                        const base = [
                             {
                                 label: 'Copy',
                                 disabled: !text,
@@ -751,7 +755,68 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                                 label: 'Find Relation (in ContextView)',
                                 action: () => vscode.postMessage({ type: 'findCallRelationInContext', ...loc })
                             }
-                        ]);
+                        ];
+                        const reqId = ++ctxImplSeq;
+                        const at = { clientX: e.clientX, clientY: e.clientY };
+                        ctxImplPending = { reqId, at, base };
+                        window.showCustomContextMenu(e, [
+                            ...base,
+                            { type: 'separator' },
+                            { label: 'Loading implementations…', disabled: true }
+                        ], `impl:${reqId}`);
+                        vscode.postMessage({ type: 'listContextImplementations', reqId });
+                    }
+
+                    function onContextImplementations(msg) {
+                        const pending = ctxImplPending;
+                        if (!pending || msg.reqId !== pending.reqId || typeof window.showCustomContextMenu !== 'function') {
+                            return;
+                        }
+                        const owner = `impl:${pending.reqId}`;
+                        const menu = document.getElementById('custom-context-menu');
+                        if (!menu || menu.dataset.owner !== owner) {
+                            ctxImplPending = null;
+                            return;
+                        }
+                        const partial = !!msg.pending;
+                        if (!partial) {
+                            ctxImplPending = null;
+                        }
+                        const list = Array.isArray(msg.items) ? msg.items : [];
+                        const more = Number(msg.more) || 0;
+                        const showSection = list.length >= 2 || partial || !!msg.timedOut;
+                        const items = pending.base.slice();
+                        if (showSection) {
+                            items.push({ type: 'separator' }, { type: 'heading', label: 'Implementations' });
+                            for (const impl of list) {
+                                items.push({
+                                    label: impl.typeName ? `${impl.typeName}.${impl.name}` : impl.name,
+                                    detail: `${impl.file}:${impl.line}`,
+                                    checked: !!impl.current,
+                                    title: impl.current ? 'Currently shown' : '',
+                                    action: impl.current
+                                        ? undefined
+                                        : () => vscode.postMessage({
+                                            type: 'pickContextImplementation',
+                                            name: impl.name || '',
+                                            target: { uri: impl.uri, line: impl.line0, character: impl.character }
+                                        })
+                                });
+                            }
+                            if (more > 0) {
+                                items.push({ label: `+${more} more`, disabled: true, title: 'Only the first entries are listed' });
+                            }
+                            if (partial) {
+                                items.push({ label: 'Searching overrides…', disabled: true });
+                            } else if (msg.timedOut) {
+                                items.push({
+                                    label: 'Override search timed out',
+                                    disabled: true,
+                                    title: 'The language server is still searching; reopen this menu later to see the result'
+                                });
+                            }
+                        }
+                        window.showCustomContextMenu(pending.at, items, partial ? owner : undefined);
                     }
 
                     const editorDomNode = editor.getDomNode();
@@ -975,6 +1040,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         //console.log('[definition] Received message:', message);
                         try {
                             switch (message.type) {
+                                case 'contextImplementations':
+                                    onContextImplementations(message);
+                                    break;
                                 case 'JumpTrail':
                                     window.jumpTrailEnabled = !window.jumpTrailEnabled;
                                     jumpTrail.setEnabled(window.jumpTrailEnabled);

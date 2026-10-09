@@ -7,6 +7,7 @@ import { blameLine, blameLineDiff, openBlameDiff } from './lineBlame';
 import { debugLog, loggingEnabled } from './log';
 import { enclosingSymbolRange, relocateSymbolsByName } from './enclosingSymbol';
 import { collectCallerLocationsAt } from './findRelation';
+import { RelationImplementationList } from './callRelation';
 import { CacheKey, cacheKeyEquals, cacheKeyNone, createCacheKey } from './wordCacheKey';
 
 export const FLOAT_CONTEXT_VIEW_TYPE = 'FloatContextView';
@@ -114,6 +115,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _progressDepth = 0;  // 进度条嵌套计数：归零才隐藏，避免并发更新时进度条错配
     /** Find Relation (in ContextView) 会自己按点击位置跳，避免 jumpMode 写入后再用主编辑器光标刷一次。 */
     private _skipJumpModeContentRefresh = false;
+    private _listImplementationsAt?: (
+        uri: vscode.Uri,
+        position: vscode.Position,
+        reqId: number,
+        onPartial?: (list: RelationImplementationList) => void
+    ) => Promise<RelationImplementationList>;
 
     private _persistTimer?: NodeJS.Timeout;
     private _restorePromise?: Promise<void>;
@@ -127,6 +134,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _semanticDelays: number[] = [];
     private static readonly SEMANTIC_MIN_DELAY = 300;
     private static readonly SEMANTIC_MAX_DELAY = 2000;
+
+    setImplementationLister(lister: NonNullable<ContextWindowProvider['_listImplementationsAt']>): void {
+        this._listImplementationsAt = lister;
+    }
 
     constructor(
         private readonly _context: vscode.ExtensionContext,
@@ -1242,6 +1253,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     await vscode.commands.executeCommand('contextView.callRelation.findRelationInContext', loc);
                     break;
                 }
+                case 'listContextImplementations':
+                    await this.handleListContextImplementations(message);
+                    break;
+                case 'pickContextImplementation':
+                    await this.handlePickContextImplementation(message);
+                    break;
                 case 'debugLog':
                     if (message.module === 'bracket' && Array.isArray(message.lines)) {
                         for (const line of message.lines) {
@@ -2512,6 +2529,53 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return collected?.locations ?? [];
         }
         return await this.executeJumpProvider(JUMP_PROVIDER_COMMAND[mode], uri, position);
+    }
+
+    /** 右键菜单：当前展示的函数及其子类重写。先回一版自己，子类随后补上。 */
+    private async handleListContextImplementations(message: any): Promise<void> {
+        const reqId = Number(message?.reqId) || 0;
+        const empty: RelationImplementationList = { items: [], pending: false, timedOut: false, more: 0 };
+        const post = (list: RelationImplementationList) => {
+            this.postMessageToWebview({ type: 'contextImplementations', reqId: message?.reqId, ...list });
+        };
+        const shown = this._lastContent;
+        if (!shown?.jmpUri || !shown.range || !this._listImplementationsAt) {
+            post(empty);
+            return;
+        }
+        const uri = vscode.Uri.parse(shown.jmpUri);
+        const position = new vscode.Position(
+            Math.max(0, shown.range.start.line | 0),
+            Math.max(0, shown.range.start.character | 0)
+        );
+        const list = await this._listImplementationsAt(uri, position, reqId, partial => post(partial));
+        post(list);
+    }
+
+    /** 点某一项：在 Context View 里打开那个实现。 */
+    private async handlePickContextImplementation(message: any): Promise<void> {
+        const target = message?.target || {};
+        const uriStr = typeof target.uri === 'string' ? target.uri : '';
+        if (!uriStr) {
+            return;
+        }
+        const line = Math.max(0, Number(target.line) | 0);
+        const character = Math.max(0, Number(target.character) | 0);
+        const name = typeof message?.name === 'string' ? message.name : '';
+        await this.withProgress(() => this.openImplementation(uriStr, line, character, name));
+    }
+
+    private async openImplementation(uriStr: string, line: number, character: number, name: string): Promise<void> {
+        const uri = vscode.Uri.parse(uriStr);
+        const position = new vscode.Position(line, character);
+        const from = this._lastContent?.range?.start;
+        const defs = await this.executeJumpProvider('vscode.executeDefinitionProvider', uri, position);
+        const target = definitionTarget(defs[0]) ?? { uri, range: new vscode.Range(position, position) };
+        const content = (await this.reuseShownContent(target.uri, target.range))
+            || await this._renderer.renderUriRange(target.uri, target.range);
+        this.addToHistory(content, from?.line ?? -1, from?.character ?? -1, name);
+        this.updateContent(content);
+        this.invalidateCacheKey();
     }
 
     /** 切到 Relation 并在 Context 里列出 Show Relation 的 incoming（caller 或引用）。 */

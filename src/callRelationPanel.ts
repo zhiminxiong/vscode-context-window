@@ -188,6 +188,15 @@ export class CallRelationPanel implements vscode.WebviewPanelSerializer {
         return !!this.panel?.active;
     }
 
+    listImplementationsAt(
+        uri: vscode.Uri,
+        position: vscode.Position,
+        reqId = 0,
+        onPartial?: (list: RelationImplementationList) => void
+    ): Promise<RelationImplementationList> {
+        return this.model.listImplementationsAt(uri, position, reqId, onPartial);
+    }
+
     find(action: 'open' | 'next' | 'prev' | 'close'): void {
         if (!this.panel) {
             return;

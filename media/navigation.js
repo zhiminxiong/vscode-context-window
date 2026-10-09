@@ -413,9 +413,13 @@
         }
     }
 
-    window.showCustomContextMenu = function(e, items) {
-        e.preventDefault();
-        e.stopPropagation();
+    window.showCustomContextMenu = function(e, items, owner) {
+        if (e.preventDefault) {
+            e.preventDefault();
+        }
+        if (e.stopPropagation) {
+            e.stopPropagation();
+        }
         const oldMenu = document.getElementById('custom-context-menu');
         if (oldMenu) {
             oldMenu.remove();
@@ -423,6 +427,7 @@
         const menu = document.createElement('div');
         menu.id = 'custom-context-menu';
         menu.className = 'custom-context-menu';
+        menu.dataset.owner = owner || '';
         menu.style.visibility = 'hidden';
         menu.addEventListener('mousedown', ev => ev.stopPropagation());
         menu.addEventListener('mouseup', ev => ev.stopPropagation());
@@ -434,11 +439,33 @@
                 menu.appendChild(sep);
                 return;
             }
+            if (item.type === 'heading') {
+                const head = document.createElement('div');
+                head.className = 'custom-context-menu-heading';
+                head.textContent = item.label || '';
+                menu.appendChild(head);
+                return;
+            }
             const el = document.createElement('div');
-            el.textContent = (item.checked ? '✔ ' : '') + item.label;
             el.className = 'custom-context-menu-item';
+            if (item.checked) {
+                el.classList.add('is-checked');
+            }
             if (item.disabled) {
                 el.classList.add('is-disabled');
+            }
+            if (item.title) {
+                el.title = item.title;
+            }
+            const label = document.createElement('span');
+            label.className = 'custom-context-menu-label';
+            label.textContent = item.label || '';
+            el.appendChild(label);
+            if (item.detail) {
+                const detail = document.createElement('span');
+                detail.className = 'custom-context-menu-detail';
+                detail.textContent = item.detail;
+                el.appendChild(detail);
             }
             el.onclick = () => {
                 if (!item.disabled && item.action) {
