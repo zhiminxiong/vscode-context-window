@@ -2573,6 +2573,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const target = definitionTarget(defs[0]) ?? { uri, range: new vscode.Range(position, position) };
         const content = (await this.reuseShownContent(target.uri, target.range))
             || await this._renderer.renderUriRange(target.uri, target.range);
+        this._pickItems = undefined;
+        this.postMessageToWebview({ type: 'clearDefinitionList' });
         this.addToHistory(content, from?.line ?? -1, from?.character ?? -1, name);
         this.updateContent(content);
         this.invalidateCacheKey();
