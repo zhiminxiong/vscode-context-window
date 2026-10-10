@@ -378,9 +378,14 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     // symbolName：落到的符号名；缺省则从定义 range 截标识符。
     private addToHistory(contentInfo: FileContentInfo, fromLine: number =-1, fromColumn: number =-1, symbolName?: string) {
         //console.log('[definition] add history from line', fromLine, 'column', fromColumn);
+        const name = (symbolName && symbolName.trim()) || nameFromContent(contentInfo);
+        const current = this._history[this._historyIndex];
+        // 已经停在这个定义上再点它（或点到同一处的另一次调用）不再叠一条。
+        if (current && this.isSameHistoryTarget(current, contentInfo, name)) {
+            return;
+        }
         // 清除_historyIndex后的内容
         this._history = this._history.slice(0, this._historyIndex + 1);
-        const name = (symbolName && symbolName.trim()) || nameFromContent(contentInfo);
         this._history.push({ content: contentInfo, navigateLine: -1, navigateColumn: -1, symbolName: name });
         this._historyIndex++;
 
@@ -396,6 +401,24 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             this._historyIndex--;
         }
         this.schedulePersist();
+    }
+
+    /** 同一文件、同一行、同一个名字，视为同一次跳转。 */
+    private isSameHistoryTarget(current: HistoryInfo, next: FileContentInfo, name: string): boolean {
+        const shown = current.content;
+        if (!shown?.jmpUri || !next?.jmpUri || shown.jmpUri !== next.jmpUri) {
+            return false;
+        }
+        const shownLine = shown.range?.start?.line;
+        const nextLine = next.range?.start?.line;
+        if (typeof shownLine !== 'number' || shownLine !== nextLine) {
+            return false;
+        }
+        const shownName = current.symbolName || nameFromContent(shown);
+        if (shownName && name) {
+            return shownName === name;
+        }
+        return shown.range?.start?.character === next.range?.start?.character;
     }
 
     private applyWebviewOptions(webview: vscode.Webview): void {
