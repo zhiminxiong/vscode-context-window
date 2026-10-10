@@ -4015,7 +4015,7 @@ export class CallRelationModel {
         this.markPrepared(hit);
         const ident = identFromToken(hit.name);
         const callable = hit.kind === vscode.SymbolKind.Method || hit.kind === vscode.SymbolKind.Function;
-        if (!callable || !ident || /^constructor$/i.test(ident) || isLibPath(hit.uri.fsPath)) {
+        if (!callable || !ident || /^constructor$/i.test(ident)) {
             log(`skip kind=${hit.kind} ident=${ident || '?'} ${itemLabel(hit)}`);
             return empty;
         }
@@ -4138,9 +4138,11 @@ export class CallRelationModel {
             const tImpl = Date.now();
             log(`implementationProvider send ${itemLabel(declared)} ${this.implContext()}`);
             const raw = await this.execLspHeld<unknown[]>('vscode.executeImplementationProvider', declared.uri, anchor);
-            const locs = (Array.isArray(raw) ? raw : [])
+            const rawList = Array.isArray(raw) ? raw : [];
+            const locs = rawList
                 .map(r => this.asLocation(r))
                 .filter((loc): loc is vscode.Location => !!loc && !isLibPath(loc.uri.fsPath));
+            log(`implementationProvider ${declared.uri.toString()} ${anchor.line + 1}:${anchor.character + 1} raw=${rawList.length}`);
             const byFile = new Map<string, vscode.Location[]>();
             for (const loc of locs) {
                 const list = byFile.get(loc.uri.toString()) || [];
@@ -4176,7 +4178,14 @@ export class CallRelationModel {
             this.implFamily.delete(key);
             return [] as ImplEntry[];
         });
-        void pending.then(() => this.implFamilySettled.add(key));
+        void pending.then(entries => {
+            if (!entries.length && this.implFamily.get(key) === pending) {
+                // The language server may answer more once its project loads.
+                this.implFamily.delete(key);
+                return;
+            }
+            this.implFamilySettled.add(key);
+        });
         this.implFamily.set(key, pending);
         return pending;
     }
