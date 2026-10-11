@@ -34,6 +34,12 @@ This extension implements Source Insight’s Context Window, plus Relation’s C
   - Source Insight–style double-click on a line number to select the whole function. A setting can enable the same behavior in the VS Code editor.
   - Floating window: open another Context Window in a separate view, including a fully independent window.
 
+- Implementations
+
+  ![feature4](https://github.com/zhiminxiong/vscode-context-window/blob/master/doc/feature4.png?raw=true)
+
+  Hold **Ctrl**, **Shift**, or **Meta** and right-click a function in the Context Window. When that function has another implementation, the menu lists them under **Implementations**: `Type.method`, then the file and line. The one on screen is checked. Pick another to open it in the Context Window. The list is the function under the pointer and the overrides below it, including a declaration in a library file. The same list is on a Relation node, for the center and for a callee on the right. Picking one recenters the graph when the node is the center; on a callee it replaces that node and leaves it collapsed.
+
 - Relation
 
   Functions show Calls and Callers. Variables and fields show Find All References grouped by enclosing function (right side empty).

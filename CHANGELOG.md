@@ -4,11 +4,24 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [unReleased]
+## [1.1.5] 2026.10.11
+
+#### Added
+
+- Relation’s node menu adds **Center in View** (scrolls that node to the middle), **Copy Name**, and an implementation list on the center and on outgoing nodes. Picking one recenters the graph when the node is the center; on an outgoing node it replaces that node and leaves it collapsed. The list fills in as overrides arrive, and says when the search times out.
+- Context Window’s right-click menu lists **Implementations** for the function under the cursor, including a library function, and opens the one you pick.
+
+#### Changed
+
+- When the center is a subclass, a `this.x()` inside a parent method connects to the most specific override on the center type’s chain.
 
 #### Fixed
 
 - Show Relation on a library call such as `add_Completed` still looks up the enclosing caller, but the canvas stays on the opened symbol until that lookup finishes. The line back to the caller stays clickable.
+- Line blame on a line that is not committed yet uses the avatar for your git email, the same picture as lines you have committed.
+- The Open Changes icon in the line-blame hover lines up with the commit id.
+- Choosing an implementation clears the definition list on the left.
+- A jump that lands on the definition already shown does not add another history entry.
 
 ## [1.1.4] 2026.09.25
 
