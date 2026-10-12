@@ -99,7 +99,7 @@ export interface RelationImplementationList {
     /** Overrides are still being searched; a final list follows. */
     pending: boolean;
     timedOut: boolean;
-    /** Entries left out of the menu. */
+    /** Unused. The menu pages the full list itself. */
     more: number;
 }
 
@@ -122,7 +122,6 @@ function entryPosKey(entry: ImplEntry): string {
     return `${entry.uri.toString()}\0${entry.pos.line}\0${entry.pos.character}`;
 }
 
-const IMPL_MENU_MAX = 50;
 const IMPL_SEARCH_TIMEOUT_MS = 15000;
 const IMPL_LABEL_CONCURRENCY = 8;
 
@@ -4044,15 +4043,8 @@ export class CallRelationModel {
                     unique.push(entry);
                 }
             }
-            let kept = unique.slice(0, IMPL_MENU_MAX);
-            for (const must of unique.slice(IMPL_MENU_MAX)) {
-                const pos = entryPosKey(must);
-                if (pos === currentPos || pos === declaredPos) {
-                    kept = [...kept, must];
-                }
-            }
             return {
-                items: kept.map(entry => {
+                items: unique.map(entry => {
                     const pos = entryPosKey(entry);
                     return {
                         itemKey: entry.itemKey,
@@ -4069,7 +4061,7 @@ export class CallRelationModel {
                 }),
                 pending,
                 timedOut,
-                more: unique.length - kept.length
+                more: 0
             };
         };
         const watch = setInterval(() => {

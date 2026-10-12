@@ -1320,7 +1320,7 @@ body .monaco-editor .find-widget {
     font-size: 12px;
 }
 
-.custom-context-menu-item:hover .custom-context-menu-detail {
+.custom-context-menu-item:hover > .custom-context-menu-detail {
     color: #e8f5e4;
 }
 
@@ -1335,6 +1335,23 @@ body .monaco-editor .find-widget {
 .custom-context-menu-item:hover {
     background: #1d8705;/* var(--vscode-menu-selectionBackground, #e5f3ff); */
     color: #ffffff;/* var(--vscode-menu-selectionForeground, #000); */
+}
+
+.custom-context-menu-item.has-submenu {
+    padding-right: 22px;
+}
+
+.custom-context-menu-caret {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.custom-context-menu-sub {
+    z-index: 10000;
+    color: #000000;
+    background: #ffffff;
 }
 
 .custom-context-menu-item.is-disabled,

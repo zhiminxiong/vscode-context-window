@@ -718,6 +718,20 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         return { line: pos.lineNumber - 1, character: pos.column - 1 };
                     }
 
+                    const IMPL_MENU_PAGE = 12;
+
+                    function pageImplMenu(entries, toItem) {
+                        const page = entries.slice(0, IMPL_MENU_PAGE).map(toItem);
+                        const rest = entries.slice(IMPL_MENU_PAGE);
+                        if (rest.length) {
+                            page.push({
+                                label: `+${rest.length} more`,
+                                submenu: pageImplMenu(rest, toItem)
+                            });
+                        }
+                        return page;
+                    }
+
                     let ctxImplSeq = 0;
                     /** @type {{ reqId: number, at: { clientX: number, clientY: number }, base: any[] } | null} */
                     let ctxImplPending = null;
@@ -783,29 +797,23 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                             ctxImplPending = null;
                         }
                         const list = Array.isArray(msg.items) ? msg.items : [];
-                        const more = Number(msg.more) || 0;
                         const showSection = list.length >= 2 || partial || !!msg.timedOut;
                         const items = pending.base.slice();
                         if (showSection) {
                             items.push({ type: 'separator' }, { type: 'heading', label: 'Implementations' });
-                            for (const impl of list) {
-                                items.push({
-                                    label: impl.typeName ? `${impl.typeName}.${impl.name}` : impl.name,
-                                    detail: `${impl.file}:${impl.line}`,
-                                    checked: !!impl.current,
-                                    title: impl.current ? 'Currently shown' : '',
-                                    action: impl.current
-                                        ? undefined
-                                        : () => vscode.postMessage({
-                                            type: 'pickContextImplementation',
-                                            name: impl.name || '',
-                                            target: { uri: impl.uri, line: impl.line0, character: impl.character }
-                                        })
-                                });
-                            }
-                            if (more > 0) {
-                                items.push({ label: `+${more} more`, disabled: true, title: 'Only the first entries are listed' });
-                            }
+                            items.push(...pageImplMenu(list, impl => ({
+                                label: impl.typeName ? `${impl.typeName}.${impl.name}` : impl.name,
+                                detail: `${impl.file}:${impl.line}`,
+                                checked: !!impl.current,
+                                title: impl.current ? 'Currently shown' : '',
+                                action: impl.current
+                                    ? undefined
+                                    : () => vscode.postMessage({
+                                        type: 'pickContextImplementation',
+                                        name: impl.name || '',
+                                        target: { uri: impl.uri, line: impl.line0, character: impl.character }
+                                    })
+                            })));
                             if (partial) {
                                 items.push({ label: 'Searching overrides…', disabled: true });
                             } else if (msg.timedOut) {

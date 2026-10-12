@@ -1892,24 +1892,37 @@ function exportMenuItems() {
     ];
 }
 
-/**
- * items: { label, run, detail?, checked?, disabled?, title? } | { separator: true } | { heading: label }.
- * owner tags the menu so a late async reply only rebuilds the menu it belongs to.
- */
-function showCtxMenu(e, items, owner) {
-    hideCtxMenu();
-    hideCenterOverflow();
-    hideSiteMenu();
-    closeStyleMenu();
-    if (!items.length) {
-        return;
+const IMPL_MENU_PAGE = 12;
+
+function pageImplMenu(entries, toItem) {
+    const page = entries.slice(0, IMPL_MENU_PAGE).map(toItem);
+    const rest = entries.slice(IMPL_MENU_PAGE);
+    if (rest.length) {
+        page.push({
+            label: `+${rest.length} more`,
+            submenu: pageImplMenu(rest, toItem)
+        });
     }
-    const menu = document.createElement('div');
-    menu.id = 'cr-ctx-menu';
-    menu.className = 'cr-ctx-menu';
-    menu.dataset.owner = owner || '';
-    menu.style.visibility = 'hidden';
-    menu.addEventListener('mousedown', ev => ev.stopPropagation());
+    return page;
+}
+
+function placeCtxSubmenu(sub, anchor) {
+    const pad = 4;
+    const rect = anchor.getBoundingClientRect();
+    const subRect = sub.getBoundingClientRect();
+    let left = rect.right - 6;
+    let top = rect.top - 4;
+    if (left + subRect.width > window.innerWidth - pad) {
+        left = rect.left - subRect.width + 6;
+    }
+    if (top + subRect.height > window.innerHeight - pad) {
+        top = Math.max(pad, window.innerHeight - subRect.height - pad);
+    }
+    sub.style.left = Math.max(pad, left) + 'px';
+    sub.style.top = Math.max(pad, top) + 'px';
+}
+
+function appendCtxMenuItems(menu, items) {
     for (const entry of items) {
         if (entry.separator) {
             const sep = document.createElement('div');
@@ -1942,17 +1955,74 @@ function showCtxMenu(e, items, owner) {
             detail.textContent = entry.detail;
             item.appendChild(detail);
         }
-        item.addEventListener('click', () => {
-            if (entry.disabled) {
-                return;
-            }
-            hideCtxMenu();
-            if (entry.run) {
-                entry.run();
-            }
-        });
+        const submenu = Array.isArray(entry.submenu) ? entry.submenu : null;
+        if (submenu && submenu.length && !entry.disabled) {
+            item.classList.add('has-submenu');
+            const caret = document.createElement('span');
+            caret.className = 'cr-ctx-menu-caret';
+            caret.textContent = '\u203A';
+            item.appendChild(caret);
+            const open = () => {
+                if (item.querySelector(':scope > .cr-ctx-menu-sub')) {
+                    return;
+                }
+                const parent = item.parentElement;
+                if (parent) {
+                    for (const child of parent.children) {
+                        if (child === item) {
+                            continue;
+                        }
+                        const openSub = child.querySelector(':scope > .cr-ctx-menu-sub');
+                        if (openSub) {
+                            openSub.remove();
+                        }
+                    }
+                }
+                const sub = document.createElement('div');
+                sub.className = 'cr-ctx-menu cr-ctx-menu-sub';
+                sub.addEventListener('mousedown', ev => ev.stopPropagation());
+                appendCtxMenuItems(sub, submenu);
+                item.appendChild(sub);
+                placeCtxSubmenu(sub, item);
+            };
+            item.addEventListener('click', ev => {
+                ev.stopPropagation();
+                open();
+            });
+        } else {
+            item.addEventListener('click', () => {
+                if (entry.disabled) {
+                    return;
+                }
+                hideCtxMenu();
+                if (entry.run) {
+                    entry.run();
+                }
+            });
+        }
         menu.appendChild(item);
     }
+}
+
+/**
+ * items: { label, run, detail?, checked?, disabled?, title?, submenu? } | { separator: true } | { heading: label }.
+ * owner tags the menu so a late async reply only rebuilds the menu it belongs to.
+ */
+function showCtxMenu(e, items, owner) {
+    hideCtxMenu();
+    hideCenterOverflow();
+    hideSiteMenu();
+    closeStyleMenu();
+    if (!items.length) {
+        return;
+    }
+    const menu = document.createElement('div');
+    menu.id = 'cr-ctx-menu';
+    menu.className = 'cr-ctx-menu';
+    menu.dataset.owner = owner || '';
+    menu.style.visibility = 'hidden';
+    menu.addEventListener('mousedown', ev => ev.stopPropagation());
+    appendCtxMenuItems(menu, items);
     document.body.appendChild(menu);
     const rect = menu.getBoundingClientRect();
     const pad = 4;
@@ -2033,31 +2103,25 @@ function onImplementations(msg) {
         return;
     }
     const list = Array.isArray(msg.items) ? msg.items : [];
-    const more = Number(msg.more) || 0;
     const showSection = list.length >= 2 || partial || !!msg.timedOut;
     reportImplementations(msg, `${partial ? 'partial ' : ''}${showSection ? 'shown' : 'shown (no switch section)'}`, pending.sentAt);
     const items = pending.base.slice();
     if (showSection) {
         items.push({ separator: true }, { heading: 'Implementations' });
-        for (const impl of list) {
-            items.push({
-                label: impl.typeName ? `${impl.typeName}.${impl.name}` : impl.name,
-                detail: `${impl.file}:${impl.line}${impl.declared ? ' · declared' : ''}`,
-                checked: !!impl.current,
-                title: impl.declared ? 'The callee the language server resolved for this call' : '',
-                run: impl.current
-                    ? undefined
-                    : () => vscode.postMessage({
-                        type: 'pickImplementation',
-                        nodeId: pending.nodeId,
-                        itemKey: impl.itemKey || '',
-                        target: { uri: impl.uri, line: impl.line0, character: impl.character }
-                    })
-            });
-        }
-        if (more > 0) {
-            items.push({ label: `+${more} more`, disabled: true, title: 'Only the first entries are listed' });
-        }
+        items.push(...pageImplMenu(list, impl => ({
+            label: impl.typeName ? `${impl.typeName}.${impl.name}` : impl.name,
+            detail: `${impl.file}:${impl.line}${impl.declared ? ' · declared' : ''}`,
+            checked: !!impl.current,
+            title: impl.declared ? 'The callee the language server resolved for this call' : '',
+            run: impl.current
+                ? undefined
+                : () => vscode.postMessage({
+                    type: 'pickImplementation',
+                    nodeId: pending.nodeId,
+                    itemKey: impl.itemKey || '',
+                    target: { uri: impl.uri, line: impl.line0, character: impl.character }
+                })
+        })));
         if (partial) {
             items.push({ label: 'Searching overrides…', disabled: true });
         } else if (msg.timedOut) {

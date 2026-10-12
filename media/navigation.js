@@ -413,25 +413,39 @@
         }
     }
 
-    window.showCustomContextMenu = function(e, items, owner) {
-        if (e.preventDefault) {
-            e.preventDefault();
+    function placeContextSubmenu(sub, anchor) {
+        const pad = 4;
+        const rect = anchor.getBoundingClientRect();
+        const subRect = sub.getBoundingClientRect();
+        let left = rect.right - 6;
+        let top = rect.top - 4;
+        if (left + subRect.width > window.innerWidth - pad) {
+            left = rect.left - subRect.width + 6;
         }
-        if (e.stopPropagation) {
-            e.stopPropagation();
+        if (top + subRect.height > window.innerHeight - pad) {
+            top = Math.max(pad, window.innerHeight - subRect.height - pad);
         }
-        const oldMenu = document.getElementById('custom-context-menu');
-        if (oldMenu) {
-            oldMenu.remove();
+        sub.style.left = Math.max(pad, left) + 'px';
+        sub.style.top = Math.max(pad, top) + 'px';
+    }
+
+    function closeSiblingSubmenus(el, subClass) {
+        const parent = el.parentElement;
+        if (!parent) {
+            return;
         }
-        const menu = document.createElement('div');
-        menu.id = 'custom-context-menu';
-        menu.className = 'custom-context-menu';
-        menu.dataset.owner = owner || '';
-        menu.style.visibility = 'hidden';
-        menu.addEventListener('mousedown', ev => ev.stopPropagation());
-        menu.addEventListener('mouseup', ev => ev.stopPropagation());
-        menu.addEventListener('click', ev => ev.stopPropagation());
+        for (const child of parent.children) {
+            if (child === el) {
+                continue;
+            }
+            const open = child.querySelector(':scope > .' + subClass);
+            if (open) {
+                open.remove();
+            }
+        }
+    }
+
+    function appendCustomMenuItems(menu, items, close) {
         items.forEach(item => {
             if (item.type === 'separator') {
                 const sep = document.createElement('div');
@@ -467,14 +481,64 @@
                 detail.textContent = item.detail;
                 el.appendChild(detail);
             }
-            el.onclick = () => {
-                if (!item.disabled && item.action) {
-                    item.action();
-                }
-                menu.remove();
-            };
+            const submenu = Array.isArray(item.submenu) ? item.submenu : null;
+            if (submenu && submenu.length && !item.disabled) {
+                el.classList.add('has-submenu');
+                const caret = document.createElement('span');
+                caret.className = 'custom-context-menu-caret';
+                caret.textContent = '\u203A';
+                el.appendChild(caret);
+                const open = () => {
+                    if (el.querySelector(':scope > .custom-context-menu-sub')) {
+                        return;
+                    }
+                    closeSiblingSubmenus(el, 'custom-context-menu-sub');
+                    const sub = document.createElement('div');
+                    sub.className = 'custom-context-menu custom-context-menu-sub';
+                    sub.addEventListener('mousedown', ev => ev.stopPropagation());
+                    sub.addEventListener('mouseup', ev => ev.stopPropagation());
+                    sub.addEventListener('click', ev => ev.stopPropagation());
+                    appendCustomMenuItems(sub, submenu, close);
+                    el.appendChild(sub);
+                    placeContextSubmenu(sub, el);
+                };
+                el.onclick = ev => {
+                    ev.stopPropagation();
+                    open();
+                };
+            } else {
+                el.onclick = () => {
+                    if (!item.disabled && item.action) {
+                        item.action();
+                    }
+                    close();
+                };
+            }
             menu.appendChild(el);
         });
+    }
+
+    window.showCustomContextMenu = function(e, items, owner) {
+        if (e.preventDefault) {
+            e.preventDefault();
+        }
+        if (e.stopPropagation) {
+            e.stopPropagation();
+        }
+        const oldMenu = document.getElementById('custom-context-menu');
+        if (oldMenu) {
+            oldMenu.remove();
+        }
+        const menu = document.createElement('div');
+        menu.id = 'custom-context-menu';
+        menu.className = 'custom-context-menu';
+        menu.dataset.owner = owner || '';
+        menu.style.visibility = 'hidden';
+        menu.addEventListener('mousedown', ev => ev.stopPropagation());
+        menu.addEventListener('mouseup', ev => ev.stopPropagation());
+        menu.addEventListener('click', ev => ev.stopPropagation());
+        const close = () => menu.remove();
+        appendCustomMenuItems(menu, items, close);
         document.body.appendChild(menu);
         const menuRect = menu.getBoundingClientRect();
         let left = e.clientX;
