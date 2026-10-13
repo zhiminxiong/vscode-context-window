@@ -25,6 +25,15 @@
  * @property {{ languageId: string }} [metadata]  元数据
  */
 
+function stampKey(s) {
+    return (s && typeof s.mtime === 'number') ? `${s.mtime}:${s.size}` : '';
+}
+
+// 同一 uri、同一文档版本、同一磁盘戳 = 同一份正文。
+function contentKeyOf(uri, version, fileStamp) {
+    return uri ? `${uri}\u0000${version}\u0000${stampKey(fileStamp)}` : '';
+}
+
 export function createMessageHandlers(ctx) {
     /** @type {import('monaco-editor').editor.IStandaloneCodeEditor} */
     const editor = ctx.editor;
@@ -61,8 +70,27 @@ export function createMessageHandlers(ctx) {
         state.curLine = message.curLine;
         state.curColumn = message.curColumn;
         const requestVersion = message.documentVersion;
-        const stampKey = (s) => (s && typeof s.mtime === 'number') ? `${s.mtime}:${s.size}` : '';
         const requestStamp = stampKey(message.fileStamp);
+        const contentKey = contentKeyOf(message.uri, requestVersion, message.fileStamp);
+
+        // 同一份正文已经在编辑器里（同文件内换定义）：只移动定位。
+        // 语义 token 也还在，不能清掉重灌——大文件整篇重算要好几秒。
+        if (contentKey === state.renderedContentKey && editor.getModel()) {
+            const cachedHere = fileContentCache.get(state.uri);
+            if (cachedHere) {
+                cachedHere.timestamp = Date.now();
+            }
+            state.contentVersion = requestVersion;
+            updateEditorContent(state.content, {
+                newUri: message.uri,
+                languageId: message.languageId,
+                range: message.range,
+                curLine: message.curLine,
+                curColumn: message.curColumn,
+                contentKey
+            });
+            return;
+        }
 
         // 检查前端缓存
         const cached = fileContentCache.get(state.uri);
@@ -87,7 +115,8 @@ export function createMessageHandlers(ctx) {
                 range: message.range,
                 scrollToLine: message.scrollToLine,
                 curLine: message.curLine,
-                curColumn: message.curColumn
+                curColumn: message.curColumn,
+                contentKey
             });
             // 对齐 VSCode：内容先出，data 异步补。缓存里尚无 data（从未取过/取过为空）时，
             // 主动向后端要一次（后端带 debounce + 版本校验，取到再以 updateSemantic覆盖）。
@@ -183,7 +212,8 @@ export function createMessageHandlers(ctx) {
             languageId: message.languageId,
             range: message.range != null ? message.range : state.range,
             curLine: message.curLine != null ? message.curLine : state.curLine,
-            curColumn: message.curColumn != null ? message.curColumn : state.curColumn
+            curColumn: message.curColumn != null ? message.curColumn : state.curColumn,
+            contentKey: contentKeyOf(message.uri, message.documentVersion, message.fileStamp)
         });
     }
 
@@ -199,7 +229,10 @@ export function createMessageHandlers(ctx) {
             document.getElementById('main').style.display = 'none';
 
             // 设置编辑器内容
-            const model = editor.getModel();
+            const model = typeof updateEditorContent.useScratchModel === 'function'
+                ? updateEditorContent.useScratchModel('plaintext')
+                : editor.getModel();
+            state.renderedUri = undefined;
             if (model) {
                 model.setValue('No symbol found.');
                 editor.updateOptions({ lineNumbersMinChars: 1 });
@@ -264,8 +297,12 @@ export function createMessageHandlers(ctx) {
     function handleInvalidateFileCache(message) {
         if (message.uri) {
             fileContentCache.delete(message.uri);
+            if (typeof updateEditorContent.dropModel === 'function') {
+                updateEditorContent.dropModel(message.uri);
+            }
         }
         state.renderedUri = undefined;
+        state.renderedContentKey = '';
     }
 
     return { handleUpdateMetadata, handleUpdateContent, handleNoContent, handleUpdateSemantic, handleInvalidateFileCache };

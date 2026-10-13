@@ -181,14 +181,37 @@ function findDeclarationLine(masked, braceIndex, braceCol, tabSize) {
     return -1;
 }
 
+// 同一个 model 同一版本只算一次：大文件每次 sticky 重建、切回都会重新要区间，整篇扫描要几百毫秒。
+// 所有语言共用这一份缓存，provider 对哪种语言都一样算。
+/** @type {WeakMap<object, { versionId: number, tabSize: number, ranges: any }>} */
+const rangesByModel = new WeakMap();
+
 export function createBraceFoldingRangeProvider(monaco) {
     return {
         provideFoldingRanges: (model) => {
-            let lines;
+            let versionId = -1;
             let tabSize = 4;
             try {
-                lines = model.getValue().split('\n');
+                versionId = model.getVersionId();
                 tabSize = model.getOptions().tabSize || 4;
+            } catch (_) {
+                return null;
+            }
+            const hit = rangesByModel.get(model);
+            if (hit && hit.versionId === versionId && hit.tabSize === tabSize) {
+                return hit.ranges;
+            }
+            const ranges = computeBraceRanges(model, tabSize);
+            rangesByModel.set(model, { versionId, tabSize, ranges });
+            return ranges;
+        }
+    };
+}
+
+function computeBraceRanges(model, tabSize) {
+            let lines;
+            try {
+                lines = model.getValue().split('\n');
             } catch (_) {
                 return null;
             }
@@ -243,6 +266,4 @@ export function createBraceFoldingRangeProvider(monaco) {
 
             // 一个区间都没有：返回 null 让 Monaco 回退到缩进模型（返回 [] 会被当成有效空结果）
             return ranges.length ? ranges : null;
-        }
-    };
 }

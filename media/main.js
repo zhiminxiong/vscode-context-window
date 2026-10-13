@@ -356,7 +356,9 @@ const fileContentCache = new Map();  // uri -> { version, content, metadata }
                         // 返回落点 token 的高亮装饰 id（当初点出去的那个词，如 HasInput）
                         returnTokenDecorations: [],
                         // #include/#pragma/#region/#endregion 等指令高亮的装饰 id
-                        directiveDecorations: []
+                        directiveDecorations: [],
+                        // 编辑器里这份正文的 uri + 文档版本 + 磁盘戳，相同就不再比较或重设整篇
+                        renderedContentKey: ''
                     };
 
                     // 添加ResizeObserver来监听容器大小变化（仅用于拖拽分隔条时重新布局）

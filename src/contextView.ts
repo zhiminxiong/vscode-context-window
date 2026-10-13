@@ -2812,26 +2812,44 @@ function nameFromContent(info: FileContentInfo | undefined): string {
     if (!info || !info.content) {
         return '';
     }
-    const lines = info.content.split(/\r?\n/);
     const sl = info.range?.start?.line ?? 0;
     const sc = info.range?.start?.character ?? 0;
     const el = info.range?.end?.line ?? sl;
     const ec = info.range?.end?.character ?? sc;
-    if (sl < 0 || sl >= lines.length) {
+    const line = lineOf(info.content, sl);
+    if (line === undefined) {
         return '';
     }
     let raw = sl === el
-        ? lines[sl].slice(sc, ec)
-        : lines[sl].slice(sc);
+        ? line.slice(sc, ec)
+        : line.slice(sc);
     raw = raw.trim();
     if (!raw) {
-        const rest = lines[sl].slice(sc);
+        const rest = line.slice(sc);
         const m = rest.match(/[A-Za-z_]\w*/);
         raw = m ? m[0] : '';
     }
     const cut = raw.search(/[<(]/);
     const short = cut > 0 ? raw.slice(0, cut) : (raw.split(/\s+/)[0] || raw);
     return short.length > 40 ? short.slice(0, 40) + '…' : short;
+}
+
+// 只取第 index 行（0-based）。整篇 split 在千万字符的 d.ts 上要好几秒，且会卡住扩展宿主。
+function lineOf(text: string, index: number): string | undefined {
+    if (index < 0) {
+        return undefined;
+    }
+    let start = 0;
+    for (let i = 0; i < index; i++) {
+        const nl = text.indexOf('\n', start);
+        if (nl < 0) {
+            return undefined;
+        }
+        start = nl + 1;
+    }
+    const nl = text.indexOf('\n', start);
+    const end = nl < 0 ? text.length : (nl > start && text.charCodeAt(nl - 1) === 13 ? nl - 1 : nl);
+    return text.slice(start, end);
 }
 
 // 统一的空内容工厂，替代多处重复的空 FileContentInfo 字面量

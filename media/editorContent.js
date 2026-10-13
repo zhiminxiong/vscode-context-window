@@ -7,10 +7,108 @@
 
 import { BRACE_LANGS } from './braceLangs.js';
 
+// 大文件各自保留一个 model，切走再切回时直接挂回，不再 setValue 重建分词/括号/折叠。
+// 小文件共用一个 scratch model，照旧 setValue。
+const BIG_MODEL_CHARS = 512 * 1024;
+const BIG_MODEL_MAX = 3;
+
 export function createUpdateEditorContent(ctx) {
     /** @type {import('monaco-editor').editor.IStandaloneCodeEditor} */
     const editor = ctx.editor;
     const { state, applyIndentationForModel, updateFilenameDisplay, hideCursor, ensureGrammar, ensureLanguageConfig } = ctx;
+
+    /** @type {Map<string, { model: any, key: string, versionId: number }>} uri → 大文件 model（Map 顺序即 LRU） */
+    const bigModels = new Map();
+    let scratchModel = null;
+
+    function isBigModel(model) {
+        for (const entry of bigModels.values()) {
+            if (entry.model === model) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 换 model 前清掉挂在旧 model 上的指令装饰，避免切回时重复叠加。
+    function attachModel(model) {
+        const prev = editor.getModel();
+        if (prev === model) {
+            return false;
+        }
+        if (state.directiveDecorations && state.directiveDecorations.length) {
+            state.directiveDecorations = editor.deltaDecorations(state.directiveDecorations, []);
+        }
+        editor.setModel(model);
+        if (prev && !prev.isDisposed() && !scratchModel && !isBigModel(prev)) {
+            scratchModel = prev;
+        }
+        return true;
+    }
+
+    function useScratchModel(languageId) {
+        if (!scratchModel || scratchModel.isDisposed()) {
+            const current = editor.getModel();
+            scratchModel = current && !current.isDisposed() && !isBigModel(current)
+                ? current
+                : monaco.editor.createModel('', languageId || 'plaintext');
+        }
+        const switched = attachModel(scratchModel);
+        return { model: scratchModel, switched };
+    }
+
+    function evictBigModels(keepUri) {
+        while (bigModels.size > BIG_MODEL_MAX) {
+            let victim = null;
+            for (const [uri, entry] of bigModels) {
+                if (uri !== keepUri && entry.model !== editor.getModel()) {
+                    victim = uri;
+                    break;
+                }
+            }
+            if (!victim) {
+                return;
+            }
+            const entry = bigModels.get(victim);
+            bigModels.delete(victim);
+            try { entry.model.dispose(); } catch (_) {}
+        }
+    }
+
+    function acquireBigModel(uri, key, content, languageId) {
+        const hit = bigModels.get(uri);
+        if (hit && !hit.model.isDisposed() && hit.key === key && hit.model.getVersionId() === hit.versionId) {
+            bigModels.delete(uri);
+            bigModels.set(uri, hit);
+            return { model: hit.model, created: false };
+        }
+        let stale = null;
+        if (hit) {
+            bigModels.delete(uri);
+            if (hit.model === editor.getModel()) {
+                stale = hit.model;
+            } else {
+                try { hit.model.dispose(); } catch (_) {}
+            }
+        }
+        const model = monaco.editor.createModel(content, languageId || 'plaintext');
+        bigModels.set(uri, { model, key, versionId: model.getVersionId() });
+        evictBigModels(uri);
+        return { model, created: true, stale };
+    }
+
+    function dropBigModel(uri) {
+        const entry = bigModels.get(uri);
+        if (!entry) {
+            return;
+        }
+        bigModels.delete(uri);
+        if (entry.model === editor.getModel()) {
+            state.renderedContentKey = '';
+            return;
+        }
+        try { entry.model.dispose(); } catch (_) {}
+    }
 
     // ===== #include / #pragma / #region / #endregion 等预处理指令高亮 =====
     // 与扩展端 VSCode 编辑器的装饰（extension.ts: registerDirectiveDecorations）同源：
@@ -173,6 +271,19 @@ export function createUpdateEditorContent(ctx) {
             applyIndentationForModel(fresh);
             editor.setModel(fresh);
             if (viewState) { editor.restoreViewState(viewState); }
+            if (scratchModel === old) {
+                scratchModel = fresh;
+            }
+            // 停放中的同语言大文件还是旧分词，挂回来会显示旧颜色；直接丢掉，下次按内容重建。
+            for (const [uri, entry] of [...bigModels]) {
+                if (entry.model === old) {
+                    entry.model = fresh;
+                    entry.versionId = fresh.getVersionId();
+                } else if (entry.model.getLanguageId() === lang) {
+                    bigModels.delete(uri);
+                    try { entry.model.dispose(); } catch (_) {}
+                }
+            }
 
             state.activeLineDecorations = activeRanges.length
                 ? editor.deltaDecorations([], activeRanges.map(r => ({
@@ -271,7 +382,8 @@ export function createUpdateEditorContent(ctx) {
             languageId,
             range,
             curLine,
-            curColumn
+            curColumn,
+            contentKey
         } = options || {};
 
         // 显示编辑器，隐藏原始内容区域
@@ -320,24 +432,35 @@ export function createUpdateEditorContent(ctx) {
 
             const sameFile = !!(newUri && prevUri === newUri && model);
             let contentChanged = !model;
-            if (!model) {
-                // 创建新模型
-                model = monaco.editor.createModel(newContent || '', languageId || 'plaintext');
-                editor.setModel(model);
-                //console.log('[definition] create Model content updated');
-            } else {
-                // 更新现有模型
-                // 如果语言变了，更新语言
-                if (model.getLanguageId() !== languageId && languageId) {
-                    monaco.editor.setModelLanguage(model, languageId);
-                }
-                // 同文件且正文未变：不 setValue，避免整份重开。
-                if (newContent && (!sameFile || model.getValue() !== newContent)) {
-                    if (model.getValue() !== newContent) {
+            // 同一份正文已在编辑器里：只换定位，不比较也不重设整篇。
+            const alreadyShown = !!(contentKey && model && !model.isDisposed()
+                && contentKey === state.renderedContentKey);
+            if (!alreadyShown) {
+                const big = !!(contentKey && newUri && newContent && newContent.length >= BIG_MODEL_CHARS);
+                if (big) {
+                    const target = acquireBigModel(newUri, contentKey, newContent, languageId);
+                    model = target.model;
+                    if (attachModel(model) || target.created) {
+                        contentChanged = true;
+                    }
+                    if (target.stale && target.stale !== editor.getModel()) {
+                        try { target.stale.dispose(); } catch (_) {}
+                    }
+                } else {
+                    const target = useScratchModel(languageId);
+                    model = target.model;
+                    if (target.switched) {
+                        contentChanged = true;
+                    }
+                    if (newContent && model.getValue() !== newContent) {
                         model.setValue(newContent);
                         contentChanged = true;
                     }
                 }
+                if (model.getLanguageId() !== languageId && languageId) {
+                    monaco.editor.setModelLanguage(model, languageId);
+                }
+                state.renderedContentKey = contentKey || '';
             }
 
             state.renderedUri = newUri || prevUri;
@@ -517,5 +640,12 @@ export function createUpdateEditorContent(ctx) {
     // 暴露指令高亮重算入口，供 main.js 在 fixToken 开关 / 配色变更（updateContextEditorCfg）后即时刷新
     updateEditorContent.applyDirectiveDecorations = applyDirectiveDecorations;
     updateEditorContent.revealCurrent = revealCurrent;
+    // 「No symbol found.」之类的占位文本只能写进 scratch model，不能覆盖停放的大文件。
+    updateEditorContent.useScratchModel = (languageId) => {
+        const target = useScratchModel(languageId);
+        state.renderedContentKey = '';
+        return target.model;
+    };
+    updateEditorContent.dropModel = dropBigModel;
     return updateEditorContent;
 }
