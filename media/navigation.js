@@ -441,6 +441,7 @@
             const open = child.querySelector(':scope > .' + subClass);
             if (open) {
                 open.remove();
+                child.classList.remove('is-open');
             }
         }
     }
@@ -486,10 +487,12 @@
                 el.classList.add('has-submenu');
                 const caret = document.createElement('span');
                 caret.className = 'custom-context-menu-caret';
-                caret.textContent = '\u203A';
                 el.appendChild(caret);
-                const open = () => {
-                    if (el.querySelector(':scope > .custom-context-menu-sub')) {
+                const toggle = () => {
+                    const existing = el.querySelector(':scope > .custom-context-menu-sub');
+                    if (existing) {
+                        existing.remove();
+                        el.classList.remove('is-open');
                         return;
                     }
                     closeSiblingSubmenus(el, 'custom-context-menu-sub');
@@ -500,11 +503,12 @@
                     sub.addEventListener('click', ev => ev.stopPropagation());
                     appendCustomMenuItems(sub, submenu, close);
                     el.appendChild(sub);
+                    el.classList.add('is-open');
                     placeContextSubmenu(sub, el);
                 };
                 el.onclick = ev => {
                     ev.stopPropagation();
-                    open();
+                    toggle();
                 };
             } else {
                 el.onclick = () => {

@@ -1960,10 +1960,12 @@ function appendCtxMenuItems(menu, items) {
             item.classList.add('has-submenu');
             const caret = document.createElement('span');
             caret.className = 'cr-ctx-menu-caret';
-            caret.textContent = '\u203A';
             item.appendChild(caret);
-            const open = () => {
-                if (item.querySelector(':scope > .cr-ctx-menu-sub')) {
+            const toggle = () => {
+                const existing = item.querySelector(':scope > .cr-ctx-menu-sub');
+                if (existing) {
+                    existing.remove();
+                    item.classList.remove('is-open');
                     return;
                 }
                 const parent = item.parentElement;
@@ -1975,6 +1977,7 @@ function appendCtxMenuItems(menu, items) {
                         const openSub = child.querySelector(':scope > .cr-ctx-menu-sub');
                         if (openSub) {
                             openSub.remove();
+                            child.classList.remove('is-open');
                         }
                     }
                 }
@@ -1983,11 +1986,12 @@ function appendCtxMenuItems(menu, items) {
                 sub.addEventListener('mousedown', ev => ev.stopPropagation());
                 appendCtxMenuItems(sub, submenu);
                 item.appendChild(sub);
+                item.classList.add('is-open');
                 placeCtxSubmenu(sub, item);
             };
             item.addEventListener('click', ev => {
                 ev.stopPropagation();
-                open();
+                toggle();
             });
         } else {
             item.addEventListener('click', () => {

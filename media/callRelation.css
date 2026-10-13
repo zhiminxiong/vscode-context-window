@@ -616,14 +616,28 @@ body.vscode-high-contrast {
 }
 
 .cr-ctx-menu-item.has-submenu {
-    padding-right: 22px;
+    padding-right: 28px;
 }
 
 .cr-ctx-menu-caret {
     position: absolute;
-    right: 8px;
+    right: 6px;
     top: 50%;
+    width: 16px;
+    height: 16px;
     transform: translateY(-50%);
+    background: currentColor;
+    -webkit-mask: url(codicon-chevron-right.svg) no-repeat center / 16px 16px;
+    mask: url(codicon-chevron-right.svg) no-repeat center / 16px 16px;
+}
+
+.cr-ctx-menu-item.is-open {
+    background: #1d8705;
+    color: #ffffff;
+}
+
+.cr-ctx-menu-item.is-open > .cr-ctx-menu-detail {
+    color: #e8f5e4;
 }
 
 .cr-ctx-menu-sub {
