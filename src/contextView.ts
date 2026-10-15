@@ -955,7 +955,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         }
         if (lastIdx !== this._historyIndex) {
             this.schedulePersist();
-            this.revealHistoryEntry();
+            this.revealHistoryEntry(lastIdx);
         }
     }
 
@@ -964,20 +964,24 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         if (index < 0 || index >= this._history.length || index === this._historyIndex) {
             return;
         }
+        const fromIndex = this._historyIndex;
         this._historyIndex = index;
         this.schedulePersist();
-        this.revealHistoryEntry();
+        this.revealHistoryEntry(fromIndex);
     }
 
-    private revealHistoryEntry() {
+    private revealHistoryEntry(fromIndex: number) {
         this.postMessageToWebview({
                 type: 'clearDefinitionList'
             });
 
-        const contentInfo = this._history[this._historyIndex];
-        // 面包屑/前进后退都按「这一跳的定义」定位：垂直居中、水平靠左。
-        // 不传 navigateLine——那是离开时点出去的位置，拿来 reveal 会落到无关行且容易贴顶。
-        this.updateContent(contentInfo?.content);
+        const entry = this._history[this._historyIndex];
+        // 往回走时落在离开这一条时点出去的那一行（navigateLine / navigateColumn）。
+        // 往前走仍落到该条定义并居中。
+        const returning = this._historyIndex < fromIndex;
+        const line = returning && typeof entry?.navigateLine === 'number' ? entry.navigateLine : -1;
+        const column = returning && typeof entry?.navigateColumn === 'number' ? entry.navigateColumn : -1;
+        this.updateContent(entry?.content, line, column);
         // 历史导航后展示的已不是「主编辑区当前光标处」的上下文，缓存键必须失效，
         // 否则再点主编辑区那个原 token 会被 update() 的同键判定挡掉（见 invalidateCacheKey 说明）
         this.invalidateCacheKey();

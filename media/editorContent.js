@@ -221,6 +221,19 @@ export function createUpdateEditorContent(ctx) {
         }, 0);
     }
 
+    // 有返回行时只包住那一行，否则包住定义。跨度超过视口时 revealRangeInCenter 会把起点贴顶。
+    function revealRangeFor(range, curLine) {
+        if (curLine && curLine > 0) {
+            return new monaco.Range(curLine, 1, curLine, 1);
+        }
+        return new monaco.Range(
+            range.start.line + 1,
+            range.start.character + 1,
+            range.end.line + 1,
+            range.end.character + 1
+        );
+    }
+
     // 垂直居中 + 水平尽量靠左（与首次跳转同一策略）。
     // 面包屑/历史跳转后，以及 sticky 重建后，都走这里，避免目标行贴在视口顶。
     function revealCurrent() {
@@ -228,14 +241,7 @@ export function createUpdateEditorContent(ctx) {
         if (!editor || !range || !range.start) {
             return;
         }
-        const curLine = state.curLine;
-        const revealStartLine = (curLine && curLine > 0) ? curLine : range.start.line + 1;
-        const revealRange = new monaco.Range(
-            revealStartLine,
-            range.start.character + 1,
-            range.end.line + 1,
-            range.end.character + 1
-        );
+        const revealRange = revealRangeFor(range, state.curLine);
         editor.setScrollLeft(0, monaco.editor.ScrollType.Immediate);
         editor.revealRangeInCenter(revealRange, monaco.editor.ScrollType.Immediate);
     }
@@ -492,21 +498,9 @@ export function createUpdateEditorContent(ctx) {
 
             // 滚动到指定行
             if (range && range.start) {
-                let targetLine = range.start.line+1;
-                if (curLine && curLine > 0) {
-                    targetLine = curLine;
-                }
-                // 原来（只垂直居中，横向不动）：
-                // editor.revealLineInCenter(targetLine, monaco.editor.ScrollType.Immediate);
-
-                // 改为：每次强制垂直居中 + 水平尽量回到最左，必要时才右移保证可见
-                const revealStartLine = (curLine && curLine > 0) ? curLine : range.start.line + 1;
-                const revealRange = new monaco.Range(
-                    revealStartLine,
-                    range.start.character + 1,   // 起始列 → 横向可见的关键
-                    range.end.line + 1,
-                    range.end.character + 1
-                );
+                // 返回时只居中离开时点的那一行。把定义的结束行也算进范围的话，
+                // 跨度超过视口，Monaco 会把起点贴到视口顶。
+                const revealRange = revealRangeFor(range, curLine);
                 // 1) 水平强制回到最左（scrollLeft = 0），保证默认"从左开始"
                 editor.setScrollLeft(0, monaco.editor.ScrollType.Immediate);
                 // 2) 垂直强制居中；水平仅当目标在最左状态下看不见时才右移保证可见
@@ -515,9 +509,10 @@ export function createUpdateEditorContent(ctx) {
                     monaco.editor.ScrollType.Immediate
                 );
 
-                // 添加行高亮装饰，只高亮开始行
+                // 返回时高亮离开时点的那一行，否则高亮定义行。
+                const activeLine = (curLine && curLine > 0) ? curLine : range.start.line + 1;
                 state.activeLineDecorations = editor.deltaDecorations(state.activeLineDecorations, [{
-                    range: new monaco.Range(range.start.line+1, 1, range.start.line+1, 1),
+                    range: new monaco.Range(activeLine, 1, activeLine, 1),
                     options: {
                         isWholeLine: true,
                         className: 'highlighted-line',
