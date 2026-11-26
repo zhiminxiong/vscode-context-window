@@ -235,6 +235,10 @@ export function createMessageHandlers(ctx) {
             state.renderedUri = undefined;
             if (model) {
                 model.setValue('No symbol found.');
+                // 粘附行要等 Monaco 自己防抖重算，不刷的话上一份内容的标题行会盖住这一行好几秒。
+                if (typeof updateEditorContent.clearStickyScroll === 'function') {
+                    updateEditorContent.clearStickyScroll();
+                }
                 editor.updateOptions({ lineNumbersMinChars: 1 });
                 // 高亮"No symbol"（前9个字符），保存装饰ID，以便后续清除
                 state.symboleDecorations = editor.deltaDecorations(state.symboleDecorations, [{

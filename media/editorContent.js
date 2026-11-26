@@ -199,25 +199,27 @@ export function createUpdateEditorContent(ctx) {
     //
     // 注意：不能同步「disable→enable」——同一帧内两次 updateOptions 会被 Monaco 选项 diff 合并、视为无变化、
     // 刷新无效。必须跨一个渲染帧再 enable，让控制器真正重建并重新取数。
-    function refreshStickyScroll() {
+    function refreshStickyScroll(reveal = true) {
         const cur = editor.getOption(monaco.editor.EditorOption.stickyScroll);
         if (!cur || !cur.enabled) { return; }
-        const model = editor.getModel();
-        const lang = model ? model.getLanguageId() : '';
-        const defaultModel = BRACE_LANGS.includes(lang) ? 'foldingProviderModel' : 'outlineModel';
         editor.updateOptions({ stickyScroll: { enabled: false } });
         setTimeout(() => {
+            // 跨帧期间 model 可能又被换掉，按 enable 这一刻的语言选模型。
+            const model = editor.getModel();
+            const lang = model ? model.getLanguageId() : '';
             editor.updateOptions({
                 stickyScroll: {
                     enabled: true,
-                    defaultModel: defaultModel,
+                    defaultModel: BRACE_LANGS.includes(lang) ? 'foldingProviderModel' : 'outlineModel',
                     maxLineCount: cur.maxLineCount || 5,
                     scrollWithEditor: cur.scrollWithEditor !== false
                 }
             });
             editor.layout();
             // layout / 重建 sticky 可能把滚动打回顶部，按当前定位再居中一次。
-            revealCurrent();
+            if (reveal) {
+                revealCurrent();
+            }
         }, 0);
     }
 
@@ -633,6 +635,8 @@ export function createUpdateEditorContent(ctx) {
     // 暴露指令高亮重算入口，供 main.js 在 fixToken 开关 / 配色变更（updateContextEditorCfg）后即时刷新
     updateEditorContent.applyDirectiveDecorations = applyDirectiveDecorations;
     updateEditorContent.revealCurrent = revealCurrent;
+    // 占位页（No symbol found.）用：只丢掉上一份内容的粘附行，不按旧定位滚动。
+    updateEditorContent.clearStickyScroll = () => refreshStickyScroll(false);
     // 「No symbol found.」之类的占位文本只能写进 scratch model，不能覆盖停放的大文件。
     updateEditorContent.useScratchModel = (languageId) => {
         const target = useScratchModel(languageId);
