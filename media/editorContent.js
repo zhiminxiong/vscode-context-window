@@ -625,8 +625,6 @@ export function createUpdateEditorContent(ctx) {
         } else {
             console.error('[definition] Editor not initialized');
         }
-
-        document.querySelector('.progress-container').style.display = 'none';
     };
 
     // 暴露 forceRetokenize，供 main.js 在 setupTextmate 完成（grammar 注册）后，对「首屏即已渲染、

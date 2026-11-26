@@ -30,6 +30,7 @@ const JUMP_PROVIDER_COMMAND: Record<Exclude<JumpMode, 'relation'>, string> = {
 const maxHistorySize = 50;
 const MOUSE_RELEASE_DELAY = 300;   // 鼠标松开检测延时（ms）
 const INITIAL_UPDATE_DELAY = 2000; // 初始化后保底更新延时（ms）
+const PROGRESS_TIMEOUT_MS = 10 * 60 * 1000; // 语言服务把请求挂死时，进度条最多转这么久
 
 interface HistoryInfo {
     content: FileContentInfo | undefined;
@@ -112,7 +113,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private _lastContent: FileContentInfo | undefined;  // 最近一次的内容
     private _semanticRulesLanguageId: string | undefined;  // 最近一次按该语言解析过语义配色
 
-    private _progressDepth = 0;  // 进度条嵌套计数：归零才隐藏，避免并发更新时进度条错配
+    // 内容请求按开始顺序编号。进度条只归最新那一号；界面只往前走，
+    // 比已刷出内容更早的请求晚到时直接丢弃（语言服务的请求取消不了，挂着也不影响）。
+    private _requestSeq = 0;
+    private _shownSeq = 0;
+    private _progressSeq = 0;  // 0：没有在等的请求
+    private _progressTimer?: ReturnType<typeof setTimeout>;
     /** Find Relation (in ContextView) 会自己按点击位置跳，避免 jumpMode 写入后再用主编辑器光标刷一次。 */
     private _skipJumpModeContentRefresh = false;
     private _listImplementationsAt?: (
@@ -547,6 +553,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
     private revealRestoredContent(): void {
         const cur = this.getCurrentContent();
         if (cur.content) {
+            this.renderDirectly();
             void this.updateContent(cur.content);
         } else {
             this.postHistory();
@@ -890,6 +897,10 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             clearTimeout(this._initialUpdateTimer);
             this._initialUpdateTimer = undefined;
         }
+        if (this._progressTimer) {
+            clearTimeout(this._progressTimer);
+            this._progressTimer = undefined;
+        }
 
         // 取消并释放正在进行的更新加载
         // 否则 CancellationTokenSource 与其内部 emitter 会随 provider 实例长驻，
@@ -981,6 +992,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const returning = this._historyIndex < fromIndex;
         const line = returning && typeof entry?.navigateLine === 'number' ? entry.navigateLine : -1;
         const column = returning && typeof entry?.navigateColumn === 'number' ? entry.navigateColumn : -1;
+        this.renderDirectly();
         this.updateContent(entry?.content, line, column);
         // 历史导航后展示的已不是「主编辑区当前光标处」的上下文，缓存键必须失效，
         // 否则再点主编辑区那个原 token 会被 update() 的同键判定挡掉（见 invalidateCacheKey 说明）
@@ -1132,6 +1144,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         );
 
         const contentInfo = await this._renderer.renderDefinition(languageId, definition);
+        this.renderDirectly();
         this._pickItems = undefined;
         this.postMessageToWebview({ type: 'clearDefinitionList' });
         // 先入历史再刷新内容，这样 updateContent 下发的跳转链已含本条。
@@ -1487,8 +1500,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         this._lastContent = undefined;
         this._lastContentHash = undefined;
         try {
-            await this.withProgress(async () => {
+            const ticket = this.beginRequest();
+            await this.withProgress(ticket, (async () => {
                 const contentInfo = await this.relocateRefreshedContent(uri, range, shown);
+                if (!this.claimRender(ticket)) {
+                    return;
+                }
                 if (this._history.length > this._historyIndex && this._history[this._historyIndex]) {
                     this._history[this._historyIndex].content = contentInfo;
                     this.schedulePersist();
@@ -1497,7 +1514,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 this.currentColumn = contentInfo.range.start.character;
                 this.updateContent(contentInfo);
                 this.invalidateCacheKey();
-            });
+            })());
         } catch (err) {
             if (!this._lastContent) {
                 this._lastContent = previous;
@@ -1861,9 +1878,13 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return;
         }
 
+        const ticket = this.beginRequest();
         const updatePromise = (async () => {
             const position = new vscode.Position(message.position.line, message.position.character);
             const definitions = await this.getDefinitionsAt(vscode.Uri.parse(message.uri), position);
+            if (ticket < this._shownSeq) {
+                return;
+            }
 
             if (definitions && definitions.length > 0) {
                 // 主动隐藏定义列表（在处理新的跳转前）
@@ -1881,6 +1902,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 const target = definitionTarget(definition);
                 const contentInfo = (target && await this.reuseShownContent(target.uri, target.range))
                     || await this._renderer.renderDefinition(editor.document.languageId, definition);
+                if (!this.claimRender(ticket)) {
+                    return;
+                }
                 // message.position 是「离开当前段时点击的行/列」，行列一起记，返回时才能落回该 token。
                 // message.token 是用户点的词，即这一跳的目的地名字。
                 this.addToHistory(contentInfo, message.position.line, message.position.character, message.token);
@@ -1900,7 +1924,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
 
         // 不 await：点击的回包不该把消息循环挂住。但 promise 必须收口，
         // 否则 renderer 或语言服务抛错时是一条无人接手的 rejection。
-        void this.withProgress<void>(() => updatePromise).catch(err => {
+        void this.withProgress<void>(ticket, updatePromise).catch(err => {
             console.error('[context-window] jump definition failed:', err);
         });
     }
@@ -1985,7 +2009,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             return;
         }
 
+        const ticket = this.beginRequest();
         const apply = (contentInfo: FileContentInfo) => {
+            if (!this.claimRender(ticket)) {
+                return;
+            }
             if (this._history.length > this._historyIndex) {
                 this._history[this._historyIndex].content = contentInfo;
                 this._history[this._historyIndex].symbolName = nameFromContent(contentInfo);
@@ -2008,6 +2036,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                     selected.definition
                 ));
             } catch (error) {
+                if (ticket < this._shownSeq) {
+                    return;
+                }
                 this.postMessageToWebview({
                     type: 'showContentError',
                     message: 'Failed to load definition content'
@@ -2015,11 +2046,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
             }
         })();
 
-        setTimeout(() => {
-            void this.withProgress<void>(() => updatePromise).catch(err => {
-                console.error('[context-window] definition item selected failed:', err);
-            });
-        }, 0);
+        void this.withProgress<void>(ticket, updatePromise).catch(err => {
+            console.error('[context-window] definition item selected failed:', err);
+        });
     }
 
     /** 当前面板已在展示该文件、文档仍打开、且版本未变时，只换 range，不重读正文。 */
@@ -2392,30 +2421,58 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
      */
     private syncProgress(): void {
         this.postMessageToWebview({
-            type: this._progressDepth > 0 ? 'beginProgress' : 'endProgress'
+            type: this._progressSeq > 0 ? 'beginProgress' : 'endProgress'
         });
     }
 
-    private async withProgress<T>(operation: () => Promise<T>): Promise<T> {
-        // 用计数器配对 begin/end：只有首个开始时显示、最后一个结束时隐藏，
-        // 避免多次更新交叠导致进度条提前消失或卡住。
-        //
-        // 每次都推 begin，不再只在计数为 0 时推：这个计数是实例上的，跨 webview
-        // 重建不会清零，一旦哪条路径漏掉一次减法，条件推法就会让进度条从此再也
-        // 不出现。重复的 begin 在前端只是把同一个 display 再设一遍，代价可以忽略，
-        // 换来的是「不会永久失效」。
-        this._progressDepth++;
+    /** 新的内容请求：拿号并接管进度条。 */
+    private beginRequest(): number {
+        const ticket = ++this._requestSeq;
+        this._progressSeq = ticket;
+        if (this._progressTimer) {
+            clearTimeout(this._progressTimer);
+        }
+        this._progressTimer = setTimeout(() => this.endRequest(ticket), PROGRESS_TIMEOUT_MS);
         this.postMessageToWebview({ type: 'beginProgress' });
+        return ticket;
+    }
 
+    /** 只有仍是最新的那一号结束时才收起进度条。 */
+    private endRequest(ticket: number): void {
+        if (ticket !== this._progressSeq) {
+            return;
+        }
+        this._progressSeq = 0;
+        if (this._progressTimer) {
+            clearTimeout(this._progressTimer);
+            this._progressTimer = undefined;
+        }
+        this.postMessageToWebview({ type: 'endProgress' });
+    }
+
+    /** 刷内容前调用。已有更晚的请求刷出过内容时返回 false，结果丢弃。 */
+    private claimRender(ticket: number): boolean {
+        if (ticket < this._shownSeq) {
+            return false;
+        }
+        this._shownSeq = ticket;
+        return true;
+    }
+
+    /** 不经请求直接刷内容（历史导航、会话恢复、外部定位）：在跑的请求一律作废。 */
+    private renderDirectly(): void {
+        const ticket = ++this._requestSeq;
+        this._shownSeq = ticket;
+        if (this._progressSeq) {
+            this.endRequest(this._progressSeq);
+        }
+    }
+
+    private async withProgress<T>(ticket: number, operation: Promise<T>): Promise<T> {
         try {
-            return await operation();
+            return await operation;
         } finally {
-            // 不用 -- ：异常路径下若计数已被别处归零，这里会减成负数，
-            // 之后 `=== 0` 永远不成立，进度条就一直挂着。
-            this._progressDepth = Math.max(0, this._progressDepth - 1);
-            if (this._progressDepth === 0) {
-                this.postMessageToWebview({ type: 'endProgress' });
-            }
+            this.endRequest(ticket);
         }
     }
 
@@ -2472,6 +2529,7 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         //console.log('[definition] update');
         const loadingEntry = { cts: new vscode.CancellationTokenSource() };
         this._loading = loadingEntry;
+        const ticket = this.beginRequest();
 
         const updatePromise = (async () => {
             const contentInfo = await this.getHtmlContentForActiveEditor(loadingEntry.cts.token);
@@ -2485,6 +2543,12 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 return;
             }
             this._loading = undefined;
+
+            // Sticky 下的空结果不刷界面，也就不该顶掉更早还在跑的面板跳转。
+            const renders = this._updateMode === UpdateMode.Live || !!contentInfo.jmpUri;
+            if (!renders || !this.claimRender(ticket)) {
+                return;
+            }
             
             if (contentInfo.jmpUri) {
                 this.currentUri = vscode.Uri.parse(contentInfo.jmpUri);
@@ -2492,27 +2556,25 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 this.currentColumn = contentInfo.range.start.character;
             }
             
-            if (this._updateMode === UpdateMode.Live || contentInfo.jmpUri) {
-                this._currentCacheKey = newCacheKey;
-                
-                this._history = [];
-                // 这一条没有「点击离开」的历史，落点就用定义名自身的起始位置
-                this._history.push({
-                    content: contentInfo,
-                    navigateLine: this.currentLine,
-                    navigateColumn: this.currentColumn,
-                    symbolName: nameFromContent(contentInfo)
-                });
-                this._historyIndex = 0;
-                this.schedulePersist();
+            this._currentCacheKey = newCacheKey;
 
-                this.updateContent(contentInfo);
-            }
+            this._history = [];
+            // 这一条没有「点击离开」的历史，落点就用定义名自身的起始位置
+            this._history.push({
+                content: contentInfo,
+                navigateLine: this.currentLine,
+                navigateColumn: this.currentColumn,
+                symbolName: nameFromContent(contentInfo)
+            });
+            this._historyIndex = 0;
+            this.schedulePersist();
+
+            this.updateContent(contentInfo);
         })();
 
         // 光标驱动的自动刷新，没人在等它的结果；但取消之外的真实错误
         // （语言服务抛异常等）必须有人接，否则是一条 unhandled rejection。
-        void this.withProgress<void>(() => updatePromise).catch(err => {
+        void this.withProgress<void>(ticket, updatePromise).catch(err => {
             console.error('[context-window] update failed:', err);
         });
     }
@@ -2589,10 +2651,11 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const line = Math.max(0, Number(target.line) | 0);
         const character = Math.max(0, Number(target.character) | 0);
         const name = typeof message?.name === 'string' ? message.name : '';
-        await this.withProgress(() => this.openImplementation(uriStr, line, character, name));
+        const ticket = this.beginRequest();
+        await this.withProgress(ticket, this.openImplementation(ticket, uriStr, line, character, name));
     }
 
-    private async openImplementation(uriStr: string, line: number, character: number, name: string): Promise<void> {
+    private async openImplementation(ticket: number, uriStr: string, line: number, character: number, name: string): Promise<void> {
         const uri = vscode.Uri.parse(uriStr);
         const position = new vscode.Position(line, character);
         const from = this._lastContent?.range?.start;
@@ -2600,6 +2663,9 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
         const target = definitionTarget(defs[0]) ?? { uri, range: new vscode.Range(position, position) };
         const content = (await this.reuseShownContent(target.uri, target.range))
             || await this._renderer.renderUriRange(target.uri, target.range);
+        if (!this.claimRender(ticket)) {
+            return;
+        }
         this._pickItems = undefined;
         this.postMessageToWebview({ type: 'clearDefinitionList' });
         this.addToHistory(content, from?.line ?? -1, from?.character ?? -1, name);
