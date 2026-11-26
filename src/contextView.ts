@@ -1720,7 +1720,8 @@ export class ContextWindowProvider implements vscode.WebviewViewProvider, vscode
                 uri,
                 line,
                 text: info?.text || '',
-                hover: info?.hover
+                hover: info?.hover,
+                stamp: info?.stamp || ''
             });
         } catch {
             empty();

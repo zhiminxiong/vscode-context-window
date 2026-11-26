@@ -26,7 +26,7 @@ export function createLineBlame(ctx) {
     let hoverAuto = !!(ctx && ctx.hoverAuto);
     let seq = 0;
     let timer = 0;
-    /** @type {{ uri: string, line: number, text: string, hover?: any, versionId: number, diffPending?: boolean, diffReqId?: number } | null} */
+    /** @type {{ uri: string, line: number, text: string, hover?: any, stamp: string, versionId: number, diffPending?: boolean, diffReqId?: number } | null} */
     let lastShown = null;
     let lastReqLine = 0;
     let lastReqUri = '';
@@ -34,18 +34,34 @@ export function createLineBlame(ctx) {
     let diffSeq = 0;
     /** @type {Map<string, any[]>} */
     const lineDiffCache = new Map();
+    const LINE_DIFF_CACHE_MAX = 200;
 
-    function lineDiffKey(uri, line) {
-        return `${uri}\0${line}`;
+    // stamp 是后端给的文件版本（HEAD + mtime）。没有 stamp 的结果不进缓存，
+    // 否则保存或 git 改写之后还会贴着旧的增删。
+    function lineDiffKey(shown) {
+        return shown && shown.stamp ? `${shown.uri}\0${shown.line}\0${shown.stamp}` : '';
     }
 
     function attachCachedDiff(shown) {
         if (!shown || !shown.hover || Array.isArray(shown.hover.diff)) {
             return;
         }
-        const cached = lineDiffCache.get(lineDiffKey(shown.uri, shown.line));
+        const key = lineDiffKey(shown);
+        const cached = key && lineDiffCache.get(key);
         if (cached) {
             shown.hover.diff = cached;
+        }
+    }
+
+    function cacheLineDiff(shown, diff) {
+        const key = lineDiffKey(shown);
+        if (!key) {
+            return;
+        }
+        lineDiffCache.delete(key);
+        lineDiffCache.set(key, diff);
+        while (lineDiffCache.size > LINE_DIFF_CACHE_MAX) {
+            lineDiffCache.delete(lineDiffCache.keys().next().value);
         }
     }
     /** @type {HTMLSpanElement | null} */
@@ -754,7 +770,7 @@ export function createLineBlame(ctx) {
             return;
         }
         lastShown.hover.diff = Array.isArray(message.diff) ? message.diff : [];
-        lineDiffCache.set(lineDiffKey(lastShown.uri, lastShown.line), lastShown.hover.diff);
+        cacheLineDiff(lastShown, lastShown.hover.diff);
         if (hoverEl) {
             patchHoverDiff();
             hoverEl.style.visibility = 'visible';
@@ -1075,7 +1091,7 @@ export function createLineBlame(ctx) {
         }
     }
 
-    function apply(line, text, hover) {
+    function apply(line, text, hover, stamp) {
         const model = editor.getModel();
         if (!model || !text || line < 1 || line > model.getLineCount()) {
             hideWidget();
@@ -1087,6 +1103,7 @@ export function createLineBlame(ctx) {
             line,
             text,
             hover: nextHover,
+            stamp: stamp || '',
             versionId: model.getVersionId()
         };
         attachCachedDiff(lastShown);
@@ -1134,7 +1151,7 @@ export function createLineBlame(ctx) {
             && lastShown.uri === uri
             && lastShown.line === line
             && lastShown.versionId === versionId) {
-            apply(line, lastShown.text, lastShown.hover);
+            apply(line, lastShown.text, lastShown.hover, lastShown.stamp);
             return;
         }
         if (pendingReq && lastReqLine === line && lastReqUri === uri) {
@@ -1236,7 +1253,7 @@ export function createLineBlame(ctx) {
             hideWidget();
             return;
         }
-        apply(message.line, message.text, message.hover);
+        apply(message.line, message.text, message.hover, message.stamp);
     }
 
     function setEnabled(value) {
@@ -1312,7 +1329,7 @@ export function createLineBlame(ctx) {
             return;
         }
         if (lastShown.uri === (state && state.uri)) {
-            apply(lastShown.line, lastShown.text, lastShown.hover);
+            apply(lastShown.line, lastShown.text, lastShown.hover, lastShown.stamp);
         }
     });
 

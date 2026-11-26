@@ -15,7 +15,14 @@ const lineBlameCache = new Map<string, LineBlameCacheEntry>();
 const lineBlameInflight = new Map<string, Promise<LineBlameInfo | undefined>>();
 const lineDiffInflight = new Map<string, Promise<LineBlameDiffLine[] | undefined>>();
 const gitHeadFileByDir = new Map<string, string>();
-const repoHeadMemo = new Map<string, { sha: string; headMtime: number; refFile?: string; refMtime: number }>();
+const repoHeadMemo = new Map<string, {
+    sha: string;
+    headMtime: number;
+    refFile?: string;
+    refMtime: number;  // 0：loose ref 文件不存在
+    packedFile?: string;
+    packedMtime: number;
+}>();
 const LINE_BLAME_CACHE_MAX = 400;
 const COMMIT_MESSAGE_CACHE_MAX = 300;
 const FILE_BLAME_CACHE_MAX = 24;
@@ -327,19 +334,23 @@ function isPlausibleGitTime(epochSec: number): boolean {
 }
 
 async function fileMtimeSec(uri: vscode.Uri, fsPath: string): Promise<number | undefined> {
+    const ms = await fileMtimeMs(uri, fsPath);
+    return ms === undefined ? undefined : Math.floor(ms / 1000);
+}
+
+// 缓存版本号用毫秒：同一秒内连存两次，秒级 mtime 不变，会一直拿到前一次的 blame。
+async function fileMtimeMs(uri: vscode.Uri, fsPath: string): Promise<number | undefined> {
     try {
         const st = await vscode.workspace.fs.stat(uri);
-        const sec = Math.floor(st.mtime / 1000);
-        if (isPlausibleGitTime(sec)) {
-            return sec;
+        if (isPlausibleGitTime(Math.floor(st.mtime / 1000))) {
+            return st.mtime;
         }
     } catch {
         // 虚拟文档或 stat 失败时退回磁盘
     }
     try {
         const st = await fs.stat(fsPath);
-        const sec = Math.floor(st.mtimeMs / 1000);
-        return isPlausibleGitTime(sec) ? sec : undefined;
+        return isPlausibleGitTime(Math.floor(st.mtimeMs / 1000)) ? st.mtimeMs : undefined;
     } catch {
         return undefined;
     }
@@ -442,6 +453,15 @@ async function readPackedRef(packedRefsFile: string, refName: string): Promise<s
     return undefined;
 }
 
+// 不存在记 0，用来区分「还没有」和「有了」。
+async function mtimeOrZero(file: string): Promise<number> {
+    try {
+        return (await fs.stat(file)).mtimeMs;
+    } catch {
+        return 0;
+    }
+}
+
 // 读 .git/HEAD（及对应 ref）得到 SHA。HEAD/ref 的 mtime 没变就复用，避免每次 rev-parse。
 async function repoHead(fileDir: string): Promise<string> {
     const headFile = await findGitHeadFile(fileDir);
@@ -455,28 +475,21 @@ async function repoHead(fileDir: string): Promise<string> {
     try {
         const headSt = await fs.stat(headFile);
         const memo = repoHeadMemo.get(headFile);
-        if (memo && memo.headMtime === headSt.mtimeMs) {
-            if (!memo.refFile) {
-                return memo.sha;
-            }
-            try {
-                const refSt = await fs.stat(memo.refFile);
-                if (refSt.mtimeMs === memo.refMtime) {
-                    return memo.sha;
-                }
-            } catch {
-                // ref 文件没了，下面整段重读
-            }
+        if (memo
+            && memo.headMtime === headSt.mtimeMs
+            && (!memo.refFile || await mtimeOrZero(memo.refFile) === memo.refMtime)
+            && (!memo.packedFile || await mtimeOrZero(memo.packedFile) === memo.packedMtime)) {
+            return memo.sha;
         }
         const text = (await fs.readFile(headFile, 'utf8')).trim();
         if (/^[0-9a-f]{40,}$/i.test(text)) {
             const sha = text.toLowerCase();
-            repoHeadMemo.set(headFile, { sha, headMtime: headSt.mtimeMs, refMtime: 0 });
+            repoHeadMemo.set(headFile, { sha, headMtime: headSt.mtimeMs, refMtime: 0, packedMtime: 0 });
             return sha;
         }
         const m = text.match(/^ref:\s*(.+)$/i);
         if (!m) {
-            repoHeadMemo.set(headFile, { sha: '', headMtime: headSt.mtimeMs, refMtime: 0 });
+            repoHeadMemo.set(headFile, { sha: '', headMtime: headSt.mtimeMs, refMtime: 0, packedMtime: 0 });
             return '';
         }
         const refRel = m[1].trim();
@@ -489,12 +502,24 @@ async function repoHead(fileDir: string): Promise<string> {
                 sha,
                 headMtime: headSt.mtimeMs,
                 refFile,
-                refMtime: refSt.mtimeMs
+                refMtime: refSt.mtimeMs,
+                packedMtime: 0
             });
             return sha;
         } catch {
-            const sha = (await readPackedRef(path.join(gitDir, 'packed-refs'), refRel)) || '';
-            repoHeadMemo.set(headFile, { sha, headMtime: headSt.mtimeMs, refMtime: 0 });
+            // 分支只在 packed-refs 里（刚 clone、gc 之后）。之后 commit / pull 会写出
+            // loose ref 而 HEAD 文件不动，所以 loose ref 的出现和 packed-refs 的变化都要盯。
+            const packedFile = path.join(gitDir, 'packed-refs');
+            const packedMtime = await mtimeOrZero(packedFile);
+            const sha = (await readPackedRef(packedFile, refRel)) || '';
+            repoHeadMemo.set(headFile, {
+                sha,
+                headMtime: headSt.mtimeMs,
+                refFile,
+                refMtime: 0,
+                packedFile,
+                packedMtime
+            });
             return sha;
         }
     } catch {
@@ -509,7 +534,7 @@ async function repoHead(fileDir: string): Promise<string> {
 async function blameStamp(fileDir: string, uri: vscode.Uri, fsPath: string): Promise<string> {
     const [head, mtime] = await Promise.all([
         repoHead(fileDir),
-        fileMtimeSec(uri, fsPath)
+        fileMtimeMs(uri, fsPath)
     ]);
     return `${head}|${mtime ?? 0}`;
 }
@@ -548,7 +573,7 @@ function materializeBlame(hit: LineBlameCacheHit): LineBlameInfo {
     } else if (hit.who && when) {
         text = `${hit.who}, ${when}`;
     }
-    const info: LineBlameInfo = { text, hover };
+    const info: LineBlameInfo = { text, hover, stamp: hit.stamp };
     if (hit.content !== undefined) {
         info.content = hit.content;
     }
@@ -734,6 +759,8 @@ export interface LineBlameInfo {
      * 调用方可用它和当前行文本比对，判断这条 blame 还对不对得上。
      */
     content?: string;
+    /** 这条结果对应的文件版本（HEAD + 文件 mtime）。前端按它缓存 diff，版本一变就作废。 */
+    stamp?: string;
 }
 
 /**
@@ -985,7 +1012,8 @@ async function loadLineDiff(
     fileDir: string,
     fsPath: string,
     parsed: PorcelainFields,
-    line1Based: number
+    line1Based: number,
+    stamp: string
 ): Promise<LineBlameDiffLine[] | undefined> {
     const root = await repoRoot(fileDir);
     const relRaw = root ? path.relative(root, fsPath) : path.basename(fsPath);
@@ -1005,7 +1033,8 @@ async function loadLineDiff(
     if (!left) {
         return asAddedLine(parsed.content);
     }
-    const cacheKey = `${cwd}\0${left}\0${right}\0${newFile}\0${oldFile}\0${workingTree ? 1 : 0}`;
+    // 两个提交之间的 diff 不会变；工作区一侧每次保存都会变，得带上文件版本。
+    const cacheKey = `${cwd}\0${left}\0${right}\0${newFile}\0${oldFile}\0${workingTree ? stamp : 0}`;
     let hunks = lruGet(fileDiffCache, cacheKey);
     if (hunks === undefined) {
         hunks = await fetchDiffHunks(cwd, fileDir, fsPath, left, right, oldFile, newFile, rel, workingTree) ?? null;
@@ -1131,6 +1160,11 @@ async function infoFromParsed(
     if (!stored) {
         lruSet(lineBlameCache, key, { stamp, miss: true }, LINE_BLAME_CACHE_MAX);
         return undefined;
+    }
+    // 同版本重建时把已取到的 diff 带过来，否则每次点这一行都要重抽一遍。
+    const prev = lineBlameCache.get(key);
+    if (prev && !prev.miss && prev.stamp === stamp && prev.diff) {
+        stored.diff = prev.diff;
     }
     lruSet(lineBlameCache, key, stored, LINE_BLAME_CACHE_MAX);
     const info = materializeBlame(stored);
@@ -1290,7 +1324,7 @@ export async function blameLineDiff(
             if (!parsed) {
                 return undefined;
             }
-            const diff = await loadLineDiff(fileDir, fsPath, parsed, line1Based);
+            const diff = await loadLineDiff(fileDir, fsPath, parsed, line1Based, stamp);
             if (cached && !cached.miss && cached.stamp === stamp) {
                 cached.diff = diff && diff.length ? diff : [];
             }
