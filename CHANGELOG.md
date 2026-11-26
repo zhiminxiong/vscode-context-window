@@ -4,6 +4,20 @@ All notable changes to the "context-window" extension will be documented in this
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.1.6] 2026.11.26
+
+#### Changed
+
+- Implementation lists (Context Window right-click menu and Relation node menu) show 12 items at a time; the rest go into **+N more** submenus. A submenu opens and closes on click, the open row stays highlighted, and the arrow is a larger chevron.
+- Switching between definitions in a large file is faster: the same file is not reloaded when only the position changes, and large files keep their own editor model.
+- The progress bar follows only the latest request. An older request that never returns no longer keeps it spinning, and its late result does not overwrite newer content.
+- In Live mode, "No symbol found." clears the previous sticky-scroll header right away.
+
+#### Fixed
+
+- Going back in the jump trail lands on the line you clicked before the jump, not on the previous definition.
+- Line-blame hover shows the latest diff after editing and saving the same line again, and follows a new HEAD after commit / pull.
+
 ## [1.1.5] 2026.10.11
 
 #### Added
